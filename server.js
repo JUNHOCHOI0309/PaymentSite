@@ -1,5 +1,6 @@
 require("dotenv").config();
 
+const crypto = require("crypto");
 const express = require("express");
 const { Pool } = require("pg");
 const app = express();
@@ -33,6 +34,91 @@ function normalizeAmount(value){
   }
 
   return parsed;
+}
+
+function buildWebhookEventId(payload) {
+  const explicitEventId =
+    payload?.eventId || payload?.event_id || payload?.data?.eventId || null;
+
+  if (explicitEventId) {
+    return explicitEventId;
+  }
+
+  const fingerprintSource = {
+    eventType: payload?.eventType || payload?.type || payload?.event_type || "UNKNOWN",
+    createdAt: payload?.createdAt || payload?.created_at || null,
+    paymentKey: payload?.data?.paymentKey || payload?.paymentKey || null,
+    orderId: payload?.data?.orderId || payload?.orderId || null,
+    status: payload?.data?.status || payload?.status || null,
+    secret: payload?.data?.secret || payload?.secret || null,
+    data: payload?.data || null,
+  };
+
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify(fingerprintSource))
+    .digest("hex");
+}
+
+function extractWebhookFields(payload) {
+  return {
+    eventType: payload?.eventType || payload?.type || payload?.event_type || "UNKNOWN",
+    eventId: buildWebhookEventId(payload),
+    paymentKey: payload?.data?.paymentKey || payload?.paymentKey || null,
+    orderId: payload?.data?.orderId || payload?.orderId || null,
+    secret: payload?.data?.secret || payload?.secret || null,
+  };
+}
+
+async function markWebhookEventStatus(eventId, status) {
+  await pool.query(
+    `
+      UPDATE payment_webhook_events
+      SET
+        processing_status = $2,
+        processed_at = NOW()
+      WHERE event_id = $1
+    `,
+    [eventId, status]
+  );
+}
+
+async function verifyDepositCallbackSecret({ paymentKey, orderId, secret }) {
+  if (!secret) {
+    const error = new Error("Missing secret in DEPOSIT_CALLBACK payload");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const paymentResult = await pool.query(
+    `
+      SELECT
+        payment_key,
+        raw_response_json->>'secret' AS stored_secret
+      FROM payments
+      WHERE payment_key = $1
+         OR order_id = $2
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `,
+    [paymentKey, orderId]
+  );
+
+  if (paymentResult.rowCount === 0) {
+    throw new Error("Payment record not found for DEPOSIT_CALLBACK");
+  }
+
+  const storedSecret = paymentResult.rows[0].stored_secret;
+
+  if (!storedSecret) {
+    throw new Error("Stored payment secret is missing for DEPOSIT_CALLBACK");
+  }
+
+  if (storedSecret !== secret) {
+    const error = new Error("Invalid DEPOSIT_CALLBACK secret");
+    error.statusCode = 400;
+    throw error;
+  }
 }
 
 // TODO: 개발자센터에 로그인해서 내 결제위젯 연동 키 > 시크릿 키를 입력하세요. 시크릿 키는 외부에 공개되면 안돼요.
@@ -102,6 +188,46 @@ app.post("/confirm/widget", async function (req, res) {
 
     const order = orderResult.rows[0];
 
+    if(order.status === "PAID"){
+      const paymentResult = await client.query(
+        `
+          SELECT
+            payment_key,
+            raw_response_json
+          FROM payments
+          WHERE order_id = $1
+          ORDER BY updated_at DESC
+          LIMIT 1
+        `,
+        [orderId]
+      );
+
+      if (paymentResult.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(500).json({
+          ok: false,
+          message: "Order is PAID but payment record is missing",
+        });
+      }
+
+      const savedPayment = paymentResult.rows[0];
+
+      if (savedPayment.payment_key !== paymentKey) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          ok: false,
+          message: "Order already confirmed with a different paymentKey",
+        });
+      }
+
+      await client.query("ROLLBACK");
+      return res.status(200).json({
+        ok: true,
+        idempotent: true,
+        payment: savedPayment.raw_response_json,
+      });
+    }
+
     if(order.status !== "READY"){
       await client.query("ROLLBACK");
       return res.status(400).json({
@@ -157,6 +283,33 @@ app.post("/confirm/widget", async function (req, res) {
 
     await client.query(
       `
+        INSERT INTO payments (
+          order_id,
+          payment_key,
+          method,
+          payment_type,
+          status,
+          approved_at,
+          total_amount,
+          raw_response_json,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, NOW())
+      `,
+      [
+        orderId,
+        tossResult.paymentKey,
+        tossResult.method || null,
+        tossResult.type || null,
+        tossResult.status,
+        tossResult.approvedAt || null,
+        tossResult.totalAmount,
+        JSON.stringify(tossResult),
+      ]
+    );
+
+    await client.query(
+      `
         UPDATE orders
         SET status = 'PAID', updated_at = NOW()
         WHERE order_id = $1
@@ -173,6 +326,13 @@ app.post("/confirm/widget", async function (req, res) {
   } catch (error) {
     await client.query("ROLLBACK");
     console.error("Failed to confirm widget payment:", error);
+
+    if (error.code === "23505") {
+      return res.status(409).json({
+        ok: false,
+        message: "Duplicate paymentKey detected",
+      });
+    }
 
     return res.status(500).json({
       ok: false,
@@ -400,6 +560,73 @@ async function startServer() {
     process.exit(1);
   }
 }
+
+//웹훅 처리 API
+app.post("/webhooks/toss", async function (req,res) {
+  const payload = req.body;
+  const { eventType, eventId, paymentKey, orderId, secret } = extractWebhookFields(payload);
+
+  try {
+    await pool.query(
+      `
+        INSERT INTO payment_webhook_events (
+          event_type,
+          event_id,
+          payment_key,
+          order_id,
+          payload_json,
+          processing_status
+        )
+        VALUES ($1, $2, $3, $4, $5::jsonb, 'RECEIVED')
+      `,
+      [
+        eventType,
+        eventId,
+        paymentKey,
+        orderId,
+        JSON.stringify(payload),
+      ]
+    );
+
+    if (eventType === "DEPOSIT_CALLBACK") {
+      await verifyDepositCallbackSecret({
+        paymentKey,
+        orderId,
+        secret,
+      });
+    }
+
+    await markWebhookEventStatus(eventId, "PROCESSED");
+
+    return res.status(200).json({
+      ok:true,
+      received: true,
+    });
+  } catch (error){
+    if (error.code === "23505") {
+      return res.status(200).json({
+        ok: true,
+        duplicated: true,
+      });
+    }
+
+    if (eventId) {
+      try {
+        await markWebhookEventStatus(eventId, "FAILED");
+      } catch (updateError) {
+        console.error("Failed to update webhook event status:", updateError);
+      }
+    }
+
+    console.error("Failed to store webhook event:", error);
+
+    return res.status(error.statusCode || 500).json({
+      ok: false,
+      message: "Failed to store webhook event",
+    });
+  }
+});
+
 
 //주문 생성 API
 app.post("/orders", async function (req,res) {
