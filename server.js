@@ -83,6 +83,263 @@ async function markWebhookEventStatus(eventId, status) {
   );
 }
 
+function extractWebhookPaymentStatus(eventType, payload) {
+  if (eventType === "CANCEL_STATUS_CHANGED") {
+    return (
+      payload?.data?.cancelStatus ||
+      payload?.cancelStatus ||
+      payload?.data?.status ||
+      payload?.status ||
+      null
+    );
+  }
+
+  return payload?.data?.status || payload?.status || null;
+}
+
+function mapPaymentStatusToOrderStatus(paymentStatus) {
+  switch (paymentStatus) {
+    case "DONE":
+      return "PAID";
+    case "WAITING_FOR_DEPOSIT":
+      return "WAITING_FOR_DEPOSIT";
+    case "CANCELED":
+      return "CANCELED";
+    case "PARTIAL_CANCELED":
+      return "PARTIAL_CANCELED";
+    case "ABORTED":
+    case "EXPIRED":
+      return "FAILED";
+    default:
+      return null;
+  }
+}
+
+function extractWebhookPaymentSnapshot(payload, paymentStatus) {
+  const source = payload?.data || payload || {};
+
+  return {
+    method: source.method || null,
+    paymentType: source.type || source.paymentType || null,
+    approvedAt: source.approvedAt || null,
+    totalAmount:
+      typeof source.totalAmount === "number" ? source.totalAmount : null,
+    paymentStatus,
+  };
+}
+
+async function findProcessedEquivalentWebhookEvent(client, {
+  eventId,
+  eventType,
+  paymentKey,
+  orderId,
+  paymentStatus,
+}) {
+  if (!paymentStatus || (!paymentKey && !orderId)) {
+    return false;
+  }
+
+  const equivalentEventTypes =
+    eventType === "CANCEL_STATUS_CHANGED"
+      ? ["CANCEL_STATUS_CHANGED"]
+      : ["PAYMENT_STATUS_CHANGED", "DEPOSIT_CALLBACK"];
+
+  const result = await client.query(
+    `
+      SELECT 1
+      FROM payment_webhook_events
+      WHERE event_id <> $1
+        AND processing_status = 'PROCESSED'
+        AND event_type = ANY($4)
+        AND (
+          ($2 IS NOT NULL AND payment_key = $2)
+          OR ($3 IS NOT NULL AND order_id = $3)
+        )
+        AND COALESCE(
+          payload_json->'data'->>'cancelStatus',
+          payload_json->>'cancelStatus',
+          payload_json->'data'->>'status',
+          payload_json->>'status'
+        ) = $5
+      LIMIT 1
+    `,
+    [eventId, paymentKey, orderId, equivalentEventTypes, paymentStatus]
+  );
+
+  return result.rowCount > 0;
+}
+
+async function upsertPaymentFromWebhook(client, {
+  orderId,
+  paymentKey,
+  payload,
+  paymentStatus,
+}) {
+  if (!orderId && !paymentKey) {
+    return null;
+  }
+
+  const paymentResult = await client.query(
+    `
+      SELECT
+        order_id,
+        payment_key,
+        status
+      FROM payments
+      WHERE payment_key = $1
+         OR order_id = $2
+      ORDER BY updated_at DESC
+      LIMIT 1
+      FOR UPDATE
+    `,
+    [paymentKey, orderId]
+  );
+
+  const snapshot = extractWebhookPaymentSnapshot(payload, paymentStatus);
+
+  if (paymentResult.rowCount > 0) {
+    await client.query(
+      `
+        UPDATE payments
+        SET
+          status = COALESCE($3, status),
+          method = COALESCE($4, method),
+          payment_type = COALESCE($5, payment_type),
+          approved_at = COALESCE($6, approved_at),
+          total_amount = COALESCE($7, total_amount),
+          raw_response_json = $8::jsonb,
+          updated_at = NOW()
+        WHERE payment_key = $1
+           OR order_id = $2
+      `,
+      [
+        paymentKey,
+        orderId,
+        snapshot.paymentStatus,
+        snapshot.method,
+        snapshot.paymentType,
+        snapshot.approvedAt,
+        snapshot.totalAmount,
+        JSON.stringify(payload),
+      ]
+    );
+
+    return paymentResult.rows[0];
+  }
+
+  if (!orderId || !paymentKey) {
+    return null;
+  }
+
+  await client.query(
+    `
+      INSERT INTO payments (
+        order_id,
+        payment_key,
+        method,
+        payment_type,
+        status,
+        approved_at,
+        total_amount,
+        raw_response_json,
+        updated_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, NOW())
+    `,
+    [
+      orderId,
+      paymentKey,
+      snapshot.method,
+      snapshot.paymentType,
+      snapshot.paymentStatus,
+      snapshot.approvedAt,
+      snapshot.totalAmount,
+      JSON.stringify(payload),
+    ]
+  );
+
+  return {
+    order_id: orderId,
+    payment_key: paymentKey,
+    status: snapshot.paymentStatus,
+  };
+}
+
+async function applyWebhookBusinessState({
+  eventId,
+  eventType,
+  paymentKey,
+  orderId,
+  payload,
+}) {
+  const paymentStatus = extractWebhookPaymentStatus(eventType, payload);
+
+  if (!paymentKey && !orderId) {
+    return;
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const alreadyApplied = await findProcessedEquivalentWebhookEvent(client, {
+      eventId,
+      eventType,
+      paymentKey,
+      orderId,
+      paymentStatus,
+    });
+
+    if (alreadyApplied) {
+      await client.query("COMMIT");
+      return;
+    }
+
+    await upsertPaymentFromWebhook(client, {
+      orderId,
+      paymentKey,
+      payload,
+      paymentStatus,
+    });
+
+    if (orderId) {
+      const orderResult = await client.query(
+        `
+          SELECT status
+          FROM orders
+          WHERE order_id = $1
+          FOR UPDATE
+        `,
+        [orderId]
+      );
+
+      if (orderResult.rowCount > 0) {
+        const targetOrderStatus = mapPaymentStatusToOrderStatus(paymentStatus);
+        const currentOrderStatus = orderResult.rows[0].status;
+
+        if (targetOrderStatus && currentOrderStatus !== targetOrderStatus) {
+          await client.query(
+            `
+              UPDATE orders
+              SET status = $2, updated_at = NOW()
+              WHERE order_id = $1
+            `,
+            [orderId, targetOrderStatus]
+          );
+        }
+      }
+    }
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function verifyDepositCallbackSecret({ paymentKey, orderId, secret }) {
   if (!secret) {
     const error = new Error("Missing secret in DEPOSIT_CALLBACK payload");
@@ -187,29 +444,21 @@ app.post("/confirm/widget", async function (req, res) {
     }
 
     const order = orderResult.rows[0];
+    const paymentResult = await client.query(
+      `
+        SELECT
+          payment_key,
+          status,
+          raw_response_json
+        FROM payments
+        WHERE order_id = $1
+        ORDER BY updated_at DESC
+        LIMIT 1
+      `,
+      [orderId]
+    );
 
-    if(order.status === "PAID"){
-      const paymentResult = await client.query(
-        `
-          SELECT
-            payment_key,
-            raw_response_json
-          FROM payments
-          WHERE order_id = $1
-          ORDER BY updated_at DESC
-          LIMIT 1
-        `,
-        [orderId]
-      );
-
-      if (paymentResult.rowCount === 0) {
-        await client.query("ROLLBACK");
-        return res.status(500).json({
-          ok: false,
-          message: "Order is PAID but payment record is missing",
-        });
-      }
-
+    if (paymentResult.rowCount > 0) {
       const savedPayment = paymentResult.rows[0];
 
       if (savedPayment.payment_key !== paymentKey) {
@@ -311,10 +560,10 @@ app.post("/confirm/widget", async function (req, res) {
     await client.query(
       `
         UPDATE orders
-        SET status = 'PAID', updated_at = NOW()
+        SET status = $2, updated_at = NOW()
         WHERE order_id = $1
       `,
-      [orderId]
+      [orderId, mapPaymentStatusToOrderStatus(tossResult.status) || "PAID"]
     );
 
     await client.query("COMMIT");
@@ -567,26 +816,74 @@ app.post("/webhooks/toss", async function (req,res) {
   const { eventType, eventId, paymentKey, orderId, secret } = extractWebhookFields(payload);
 
   try {
-    await pool.query(
-      `
-        INSERT INTO payment_webhook_events (
-          event_type,
-          event_id,
-          payment_key,
-          order_id,
-          payload_json,
-          processing_status
-        )
-        VALUES ($1, $2, $3, $4, $5::jsonb, 'RECEIVED')
-      `,
-      [
-        eventType,
-        eventId,
-        paymentKey,
-        orderId,
-        JSON.stringify(payload),
-      ]
-    );
+    try {
+      await pool.query(
+        `
+          INSERT INTO payment_webhook_events (
+            event_type,
+            event_id,
+            payment_key,
+            order_id,
+            payload_json,
+            processing_status
+          )
+          VALUES ($1, $2, $3, $4, $5::jsonb, 'RECEIVED')
+        `,
+        [
+          eventType,
+          eventId,
+          paymentKey,
+          orderId,
+          JSON.stringify(payload),
+        ]
+      );
+    } catch (insertError) {
+      if (insertError.code !== "23505") {
+        throw insertError;
+      }
+
+      const existingEventResult = await pool.query(
+        `
+          SELECT processing_status
+          FROM payment_webhook_events
+          WHERE event_id = $1
+          LIMIT 1
+        `,
+        [eventId]
+      );
+
+      if (
+        existingEventResult.rowCount > 0 &&
+        existingEventResult.rows[0].processing_status === "PROCESSED"
+      ) {
+        return res.status(200).json({
+          ok: true,
+          duplicated: true,
+        });
+      }
+
+      await pool.query(
+        `
+          UPDATE payment_webhook_events
+          SET
+            event_type = $2,
+            payment_key = $3,
+            order_id = $4,
+            payload_json = $5::jsonb,
+            processing_status = 'RECEIVED',
+            processed_at = NULL,
+            received_at = NOW()
+          WHERE event_id = $1
+        `,
+        [
+          eventId,
+          eventType,
+          paymentKey,
+          orderId,
+          JSON.stringify(payload),
+        ]
+      );
+    }
 
     if (eventType === "DEPOSIT_CALLBACK") {
       await verifyDepositCallbackSecret({
@@ -596,6 +893,14 @@ app.post("/webhooks/toss", async function (req,res) {
       });
     }
 
+    await applyWebhookBusinessState({
+      eventId,
+      eventType,
+      paymentKey,
+      orderId,
+      payload,
+    });
+
     await markWebhookEventStatus(eventId, "PROCESSED");
 
     return res.status(200).json({
@@ -603,13 +908,6 @@ app.post("/webhooks/toss", async function (req,res) {
       received: true,
     });
   } catch (error){
-    if (error.code === "23505") {
-      return res.status(200).json({
-        ok: true,
-        duplicated: true,
-      });
-    }
-
     if (eventId) {
       try {
         await markWebhookEventStatus(eventId, "FAILED");
