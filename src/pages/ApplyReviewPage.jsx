@@ -1,8 +1,10 @@
-import { Link, useNavigate } from "react-router-dom";
+﻿import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "../components/common/Button";
 import { NoticeBox } from "../components/common/NoticeBox";
 import { PageShell } from "../components/layout/PageShell";
 import { useApplicationFlow } from "../context/ApplicationFlowContext";
+import { createOrder, getDraft } from "../lib/applicationApi";
 
 function ReviewRow({ label, value }) {
   return (
@@ -16,12 +18,75 @@ function ReviewRow({ label, value }) {
 export function ApplyReviewPage() {
   const navigate = useNavigate();
   const { state, dispatch } = useApplicationFlow();
+  const [draftSnapshot, setDraftSnapshot] = useState(null);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isPreparingPayment, setIsPreparingPayment] = useState(false);
 
   const paymentPathMap = {
     widget: "/widget/checkout",
     payment: "/payment/checkout",
     brandpay: "/brandpay/checkout",
   };
+
+  useEffect(() => {
+    async function fetchDraft() {
+      if (!state.draftId) {
+        return;
+      }
+
+      try {
+        const json = await getDraft(state.draftId);
+        setDraftSnapshot(json);
+      } catch (error) {
+        setErrorMessage(error.message || "신청 초안을 불러오지 못했습니다.");
+      }
+    }
+
+    fetchDraft();
+  }, [state.draftId]);
+
+  async function handleProceedPayment() {
+    if (!state.draftId) {
+      setErrorMessage("먼저 신청 정보를 저장해 주세요.");
+      navigate("/apply");
+      return;
+    }
+
+    setIsPreparingPayment(true);
+    setErrorMessage("");
+
+    try {
+      let orderId = state.orderId;
+
+      if (!orderId) {
+        const orderResponse = await createOrder({
+          draftId: state.draftId,
+          orderName: "대회 신청 결제",
+          amount: 1,
+          customerName: state.applicantInfo.name,
+          customerEmail: state.applicantInfo.email,
+        });
+
+        orderId = orderResponse.order.orderId;
+
+        dispatch({
+          type: "SET_ORDER",
+          payload: { orderId },
+        });
+      }
+
+      const params = new URLSearchParams({
+        draftId: state.draftId,
+        orderId,
+      });
+
+      navigate(`${paymentPathMap[state.paymentMethod]}?${params.toString()}`);
+    } catch (error) {
+      setErrorMessage(error.message || "결제 준비에 실패했습니다.");
+    } finally {
+      setIsPreparingPayment(false);
+    }
+  }
 
   return (
     <PageShell>
@@ -30,45 +95,49 @@ export function ApplyReviewPage() {
           <div className="site-review-card__header">
             <p className="site-kicker">Review</p>
             <h1>신청 내용 확인</h1>
-            <p>결제 직전 확인 단계입니다. 이후에는 기존 결제 페이지로 이동합니다.</p>
+            <p>입력한 신청 정보를 다시 확인한 뒤 결제를 진행해 주세요.</p>
           </div>
 
           <div className="site-review-grid">
-            <ReviewRow label="성함" value={state.applicantInfo.name} />
-            <ReviewRow label="연락처" value={state.applicantInfo.phone} />
-            <ReviewRow label="이메일" value={state.applicantInfo.email} />
-            <ReviewRow label="생년월일" value={state.applicantInfo.birthDate} />
-            <ReviewRow label="소속" value={state.applicantInfo.organization} />
-            <ReviewRow label="업로드 파일" value={state.uploadedFileMeta.originalFilename} />
+            <ReviewRow label="성함" value={draftSnapshot?.draft?.name || state.applicantInfo.name} />
+            <ReviewRow label="연락처" value={draftSnapshot?.draft?.phone || state.applicantInfo.phone} />
+            <ReviewRow label="이메일" value={draftSnapshot?.draft?.email || state.applicantInfo.email} />
+            <ReviewRow label="생년월일" value={draftSnapshot?.draft?.birthDate || state.applicantInfo.birthDate} />
+            <ReviewRow label="소속" value={draftSnapshot?.draft?.organization || state.applicantInfo.organization} />
+            <ReviewRow label="첨부 파일" value={draftSnapshot?.file?.original_filename || state.uploadedFileMeta.originalFilename} />
             <ReviewRow label="참가비" value="1원 테스트 결제" />
             <ReviewRow
-              label="동의 상태"
+              label="동의 항목"
               value={[
                 state.consents.privacy ? "개인정보" : null,
                 state.consents.terms ? "유의사항" : null,
                 state.consents.refund ? "환불규정" : null,
                 state.consents.marketing ? "마케팅" : null,
-              ].filter(Boolean).join(", ")}
+              ]
+                .filter(Boolean)
+                .join(", ")}
             />
+            <ReviewRow label="신청 초안 ID" value={state.draftId} />
+            <ReviewRow label="주문 ID" value={state.orderId} />
           </div>
 
-          <NoticeBox title="결제 전 다시 확인할 내용">
+          <NoticeBox title="결제 전 확인 사항">
             <ul className="site-list">
-              <li>이전 단계에서 입력한 내용이 맞는지 확인합니다.</li>
-              <li>최종 구현 시에는 이 단계에서 draft를 서버에 저장한 뒤 결제 주문을 생성합니다.</li>
-              <li>현재 뼈대에서는 기존 결제 라우트로만 연결합니다.</li>
+              <li>결제 단계로 이동하면 주문 정보가 생성되며 결제 완료 후 최종 신청서가 확정됩니다.</li>
+              <li>신청 내용에 수정이 필요하면 이전 단계로 돌아가 다시 저장해 주세요.</li>
+              <li>결제 완료 후에는 신청 번호가 발급되며, 조회 페이지에서 접수 상태를 다시 확인할 수 있습니다.</li>
             </ul>
           </NoticeBox>
 
           <div className="site-inline-actions">
             <Button variant="ghost" onClick={() => navigate("/apply")}>이전으로</Button>
-            <Link to={paymentPathMap[state.paymentMethod]}>
-              <Button>결제 진행하기</Button>
-            </Link>
+            <Button onClick={handleProceedPayment} disabled={isPreparingPayment}>
+              {isPreparingPayment ? "결제 준비 중..." : "결제 진행하기"}
+            </Button>
           </div>
 
           <div className="site-payment-methods">
-            <span>결제 방식 선택</span>
+            <span>결제 수단 선택</span>
             <div className="site-chip-group">
               <button
                 className={`site-chip ${state.paymentMethod === "widget" ? "site-chip--active" : ""}`}
@@ -93,6 +162,8 @@ export function ApplyReviewPage() {
               </button>
             </div>
           </div>
+
+          {errorMessage ? <p className="site-error-message">{errorMessage}</p> : null}
         </div>
       </section>
     </PageShell>

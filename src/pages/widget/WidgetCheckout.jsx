@@ -1,13 +1,10 @@
-import { loadTossPayments, ANONYMOUS } from "@tosspayments/tosspayments-sdk";
+﻿import { loadTossPayments } from "@tosspayments/tosspayments-sdk";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { useApplicationFlow } from "../../context/ApplicationFlowContext";
 
-// TODO: clientKey는 개발자센터의 결제위젯 연동 키 > 클라이언트 키로 바꾸세요.
-// TODO: server.js 의 secretKey 또한 결제위젯 연동 키가 아닌 API 개별 연동 키의 시크릿 키로 변경해야 합니다.
-// TODO: 구매자의 고유 아이디를 불러와서 customerKey로 설정하세요. 이메일・전화번호와 같이 유추가 가능한 값은 안전하지 않습니다.
-// @docs https://docs.tosspayments.com/sdk/v2/js#토스페이먼츠-초기화
 const clientKey = import.meta.env.VITE_TOSS_WIDGET_CLIENT_KEY;
-const customerKey = generateRandomString(); // 이전 페이지에서 들고와야되서 수정 요함
+const customerKey = generateRandomString();
 
 if (!clientKey) {
   throw new Error("VITE_TOSS_WIDGET_CLIENT_KEY is not set");
@@ -15,103 +12,59 @@ if (!clientKey) {
 
 export function WidgetCheckoutPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { state } = useApplicationFlow();
 
   const [order, setOrder] = useState(null);
-  const [amount, setAmount] = useState({
-    currency: "KRW",
-    value: 0,
-  });
+  const [amount, setAmount] = useState({ currency: "KRW", value: 1 });
   const [ready, setReady] = useState(false);
   const [widgets, setWidgets] = useState(null);
-  const [isCreatingOrder, setIsCreatingOrder] = useState(true);
-
-  //주문 생성
-  async function createOrder() {
-    setIsCreatingOrder(true);
-
-    try {
-      const response = await fetch("/api/orders", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          orderName: "예약금 결제",
-          amount: 1,
-          customerName: "홍길동", // 이전 페이지에서 customer 정보를 받아와야함
-          customerEmail: "test@example.com",
-        }),
-      });
-
-      const json = await response.json();
-
-      if (!response.ok || !json.ok) {
-        throw new Error(json.message || "Failed to create order");
-      }
-
-      const createdOrder = json.order;
-
-      setOrder(createdOrder);
-      setAmount({
-        currency: "KRW",
-        value: createdOrder.amount,
-      });
-      setIsCreatingOrder(false);
-
-    return createdOrder;
-    } finally {
-      setIsCreatingOrder(false);
-    }    
-  }
+  const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
-    async function fetchPaymentWidgets() {
+    async function initializeOrderAndWidgets() {
       try {
-        await createOrder();
+        const queryOrderId = searchParams.get("orderId");
+        const draftId = searchParams.get("draftId") || state.draftId;
+        const resolvedOrder = {
+          orderId: queryOrderId || state.orderId,
+          orderName: "참가 신청 결제",
+          amount: 1,
+          customerEmail: state.applicantInfo.email,
+          customerName: state.applicantInfo.name,
+          draftId,
+        };
+
+        if (!resolvedOrder.orderId) {
+          throw new Error("결제에 사용할 주문 정보가 없습니다. 신청 내용 확인 단계에서 다시 진입해 주세요.");
+        }
+
+        setOrder(resolvedOrder);
+        setAmount({ currency: "KRW", value: resolvedOrder.amount });
 
         const tossPayments = await loadTossPayments(clientKey);
-
-        // 회원 결제
-        // @docs https://docs.tosspayments.com/sdk/v2/js#tosspaymentswidgets
-        const widgets = tossPayments.widgets({
-          customerKey,
-        });
-        // 비회원 결제
-        // const widgets = tossPayments.widgets({ customerKey: ANONYMOUS });
-
-        setWidgets(widgets);
+        const nextWidgets = tossPayments.widgets({ customerKey });
+        setWidgets(nextWidgets);
       } catch (error) {
-        console.error("Error fetching payment widget:", error);
+        setErrorMessage(error.message || "결제 위젯 준비에 실패했습니다.");
       }
     }
 
-    fetchPaymentWidgets();
-  }, [clientKey, customerKey]);
+    initializeOrderAndWidgets();
+  }, [searchParams, state]);
 
   useEffect(() => {
     async function renderPaymentWidgets() {
-      if (widgets == null || order == null) {
+      if (!widgets || !order) {
         return;
       }
 
-      // ------  주문서의 결제 금액 설정 ------
-      // TODO: 위젯의 결제금액을 결제하려는 금액으로 초기화하세요.
-      // TODO: renderPaymentMethods, renderAgreement, requestPayment 보다 반드시 선행되어야 합니다.
-      // @docs https://docs.tosspayments.com/sdk/v2/js#widgetssetamount
       await widgets.setAmount(amount);
-
       await Promise.all([
-        // ------  결제 UI 렌더링 ------
-        // @docs https://docs.tosspayments.com/sdk/v2/js#widgetsrenderpaymentmethods
         widgets.renderPaymentMethods({
           selector: "#payment-method",
-          // 렌더링하고 싶은 결제 UI의 variantKey
-          // 결제 수단 및 스타일이 다른 멀티 UI를 직접 만들고 싶다면 계약이 필요해요.
-          // @docs https://docs.tosspayments.com/guides/v2/payment-widget/admin#새로운-결제-ui-추가하기
           variantKey: "DEFAULT",
         }),
-        // ------  이용약관 UI 렌더링 ------
-        // @docs https://docs.tosspayments.com/sdk/v2/js#widgetsrenderagreement
         widgets.renderAgreement({
           selector: "#agreement",
           variantKey: "AGREEMENT",
@@ -121,113 +74,42 @@ export function WidgetCheckoutPage() {
       setReady(true);
     }
 
-    renderPaymentWidgets();
+    renderPaymentWidgets().catch((error) => {
+      setErrorMessage(error.message || "결제 위젯 렌더링에 실패했습니다.");
+    });
   }, [widgets, order, amount]);
 
   return (
     <div className="wrapper">
       <div className="box_section">
-        {/* 로딩 표시 UI */}
-        {isCreatingOrder && (
-          <div style={{ padding: "20px 30px" }}>
-            주문 정보를 생성하는 중입니다...
-          </div>
-        )}
-        {/* 결제 UI */}
+        {errorMessage ? <p style={{ color: "#d14343" }}>{errorMessage}</p> : null}
         <div id="payment-method" />
-        {/* 이용약관 UI */}
         <div id="agreement" />
-        {/* 쿠폰 체크박스 */}
-        <div style={{ paddingLeft: "30px" }}>
-          <div className="checkable typography--p">
-            <label
-              htmlFor="coupon-box"
-              className="checkable__label typography--regular"
-            >
-              <input
-                id="coupon-box"
-                className="checkable__input"
-                type="checkbox"
-                aria-checked="true"
-                disabled={!ready || !order || isCreatingOrder}
-                // ------  주문서의 결제 금액이 변경되었을 경우 결제 금액 업데이트 ------
-                // @docs https://docs.tosspayments.com/sdk/v2/js#widgetssetamount
-                onChange={async (event) => {
-                  if (event.target.checked) {
-                    await widgets.setAmount({
-                      currency: amount.currency,
-                      value: amount.value - 5000,
-                    });
-
-                    return;
-                  }
-
-                  await widgets.setAmount({
-                    currency: amount.currency,
-                    value: amount.value,
-                  });
-                }}
-              />
-              <span className="checkable__label-text">5,000원 쿠폰 적용</span>
-            </label>
-          </div>
-        </div>
-
-        {/* 결제하기 버튼 */}
         <button
           className="button"
           style={{ marginTop: "30px" }}
-          disabled={!ready || !order || isCreatingOrder}
-          // ------ '결제하기' 버튼 누르면 결제창 띄우기 ------
-          // @docs https://docs.tosspayments.com/sdk/v2/js#widgetsrequestpayment
+          disabled={!ready || !order}
           onClick={async () => {
             try {
-              // 결제를 요청하기 전에 orderId, amount를 서버에 저장하세요.
-              // 결제 과정에서 악의적으로 결제 금액이 바뀌는 것을 확인하는 용도입니다.
               await widgets.requestPayment({
-                orderId: order.orderId, // 고유 주문 번호
+                orderId: order.orderId,
                 orderName: order.orderName,
-                successUrl: window.location.origin + "/widget/success", // 결제 요청이 성공하면 리다이렉트되는 URL
-                failUrl: window.location.origin + "/fail", // 결제 요청이 실패하면 리다이렉트되는 URL
+                successUrl: `${window.location.origin}/widget/success?draftId=${encodeURIComponent(order.draftId || "")}`,
+                failUrl: window.location.origin + "/fail",
                 customerEmail: order.customerEmail || undefined,
                 customerName: order.customerName || undefined,
-                // 가상계좌 안내, 퀵계좌이체 휴대폰 번호 자동 완성에 사용되는 값입니다. 필요하다면 주석을 해제해 주세요.
-                // customerMobilePhone: "01012341234",
               });
             } catch (error) {
-              // 에러 처리하기
-              console.error(error);
+              setErrorMessage(error.message || "결제 요청에 실패했습니다.");
             }
           }}
         >
-          결제하기
+          결제 진행하기
         </button>
       </div>
-      <div
-        className="box_section"
-        style={{
-          padding: "40px 30px 50px 30px",
-          marginTop: "30px",
-          marginBottom: "50px",
-        }}
-      >
-        <button
-          className="button"
-          style={{ marginTop: "30px" }}
-          onClick={() => {
-            navigate("/brandpay/checkout");
-          }}
-        >
-          위젯 없이 브랜드페이만 연동하기
-        </button>
-        <button
-          className="button"
-          style={{ marginTop: "30px" }}
-          onClick={() => {
-            navigate("/payment/checkout");
-          }}
-        >
-          위젯 없이 결제창만 연동하기
+      <div className="box_section" style={{ padding: "32px" }}>
+        <button className="button" style={{ marginTop: "0" }} onClick={() => navigate("/apply/review")}>
+          신청 내용 확인으로 돌아가기
         </button>
       </div>
     </div>

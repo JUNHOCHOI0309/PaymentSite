@@ -1,3 +1,4 @@
+﻿import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../components/common/Button";
 import { Checkbox } from "../components/common/Checkbox";
@@ -5,10 +6,14 @@ import { Input } from "../components/common/Input";
 import { NoticeBox } from "../components/common/NoticeBox";
 import { PageShell } from "../components/layout/PageShell";
 import { useApplicationFlow } from "../context/ApplicationFlowContext";
+import { createDraft, updateDraft, uploadFile } from "../lib/applicationApi";
 
 export function ApplyPage() {
   const navigate = useNavigate();
   const { state, dispatch } = useApplicationFlow();
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
 
   const setApplicantField = (field) => (event) => {
     dispatch({
@@ -27,7 +32,8 @@ export function ApplyPage() {
   };
 
   const handleFileChange = (event) => {
-    const file = event.target.files?.[0];
+    const file = event.target.files?.[0] || null;
+    setSelectedFile(file);
 
     dispatch({
       type: "SET_FILE_META",
@@ -47,10 +53,57 @@ export function ApplyPage() {
     });
   };
 
-  const handleSubmit = (event) => {
+  async function handleSubmit(event) {
     event.preventDefault();
-    navigate("/apply/review");
-  };
+    setIsSubmitting(true);
+    setErrorMessage("");
+
+    try {
+      const payload = {
+        name: state.applicantInfo.name,
+        phone: state.applicantInfo.phone,
+        email: state.applicantInfo.email,
+        birthDate: state.applicantInfo.birthDate,
+        organization: state.applicantInfo.organization,
+        paymentMethod: state.paymentMethod,
+        consents: {
+          ...state.consents,
+          version: "v1",
+        },
+      };
+
+      const draftResponse = state.draftId
+        ? await updateDraft(state.draftId, payload)
+        : await createDraft(payload);
+
+      const draftId = draftResponse.draft.draftId;
+
+      dispatch({ type: "SET_DRAFT_ID", value: draftId });
+
+      if (selectedFile) {
+        const fileResponse = await uploadFile({
+          draftId,
+          file: selectedFile,
+        });
+
+        dispatch({
+          type: "SET_FILE_META",
+          payload: {
+            originalFilename: fileResponse.file.original_filename,
+            storedFilename: fileResponse.file.stored_filename,
+            mimeType: fileResponse.file.mime_type,
+            fileSize: fileResponse.file.file_size,
+          },
+        });
+      }
+
+      navigate("/apply/review");
+    } catch (error) {
+      setErrorMessage(error.message || "신청 초안 저장에 실패했습니다.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   return (
     <PageShell>
@@ -59,15 +112,15 @@ export function ApplyPage() {
           <aside className="site-form-layout__sidebar">
             <NoticeBox title="신청 전 확인사항">
               <ul className="site-list">
-                <li>이 단계는 프론트 뼈대이며, 이후 draft 저장 API와 연결할 예정입니다.</li>
-                <li>파일은 서버 업로드 전이라 현재는 메타데이터만 보관합니다.</li>
-                <li>개인정보, 환불 규정, 참가 유의사항 동의는 결제 전 필수로 유지합니다.</li>
+                <li>이 단계에서 draft를 생성하거나 수정한 뒤 review 단계로 이동합니다.</li>
+                <li>첨부 파일은 draft 저장 뒤 서버를 거쳐 외부 스토리지에 업로드됩니다.</li>
+                <li>개인정보, 환불 규정, 참가 유의사항 동의는 결제 전에 필수로 저장됩니다.</li>
               </ul>
             </NoticeBox>
             <NoticeBox title="파일 업로드 주의">
               <ul className="site-list">
-                <li>허용 확장자와 MIME 검증은 백엔드에서 별도 강제해야 합니다.</li>
-                <li>운영 단계에서는 랜덤 파일명과 웹 루트 밖 저장을 적용하는 것이 맞습니다.</li>
+                <li>허용된 문서 파일만 업로드할 수 있고 파일 크기 제한이 적용됩니다.</li>
+                <li>실제 저장 파일명은 서버에서 별도 object key로 생성됩니다.</li>
               </ul>
             </NoticeBox>
           </aside>
@@ -76,7 +129,7 @@ export function ApplyPage() {
             <div className="site-form-card__header">
               <p className="site-kicker">Application</p>
               <h1>신청 정보 입력</h1>
-              <p>실사용 화면이므로 장식보다 입력 정확성과 검토 편의성을 우선한 구조입니다.</p>
+              <p>입력값을 draft로 먼저 저장하고, review 단계에서 결제 주문을 생성하는 흐름입니다.</p>
             </div>
 
             <div className="site-form-grid">
@@ -102,8 +155,11 @@ export function ApplyPage() {
             </div>
 
             <div className="site-form-card__actions">
-              <Button type="submit">다음 단계로</Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? "저장 중..." : "다음 단계로"}
+              </Button>
             </div>
+            {errorMessage ? <p className="site-error-message">{errorMessage}</p> : null}
           </form>
         </div>
       </section>
