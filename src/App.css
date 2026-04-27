@@ -1026,6 +1026,12 @@ body {
   margin: 10px 0 0;
 }
 
+.site-error-message {
+  margin: 16px 0 0;
+  color: #c0362c;
+  line-height: 1.6;
+}
+
 @media (max-width: 960px) {
   .site-hero,
   .site-form-layout,
