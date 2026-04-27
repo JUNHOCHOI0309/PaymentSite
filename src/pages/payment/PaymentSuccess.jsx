@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { completeApplication } from "../../lib/applicationApi";
 
 export function PaymentSuccessPage() {
   const navigate = useNavigate();
@@ -7,7 +8,7 @@ export function PaymentSuccessPage() {
   const [responseData, setResponseData] = useState(null);
 
   useEffect(() => {
-    async function confirm() {
+    async function confirmAndComplete() {
       const requestData = {
         orderId: searchParams.get("orderId"),
         amount: searchParams.get("amount"),
@@ -16,9 +17,7 @@ export function PaymentSuccessPage() {
 
       const response = await fetch("/api/confirm/payment", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestData),
       });
 
@@ -28,55 +27,34 @@ export function PaymentSuccessPage() {
         throw { message: json.message, code: json.code };
       }
 
+      const completeResult = await completeApplication({
+        draftId: searchParams.get("draftId"),
+        orderId: searchParams.get("orderId"),
+      });
+
+      navigate(`/apply/complete?applicationNumber=${encodeURIComponent(completeResult.application.applicationNumber)}`);
       return json;
     }
 
-    confirm()
-      .then((data) => {
-        setResponseData(data);
-      })
+    confirmAndComplete()
+      .then((data) => setResponseData(data))
       .catch((error) => {
-        navigate(`/fail?code=${error.code}&message=${error.message}`);
+        navigate(`/fail?code=${error.code || "APPLICATION"}&message=${encodeURIComponent(error.message)}`);
       });
-  }, [searchParams]);
+  }, [navigate, searchParams]);
 
   return (
     <>
       <div className="box_section" style={{ width: "600px" }}>
         <img width="100px" src="https://static.toss.im/illusts/check-blue-spot-ending-frame.png" />
-        <h2>ê²°ì œë¥¼ ì™„ë£Œí–ˆì–´ìš”</h2>
+        <h2>°áÁ¦¸¦ ¿Ï·áÇß¾î¿ä</h2>
         <div className="p-grid typography--p" style={{ marginTop: "50px" }}>
-          <div className="p-grid-col text--left">
-            <b>ê²°ì œê¸ˆì•¡</b>
-          </div>
-          <div className="p-grid-col text--right" id="amount">
-            {`${Number(searchParams.get("amount")).toLocaleString()}ì›`}
-          </div>
-        </div>
-        <div className="p-grid typography--p" style={{ marginTop: "10px" }}>
-          <div className="p-grid-col text--left">
-            <b>ì£¼ë¬¸ë²ˆí˜¸</b>
-          </div>
-          <div className="p-grid-col text--right" id="orderId">
-            {`${searchParams.get("orderId")}`}
-          </div>
-        </div>
-        <div className="p-grid typography--p" style={{ marginTop: "10px" }}>
-          <div className="p-grid-col text--left">
-            <b>paymentKey</b>
-          </div>
-          <div className="p-grid-col text--right" id="paymentKey" style={{ whiteSpace: "initial", width: "250px" }}>
-            {`${searchParams.get("paymentKey")}`}
-          </div>
+          <div className="p-grid-col text--left"><b>ÁÖ¹®¹øÈ£</b></div>
+          <div className="p-grid-col text--right" id="orderId">{searchParams.get("orderId")}</div>
         </div>
         <div className="p-grid-col">
-          <Link to="https://docs.tosspayments.com/guides/v2/payment-widget/integration">
-            <button className="button p-grid-col5">ì—°ë™ ë¬¸ì„œ</button>
-          </Link>
-          <Link to="https://discord.gg/A4fRFXQhRu">
-            <button className="button p-grid-col5" style={{ backgroundColor: "#e8f3ff", color: "#1b64da" }}>
-              ì‹¤ì‹œê°„ ë¬¸ì˜
-            </button>
+          <Link to="/apply/complete">
+            <button className="button p-grid-col5">¿Ï·á ÆäÀÌÁö</button>
           </Link>
         </div>
       </div>
