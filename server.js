@@ -1,10 +1,58 @@
 require("dotenv").config();
 
 const crypto = require("crypto");
+const path = require("path");
 const express = require("express");
+const multer = require("multer");
 const { Pool } = require("pg");
+const { PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
 const app = express();
 const port = Number(process.env.PORT || 4000);
+
+const maxUploadBytes = 10 * 1024 * 1024;
+const allowedUploadMimeTypes = new Set([
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "application/vnd.ms-powerpoint",
+  "image/jpeg",
+  "image/png",
+]);
+const allowedUploadExtensions = new Set([
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".ppt",
+  ".pptx",
+  ".jpg",
+  ".jpeg",
+  ".png",
+]);
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: maxUploadBytes,
+  },
+});
+const r2AccountId = process.env.R2_ACCOUNT_ID;
+const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID;
+const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+const r2BucketName = process.env.R2_BUCKET_NAME;
+const r2Endpoint =
+  process.env.R2_ENDPOINT ||
+  (r2AccountId ? `https://${r2AccountId}.r2.cloudflarestorage.com` : null);
+const r2Client =
+  r2Endpoint && r2AccessKeyId && r2SecretAccessKey
+    ? new S3Client({
+        region: "auto",
+        endpoint: r2Endpoint,
+        credentials: {
+          accessKeyId: r2AccessKeyId,
+          secretAccessKey: r2SecretAccessKey,
+        },
+      })
+    : null;
 
 app.use(express.static("public"));
 app.use(express.json());
@@ -21,11 +69,12 @@ const pool = new Pool({
   ssl: false, //Cloud DB for PostgreSQL ssl 설정에 따라 변경
 });
 
-//주문 생성 헬퍼
+//주문 식별 생성 헬퍼
 function generateOrderId(){
   return `order_${Date.now()}_${Math.random().toString(36).slice(2,10)}`;
 }
 
+// Amount이 양수일 때만 생성
 function normalizeAmount(value){
   const parsed = Number(value);
 
@@ -36,6 +85,175 @@ function normalizeAmount(value){
   return parsed;
 }
 
+// draft를 frontend에 노출
+function generateDraftId() {
+  return `draft_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function generateApplicationNumber() {
+  return `APPL-${new Date().getFullYear()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+}
+
+// Draft API 정규화
+function normalizeText(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function normalizeBoolean(value) {
+  return value === true;
+}
+
+function getUploadExtension(filename) {
+  return path.extname(filename || "").toLowerCase();
+}
+
+function sanitizeFilenameStem(filename) {
+  return path
+    .basename(filename || "", getUploadExtension(filename))
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60) || "file";
+}
+
+function isAllowedUpload(file) {
+  const extension = getUploadExtension(file.originalname);
+
+  return (
+    allowedUploadMimeTypes.has(file.mimetype) &&
+    allowedUploadExtensions.has(extension)
+  );
+}
+
+function buildUploadObjectKey(draftId, originalFilename) {
+  const extension = getUploadExtension(originalFilename);
+  const safeStem = sanitizeFilenameStem(originalFilename);
+
+  return `applications/${draftId}/${Date.now()}_${crypto
+    .randomBytes(8)
+    .toString("hex")}_${safeStem}${extension}`;
+}
+
+function ensureR2UploadReady() {
+  return Boolean(r2Client && r2BucketName);
+}
+
+function runSingleFileUpload(req, res) {
+  return new Promise((resolve, reject) => {
+    upload.single("file")(req, res, (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve();
+    });
+  });
+}
+
+// 조회 완료 응답이 마스크된 상태로 반환
+function maskPhone(phone) {
+  if (!phone) {
+    return null;
+  }
+
+  return phone.replace(/(\d{3})\d+(\d{4})/, "$1-****-$2");
+}
+
+function maskEmail(email) {
+  if (!email || !email.includes("@")) {
+    return null;
+  }
+
+  const [local, domain] = email.split("@");
+  return `${local.slice(0, 2)}***@${domain}`;
+}
+
+// 행과 열 매핑 분리
+function mapDraftRow(row) {
+  return {
+    draftId: row.draft_id,
+    orderId: row.order_id,
+    paymentMethod: row.payment_method,
+    status: row.status,
+    name: row.name,
+    phone: row.phone,
+    email: row.email,
+    birthDate: row.birth_date,
+    organization: row.organization,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapApplicationRow(row) {
+  return {
+    applicationNumber: row.application_number,
+    draftId: row.draft_id,
+    orderId: row.order_id,
+    paymentKey: row.payment_key,
+    status: row.status,
+    paymentStatus: row.payment_status,
+    name: row.name,
+    phone: maskPhone(row.phone),
+    email: maskEmail(row.email),
+    birthDate: row.birth_date,
+    organization: row.organization,
+    submittedAt: row.submitted_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+// Draft 정규화 작업
+function validateDraftPayload(body) {
+  const name = normalizeText(body.name);
+  const phone = normalizeText(body.phone);
+  const email = normalizeText(body.email);
+  const birthDate = normalizeText(body.birthDate);
+  const organization = normalizeText(body.organization);
+  const paymentMethod = normalizeText(body.paymentMethod) || "widget";
+
+  const consents = {
+    privacy: normalizeBoolean(body.consents?.privacy),
+    terms: normalizeBoolean(body.consents?.terms),
+    refund: normalizeBoolean(body.consents?.refund),
+    marketing: normalizeBoolean(body.consents?.marketing),
+  };
+
+  if (!name || !phone || !email || !birthDate) {
+    return {
+      ok: false,
+      message: "Missing required applicant fields",
+    };
+  }
+
+  if (!consents.privacy || !consents.terms || !consents.refund) {
+    return {
+      ok: false,
+      message: "Required consents are missing",
+    };
+  }
+
+  return {
+    ok: true,
+    payload: {
+      name,
+      phone,
+      email,
+      birthDate,
+      organization,
+      paymentMethod,
+      consents,
+    },
+  };
+}
+
+// 웹훅 복제 헬퍼
 function buildWebhookEventId(payload) {
   const explicitEventId =
     payload?.eventId || payload?.event_id || payload?.data?.eventId || null;
@@ -70,6 +288,7 @@ function extractWebhookFields(payload) {
   };
 }
 
+// 웹훅 Event 상태 업데이트
 async function markWebhookEventStatus(eventId, status) {
   await pool.query(
     `
@@ -83,6 +302,7 @@ async function markWebhookEventStatus(eventId, status) {
   );
 }
 
+// 결제 취소 상태 이벤트 발생 시
 function extractWebhookPaymentStatus(eventType, payload) {
   if (eventType === "CANCEL_STATUS_CHANGED") {
     return (
@@ -97,6 +317,7 @@ function extractWebhookPaymentStatus(eventType, payload) {
   return payload?.data?.status || payload?.status || null;
 }
 
+// Payment의 status에 따른 Order status 변경
 function mapPaymentStatusToOrderStatus(paymentStatus) {
   switch (paymentStatus) {
     case "DONE":
@@ -115,6 +336,7 @@ function mapPaymentStatusToOrderStatus(paymentStatus) {
   }
 }
 
+// 최소 결제 스냅샷 추출 후 업데이트
 function extractWebhookPaymentSnapshot(payload, paymentStatus) {
   const source = payload?.data || payload || {};
 
@@ -128,6 +350,7 @@ function extractWebhookPaymentSnapshot(payload, paymentStatus) {
   };
 }
 
+// Webhook 처리가 중복으로 왔을 때 오류 방지
 async function findProcessedEquivalentWebhookEvent(client, {
   eventId,
   eventType,
@@ -169,6 +392,7 @@ async function findProcessedEquivalentWebhookEvent(client, {
   return result.rowCount > 0;
 }
 
+// Webhook으로부터 데이터 업데이트 및 삽입
 async function upsertPaymentFromWebhook(client, {
   orderId,
   paymentKey,
@@ -265,6 +489,7 @@ async function upsertPaymentFromWebhook(client, {
   };
 }
 
+// Webhook을 통한 BEGIN 응답을 COMMIT 또는 ROLLBACK 처리
 async function applyWebhookBusinessState({
   eventId,
   eventType,
@@ -340,6 +565,7 @@ async function applyWebhookBusinessState({
   }
 }
 
+// 가상계좌 secret 확인
 async function verifyDepositCallbackSecret({ paymentKey, orderId, secret }) {
   if (!secret) {
     const error = new Error("Missing secret in DEPOSIT_CALLBACK payload");
@@ -927,9 +1153,767 @@ app.post("/webhooks/toss", async function (req,res) {
 
 
 //주문 생성 API
+app.post("/applications/draft", async function (req, res) {
+  const validation = validateDraftPayload(req.body);
+
+  if (!validation.ok) {
+    return res.status(400).json({
+      ok: false,
+      message: validation.message,
+    });
+  }
+
+  const { payload } = validation;
+  const draftId = generateDraftId();
+  const consentVersion = normalizeText(req.body.consents?.version) || "v1";
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const draftResult = await client.query(
+      `
+        INSERT INTO application_drafts (
+          draft_id,
+          payment_method,
+          status,
+          name,
+          phone,
+          email,
+          birth_date,
+          organization,
+          created_at,
+          updated_at
+        )
+        VALUES ($1, $2, 'DRAFT', $3, $4, $5, $6, $7, NOW(), NOW())
+        RETURNING
+          draft_id,
+          order_id,
+          payment_method,
+          status,
+          name,
+          phone,
+          email,
+          birth_date,
+          organization,
+          created_at,
+          updated_at
+      `,
+      [
+        draftId,
+        payload.paymentMethod,
+        payload.name,
+        payload.phone,
+        payload.email,
+        payload.birthDate,
+        payload.organization,
+      ]
+    );
+
+    await client.query(
+      `
+        INSERT INTO application_consents (
+          draft_id,
+          privacy_consent,
+          terms_consent,
+          refund_consent,
+          marketing_consent,
+          consent_version,
+          consented_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      `,
+      [
+        draftResult.rows[0].draft_id,
+        payload.consents.privacy,
+        payload.consents.terms,
+        payload.consents.refund,
+        payload.consents.marketing,
+        consentVersion,
+      ]
+    );
+
+    await client.query("COMMIT");
+
+    return res.status(201).json({
+      ok: true,
+      draft: mapDraftRow(draftResult.rows[0]),
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Failed to create application draft:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to create application draft",
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// Draft Update
+app.patch("/applications/draft/:draftId", async function (req, res) {
+  const validation = validateDraftPayload(req.body);
+
+  if (!validation.ok) {
+    return res.status(400).json({
+      ok: false,
+      message: validation.message,
+    });
+  }
+
+  const { payload } = validation;
+  const consentVersion = normalizeText(req.body.consents?.version) || "v1";
+  const { draftId } = req.params;
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const draftResult = await client.query(
+      `
+        UPDATE application_drafts
+        SET
+          payment_method = $2,
+          name = $3,
+          phone = $4,
+          email = $5,
+          birth_date = $6,
+          organization = $7,
+          updated_at = NOW()
+        WHERE draft_id = $1
+        RETURNING
+          draft_id,
+          order_id,
+          payment_method,
+          status,
+          name,
+          phone,
+          email,
+          birth_date,
+          organization,
+          created_at,
+          updated_at
+      `,
+      [
+        draftId,
+        payload.paymentMethod,
+        payload.name,
+        payload.phone,
+        payload.email,
+        payload.birthDate,
+        payload.organization,
+      ]
+    );
+
+    if (draftResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({
+        ok: false,
+        message: "Draft not found",
+      });
+    }
+
+    await client.query(
+      `
+        DELETE FROM application_consents
+        WHERE draft_id = $1
+          AND application_id IS NULL
+      `,
+      [draftId]
+    );
+
+    await client.query(
+      `
+        INSERT INTO application_consents (
+          draft_id,
+          privacy_consent,
+          terms_consent,
+          refund_consent,
+          marketing_consent,
+          consent_version,
+          consented_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      `,
+      [
+        draftId,
+        payload.consents.privacy,
+        payload.consents.terms,
+        payload.consents.refund,
+        payload.consents.marketing,
+        consentVersion,
+      ]
+    );
+
+    await client.query("COMMIT");
+
+    return res.status(200).json({
+      ok: true,
+      draft: mapDraftRow(draftResult.rows[0]),
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Failed to update application draft:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to update application draft",
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// Draft Data 확인
+app.get("/applications/draft/:draftId", async function (req, res) {
+  try {
+    const { draftId } = req.params;
+
+    const draftResult = await pool.query(
+      `
+        SELECT
+          id,
+          draft_id,
+          order_id,
+          payment_method,
+          status,
+          name,
+          phone,
+          email,
+          birth_date,
+          organization,
+          created_at,
+          updated_at
+        FROM application_drafts
+        WHERE draft_id = $1
+      `,
+      [draftId]
+    );
+
+    if (draftResult.rowCount === 0) {
+      return res.status(404).json({
+        ok: false,
+        message: "Draft not found",
+      });
+    }
+
+    const draft = draftResult.rows[0];
+    const consentResult = await pool.query(
+      `
+        SELECT
+          privacy_consent,
+          terms_consent,
+          refund_consent,
+          marketing_consent,
+          consent_version,
+          consented_at
+        FROM application_consents
+        WHERE draft_id = $1
+          AND application_id IS NULL
+        ORDER BY consented_at DESC
+        LIMIT 1
+      `,
+      [draftId]
+    );
+
+    const fileResult = await pool.query(
+      `
+        SELECT
+          original_filename,
+          stored_filename,
+          mime_type,
+          file_size,
+          uploaded_at
+        FROM application_files
+        WHERE draft_id = $1
+        ORDER BY uploaded_at DESC
+        LIMIT 1
+      `,
+      [draft.id]
+    );
+
+    return res.status(200).json({
+      ok: true,
+      draft: mapDraftRow(draft),
+      consents: consentResult.rows[0] || null,
+      file: fileResult.rows[0] || null,
+    });
+  } catch (error) {
+    console.error("Failed to fetch application draft:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to fetch application draft",
+    });
+  }
+});
+
+// 업로드 정보 저장
+app.post("/files/upload", async function (req, res) {
+  try {
+    if (!ensureR2UploadReady()) {
+      return res.status(500).json({
+        ok: false,
+        message: "R2 upload is not configured",
+      });
+    }
+
+    await runSingleFileUpload(req, res);
+
+    const draftId = normalizeText(req.body.draftId);
+    const uploadedFile = req.file;
+
+    if (!draftId || !uploadedFile) {
+      return res.status(400).json({
+        ok: false,
+        message: "Missing draftId or uploaded file",
+      });
+    }
+
+    const draftResult = await pool.query(
+      `
+        SELECT id
+        FROM application_drafts
+        WHERE draft_id = $1
+      `,
+      [draftId]
+    );
+
+    if (draftResult.rowCount === 0) {
+      return res.status(404).json({
+        ok: false,
+        message: "Draft not found",
+      });
+    }
+
+    if (!isAllowedUpload(uploadedFile)) {
+      return res.status(400).json({
+        ok: false,
+        message: "Unsupported file type",
+      });
+    }
+
+    if (!Number.isFinite(uploadedFile.size) || uploadedFile.size <= 0) {
+      return res.status(400).json({
+        ok: false,
+        message: "Uploaded file is empty",
+      });
+    }
+
+    const storedFilename = buildUploadObjectKey(draftId, uploadedFile.originalname);
+
+    await r2Client.send(
+      new PutObjectCommand({
+        Bucket: r2BucketName,
+        Key: storedFilename,
+        Body: uploadedFile.buffer,
+        ContentType: uploadedFile.mimetype,
+      })
+    );
+
+    const fileResult = await pool.query(
+      `
+        INSERT INTO application_files (
+          application_id,
+          draft_id,
+          original_filename,
+          stored_filename,
+          mime_type,
+          file_size,
+          uploaded_at
+        )
+        VALUES (NULL, $1, $2, $3, $4, $5, NOW())
+        RETURNING
+          original_filename,
+          stored_filename,
+          mime_type,
+          file_size,
+          uploaded_at
+      `,
+      [
+        draftResult.rows[0].id,
+        uploadedFile.originalname,
+        storedFilename,
+        uploadedFile.mimetype,
+        uploadedFile.size,
+      ]
+    );
+
+    return res.status(201).json({
+      ok: true,
+      file: fileResult.rows[0],
+    });
+  } catch (error) {
+    if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
+      return res.status(400).json({
+        ok: false,
+        message: `File size must be ${Math.floor(maxUploadBytes / (1024 * 1024))}MB or smaller`,
+      });
+    }
+
+    console.error("Failed to upload applicant file:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to upload applicant file",
+    });
+  }
+});
+
+app.post("/applications/lookup", async function (req, res) {
+  try {
+    const applicationNumber = normalizeText(req.body.applicationNumber);
+    const phone = normalizeText(req.body.phone);
+
+    if (!applicationNumber || !phone) {
+      return res.status(400).json({
+        ok: false,
+        message: "Missing applicationNumber or phone",
+      });
+    }
+
+    const result = await pool.query(
+      `
+        SELECT
+          application_number,
+          draft_id,
+          order_id,
+          payment_key,
+          status,
+          payment_status,
+          name,
+          phone,
+          email,
+          birth_date,
+          organization,
+          submitted_at,
+          updated_at
+        FROM applications
+        WHERE application_number = $1
+          AND phone = $2
+        LIMIT 1
+      `,
+      [applicationNumber, phone]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        ok: false,
+        message: "입력한 정보와 일치하는 신청 내역을 찾을 수 없습니다.",
+      });
+    }
+
+    return res.status(200).json({
+      ok: true,
+      application: mapApplicationRow(result.rows[0]),
+    });
+  } catch (error) {
+    console.error("Failed to lookup application:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to lookup application",
+    });
+  }
+});
+
+// 결제 이후 최종 결제 테이블에 데이터 추가
+app.post("/applications/complete", async function (req, res) {
+  const draftId = normalizeText(req.body.draftId);
+  const orderId = normalizeText(req.body.orderId);
+
+  if (!draftId || !orderId) {
+    return res.status(400).json({
+      ok: false,
+      message: "Missing draftId or orderId",
+    });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const existingApplicationResult = await client.query(
+      `
+        SELECT
+          application_number,
+          draft_id,
+          order_id,
+          payment_key,
+          status,
+          payment_status,
+          name,
+          phone,
+          email,
+          birth_date,
+          organization,
+          submitted_at,
+          updated_at
+        FROM applications
+        WHERE draft_id = $1
+           OR order_id = $2
+        LIMIT 1
+      `,
+      [draftId, orderId]
+    );
+
+    if (existingApplicationResult.rowCount > 0) {
+      await client.query("ROLLBACK");
+      return res.status(200).json({
+        ok: true,
+        idempotent: true,
+        application: mapApplicationRow(existingApplicationResult.rows[0]),
+      });
+    }
+
+    const draftResult = await client.query(
+      `
+        SELECT
+          id,
+          draft_id,
+          order_id,
+          payment_method,
+          name,
+          phone,
+          email,
+          birth_date,
+          organization
+        FROM application_drafts
+        WHERE draft_id = $1
+        FOR UPDATE
+      `,
+      [draftId]
+    );
+
+    if (draftResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({
+        ok: false,
+        message: "Draft not found",
+      });
+    }
+
+    const paymentResult = await client.query(
+      `
+        SELECT
+          payment_key,
+          status
+        FROM payments
+        WHERE order_id = $1
+        ORDER BY updated_at DESC
+        LIMIT 1
+      `,
+      [orderId]
+    );
+
+    if (paymentResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({
+        ok: false,
+        message: "Payment not found for order",
+      });
+    }
+
+    const applicationNumber = generateApplicationNumber();
+    const draft = draftResult.rows[0];
+    const payment = paymentResult.rows[0];
+
+    const applicationInsertResult = await client.query(
+      `
+        INSERT INTO applications (
+          application_number,
+          draft_id,
+          order_id,
+          payment_key,
+          status,
+          payment_status,
+          name,
+          phone,
+          email,
+          birth_date,
+          organization,
+          submitted_at,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4, 'SUBMITTED', $5, $6, $7, $8, $9, $10, NOW(), NOW())
+        RETURNING
+          id,
+          application_number,
+          draft_id,
+          order_id,
+          payment_key,
+          status,
+          payment_status,
+          name,
+          phone,
+          email,
+          birth_date,
+          organization,
+          submitted_at,
+          updated_at
+      `,
+      [
+        applicationNumber,
+        draft.draft_id,
+        orderId,
+        payment.payment_key,
+        payment.status,
+        draft.name,
+        draft.phone,
+        draft.email,
+        draft.birth_date,
+        draft.organization,
+      ]
+    );
+
+    const application = applicationInsertResult.rows[0];
+
+    await client.query(
+      `
+        UPDATE application_drafts
+        SET
+          order_id = $2,
+          status = 'COMPLETED',
+          updated_at = NOW()
+        WHERE draft_id = $1
+      `,
+      [draftId, orderId]
+    );
+
+    await client.query(
+      `
+        UPDATE application_consents
+        SET application_id = $2
+        WHERE draft_id = $1
+          AND application_id IS NULL
+      `,
+      [draftId, application.id]
+    );
+
+    await client.query(
+      `
+        UPDATE application_files
+        SET application_id = $2
+        WHERE draft_id = $1
+          AND application_id IS NULL
+      `,
+      [draft.id, application.id]
+    );
+
+    await client.query("COMMIT");
+
+    return res.status(201).json({
+      ok: true,
+      application: mapApplicationRow(application),
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Failed to complete application:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to complete application",
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// 최종 결제 테이블 내 데이터 읽어오기
+app.get("/applications/:applicationNumber", async function (req, res) {
+  try {
+    const { applicationNumber } = req.params;
+
+    const result = await pool.query(
+      `
+        SELECT
+          application_number,
+          draft_id,
+          order_id,
+          payment_key,
+          status,
+          payment_status,
+          name,
+          phone,
+          email,
+          birth_date,
+          organization,
+          submitted_at,
+          updated_at
+        FROM applications
+        WHERE application_number = $1
+      `,
+      [applicationNumber]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        ok: false,
+        message: "Application not found",
+      });
+    }
+
+    return res.status(200).json({
+      ok: true,
+      application: mapApplicationRow(result.rows[0]),
+    });
+  } catch (error) {
+    console.error("Failed to fetch application:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to fetch application",
+    });
+  }
+});
+
+// 결제 완료 후 등록 완료 페이지
+app.get("/applications/by-order/:orderId", async function (req, res) {
+  try {
+    const { orderId } = req.params;
+
+    const result = await pool.query(
+      `
+        SELECT
+          application_number,
+          draft_id,
+          order_id,
+          payment_key,
+          status,
+          payment_status,
+          name,
+          phone,
+          email,
+          birth_date,
+          organization,
+          submitted_at,
+          updated_at
+        FROM applications
+        WHERE order_id = $1
+      `,
+      [orderId]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        ok: false,
+        message: "Application not found for order",
+      });
+    }
+
+    return res.status(200).json({
+      ok: true,
+      application: mapApplicationRow(result.rows[0]),
+    });
+  } catch (error) {
+    console.error("Failed to fetch application by order:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to fetch application by order",
+    });
+  }
+});
+
 app.post("/orders", async function (req,res) {
   try{
     const{
+      draftId = null,
       orderName,
       amount,
       customerName = null,
@@ -985,6 +1969,19 @@ app.post("/orders", async function (req,res) {
 
     const result = await pool.query(insertQuery, values);
     const order = result.rows[0];
+
+    if (draftId) {
+      await pool.query(
+        `
+          UPDATE application_drafts
+          SET
+            order_id = $2,
+            updated_at = NOW()
+          WHERE draft_id = $1
+        `,
+        [draftId, order.order_id]
+      );
+    }
 
     return res.status(201).json({
       ok:true,
