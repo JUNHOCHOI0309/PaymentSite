@@ -97,3 +97,8 @@ export async function getApplicationByOrder(orderId) {
   const response = await fetch(`/api/applications/by-order/${orderId}`);
   return readJson(response);
 }
+
+export async function getHomeGalleryImages() {
+  const response = await fetch("/api/home/gallery-images");
+  return readJson(response);
+}

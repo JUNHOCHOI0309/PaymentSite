@@ -5,7 +5,12 @@ const path = require("path");
 const express = require("express");
 const multer = require("multer");
 const { Pool } = require("pg");
-const { PutObjectCommand, S3Client } = require("@aws-sdk/client-s3");
+const {
+  GetObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  S3Client,
+} = require("@aws-sdk/client-s3");
 const app = express();
 const port = Number(process.env.PORT || 4000);
 
@@ -39,6 +44,7 @@ const r2AccountId = process.env.R2_ACCOUNT_ID;
 const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID;
 const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
 const r2BucketName = process.env.R2_BUCKET_NAME;
+const r2HomeImagePrefix = normalizeR2Prefix(process.env.R2_HOME_IMAGE_PREFIX || "home/");
 const r2Endpoint =
   process.env.R2_ENDPOINT ||
   (r2AccountId ? `https://${r2AccountId}.r2.cloudflarestorage.com` : null);
@@ -108,6 +114,14 @@ function normalizeBoolean(value) {
   return value === true;
 }
 
+function normalizeR2Prefix(prefix) {
+  if (!prefix) {
+    return "";
+  }
+
+  return prefix.endsWith("/") ? prefix : `${prefix}/`;
+}
+
 function getUploadExtension(filename) {
   return path.extname(filename || "").toLowerCase();
 }
@@ -140,6 +154,10 @@ function buildUploadObjectKey(draftId, originalFilename) {
 }
 
 function ensureR2UploadReady() {
+  return Boolean(r2Client && r2BucketName);
+}
+
+function ensureR2ReadReady() {
   return Boolean(r2Client && r2BucketName);
 }
 
@@ -1023,6 +1041,89 @@ app.get("/health/db", async function (req, res) {
 
 
 //서버 시작
+app.get("/home/gallery-images", async function (req, res) {
+  try {
+    if (!ensureR2ReadReady()) {
+      return res.status(500).json({
+        ok: false,
+        message: "R2 image gallery is not configured",
+      });
+    }
+
+    const result = await r2Client.send(
+      new ListObjectsV2Command({
+        Bucket: r2BucketName,
+        Prefix: r2HomeImagePrefix,
+        MaxKeys: 20,
+      })
+    );
+
+    const images = (result.Contents || [])
+      .filter((item) => item.Key && !item.Key.endsWith("/"))
+      .filter((item) => /\.(png|jpe?g|webp|gif)$/i.test(item.Key))
+      .map((item) => ({
+        key: item.Key,
+        src: "/api/home/gallery-image?key=" + encodeURIComponent(item.Key),
+      }));
+
+    return res.status(200).json({
+      ok: true,
+      images,
+    });
+  } catch (error) {
+    console.error("Failed to list home gallery images:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to list home gallery images",
+    });
+  }
+});
+
+app.get("/home/gallery-image", async function (req, res) {
+  try {
+    if (!ensureR2ReadReady()) {
+      return res.status(500).json({
+        ok: false,
+        message: "R2 image gallery is not configured",
+      });
+    }
+
+    const objectKey = normalizeText(req.query.key);
+
+    if (!objectKey) {
+      return res.status(400).json({
+        ok: false,
+        message: "Missing image key",
+      });
+    }
+
+    if (r2HomeImagePrefix && !objectKey.startsWith(r2HomeImagePrefix)) {
+      return res.status(403).json({
+        ok: false,
+        message: "Image key is not allowed",
+      });
+    }
+
+    const objectResponse = await r2Client.send(
+      new GetObjectCommand({
+        Bucket: r2BucketName,
+        Key: objectKey,
+      })
+    );
+
+    res.setHeader("Content-Type", objectResponse.ContentType || "application/octet-stream");
+    res.setHeader("Cache-Control", "public, max-age=300");
+
+    objectResponse.Body.pipe(res);
+  } catch (error) {
+    console.error("Failed to fetch home gallery image:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to fetch home gallery image",
+    });
+  }
+});
+
 async function startServer() {
   try {
     await pool.query("SELECT 1");
