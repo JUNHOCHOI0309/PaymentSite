@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { apiFetch } from "../../lib/applicationApi";
 
 export function PaymentBillingPage() {
   const navigate = useNavigate();
@@ -10,15 +11,13 @@ export function PaymentBillingPage() {
   const billingMethodLabel = billingMethod === "TRANSFER" ? "계좌 자동결제" : "카드 자동결제";
 
   useEffect(() => {
-    // 서버로 빌링키 발급을 위해 authKey 를 보내세요.
-    // @docs https://docs.tosspayments.com/guides/v2/billing/integration
     async function issueBillingKey() {
       const requestData = {
         customerKey: searchParams.get("customerKey"),
         authKey: searchParams.get("authKey"),
       };
 
-      const response = await fetch("/api/issue-billing-key", {
+      const response = await apiFetch("/api/issue-billing-key", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -37,17 +36,13 @@ export function PaymentBillingPage() {
 
     issueBillingKey()
       .then(function (data) {
-        // TODO: 빌링키 발급에 성공했을 경우 UI 처리 로직을 구현하세요.
         setResponseData(data);
       })
       .catch((err) => {
-        // TODO: 빌링키 발급에 실패했을 경우 UI 처리 로직을 구현하세요.
-        navigate(`/fail?message=${err.message}&code=${err.code}`);
+        navigate(`/fail?message=${encodeURIComponent(err.message)}&code=${err.code}`);
       });
-  }, []);
+  }, [navigate, searchParams]);
 
-  // 일반적으로 정기결제는 특정 시점에 배치를 통해 구현하지만,
-  // 이해를 돕기 위해 클라이언트에서 강제로 실행해볼 수 있도록 샘플 API 가 구현되어 있습니다.
   async function confirm() {
     async function confirmBilling() {
       const requestData = {
@@ -59,7 +54,7 @@ export function PaymentBillingPage() {
         customerName: "김토스",
       };
 
-      const response = await fetch("/api/confirm-billing", {
+      const response = await apiFetch("/api/confirm-billing", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -82,7 +77,7 @@ export function PaymentBillingPage() {
         setResponseData(data);
       })
       .catch((err) => {
-        navigate(`/fail?message=${err.message}&code=${err.code}`);
+        navigate(`/fail?message=${encodeURIComponent(err.message)}&code=${err.code}`);
       });
   }
 
@@ -90,11 +85,11 @@ export function PaymentBillingPage() {
     <div className="wrapper">
       <div className="box_section" style={{ width: "600px" }}>
         <img width="100px" src="https://static.toss.im/illusts/check-blue-spot-ending-frame.png" />
-        <h2 id="title">{billingConfirmed ? `${billingMethodLabel} 자동결제 승인에 성공했어요` : `${billingMethodLabel} 등록을 완료했어요`}</h2>
+        <h2 id="title">{billingConfirmed ? `${billingMethodLabel} 승인에 성공했어요` : `${billingMethodLabel} 등록이 완료되었어요`}</h2>
 
         {billingConfirmed === false ? (
           <button id="confirm" className="button" onClick={confirm}>
-            등록된 빌링키로 자동결제 실행하기
+            등록한 결제수단으로 자동결제 실행하기
           </button>
         ) : null}
 

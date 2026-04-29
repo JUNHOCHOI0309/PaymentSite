@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+ï»¿import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { completeApplication } from "../../lib/applicationApi";
+import { apiFetch, completeApplication } from "../../lib/applicationApi";
 
 export function BrandpaySuccessPage() {
   const navigate = useNavigate();
@@ -16,7 +16,7 @@ export function BrandpaySuccessPage() {
         customerKey: searchParams.get("customerKey"),
       };
 
-      const response = await fetch("/api/confirm/brandpay", {
+      const response = await apiFetch("/api/confirm/brandpay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestData),
@@ -40,7 +40,7 @@ export function BrandpaySuccessPage() {
     confirmAndComplete()
       .then((data) => setResponseData(data))
       .catch((error) => {
-        navigate(`/fail?code=${error.code || "APPLICATION"}&message=${encodeURIComponent(error.message)}`);
+        navigate(`/fail?code=${error.code || "APPLICATION"}&message=${encodeURIComponent(error.message || "ê²°ì œ í™•ì¸ì— ì‹¤íŒ¨í–ˆìŠµë‹ˆë‹¤.")}`);
       });
   }, [navigate, searchParams]);
 
@@ -48,14 +48,14 @@ export function BrandpaySuccessPage() {
     <>
       <div className="box_section" style={{ width: "600px" }}>
         <img width="100px" src="https://static.toss.im/illusts/check-blue-spot-ending-frame.png" />
-        <h2>°áÁ¦¸¦ ¿Ï·áÇß¾î¿ä</h2>
+        <h2>ê²°ì œë¥¼ ì™„ë£Œí–ˆì–´ìš”</h2>
         <div className="p-grid typography--p" style={{ marginTop: "50px" }}>
-          <div className="p-grid-col text--left"><b>ÁÖ¹®¹øÈ£</b></div>
+          <div className="p-grid-col text--left"><b>ì£¼ë¬¸ë²ˆí˜¸</b></div>
           <div className="p-grid-col text--right" id="orderId">{searchParams.get("orderId")}</div>
         </div>
         <div className="p-grid-col">
           <Link to="/apply/complete">
-            <button className="button p-grid-col5">¿Ï·á ÆäÀÌÁö</button>
+            <button className="button p-grid-col5">ì™„ë£Œ í˜ì´ì§€</button>
           </Link>
         </div>
       </div>

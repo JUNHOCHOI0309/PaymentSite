@@ -13,6 +13,10 @@ const {
 } = require("@aws-sdk/client-s3");
 const app = express();
 const port = Number(process.env.PORT || 4000);
+const corsAllowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 const maxUploadBytes = 10 * 1024 * 1024;
 const allowedUploadMimeTypes = new Set([
@@ -59,6 +63,28 @@ const r2Client =
         },
       })
     : null;
+
+app.set("trust proxy", true);
+
+app.use(function (req, res, next) {
+  const origin = req.headers.origin;
+  const hasConfiguredOrigins = corsAllowedOrigins.length > 0;
+  const allowAnyOrigin = !hasConfiguredOrigins;
+  const isAllowedOrigin = origin && corsAllowedOrigins.includes(origin);
+
+  if (origin && (allowAnyOrigin || isAllowedOrigin)) {
+    res.setHeader("Access-Control-Allow-Origin", allowAnyOrigin ? "*" : origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  }
+
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+
+  next();
+});
 
 app.use(express.static("public"));
 app.use(express.json());

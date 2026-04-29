@@ -1,7 +1,8 @@
-import { loadTossPayments } from "@tosspayments/tosspayments-sdk";
+ï»¿import { loadTossPayments } from "@tosspayments/tosspayments-sdk";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApplicationFlow } from "../../context/ApplicationFlowContext";
+import { buildApiUrl } from "../../lib/applicationApi";
 
 const clientKey = "test_ck_D5GePWvyJnrK0W0k6q8gLzN97Eoq";
 const customerKey = generateRandomString();
@@ -22,12 +23,12 @@ export function BrandpayCheckoutPage() {
         const tossPayments = await loadTossPayments(clientKey);
         const nextBrandpay = tossPayments.brandpay({
           customerKey,
-          redirectUrl: "http://localhost:3000/api/callback-auth",
+          redirectUrl: buildApiUrl("/api/callback-auth"),
         });
 
         setBrandpay(nextBrandpay);
       } catch (error) {
-        setErrorMessage(error.message || "ºê·£µåÆäÀÌ ÁØºñ¿¡ ½ÇÆĞÇß½À´Ï´Ù.");
+        setErrorMessage(error.message || "ë¸Œëœë“œí˜ì´ ì¤€ë¹„ì— ì‹¤íŒ¨í–ˆìŠµë‹ˆë‹¤.");
       }
     }
 
@@ -36,7 +37,7 @@ export function BrandpayCheckoutPage() {
 
   async function requestPayment() {
     if (!orderId) {
-      setErrorMessage("ÁÖ¹® Á¤º¸°¡ ¾ø½À´Ï´Ù. review ´Ü°è¿¡¼­ ´Ù½Ã ÁøÀÔÇØ ÁÖ¼¼¿ä.");
+      setErrorMessage("ì£¼ë¬¸ ì •ë³´ê°€ ì—†ìŠµë‹ˆë‹¤. review ë‹¨ê³„ì—ì„œ ë‹¤ì‹œ ì§„ì…í•´ ì£¼ì„¸ìš”.");
       return;
     }
 
@@ -46,11 +47,11 @@ export function BrandpayCheckoutPage() {
         value: 1,
       },
       orderId,
-      orderName: "´ëÈ¸ ½ÅÃ» °áÁ¦",
+      orderName: "ëŒ€íšŒ ì‹ ì²­ ê²°ì œ",
       successUrl: `${window.location.origin}/brandpay/success?customerKey=${customerKey}&draftId=${encodeURIComponent(draftId || "")}`,
       failUrl: window.location.origin + "/fail",
       customerEmail: state.applicantInfo.email || "customer@example.com",
-      customerName: state.applicantInfo.name || "½ÅÃ»ÀÚ",
+      customerName: state.applicantInfo.name || "ì‹ ì²­ì",
     });
   }
 
@@ -59,10 +60,10 @@ export function BrandpayCheckoutPage() {
       <div className="box_section" style={{ padding: "40px 30px 50px 30px", marginTop: "30px", marginBottom: "50px", display: "flex", flexDirection: "column" }}>
         {errorMessage ? <p style={{ color: "#d14343" }}>{errorMessage}</p> : null}
         <button className="button" style={{ marginTop: "30px" }} onClick={requestPayment} disabled={!brandpay}>
-          °áÁ¦ÇÏ±â
+          ê²°ì œí•˜ê¸°
         </button>
         <button className="button" style={{ marginTop: "30px" }} onClick={() => navigate("/apply/review")}>
-          ½ÅÃ» ³»¿ë È®ÀÎÀ¸·Î µ¹¾Æ°¡±â
+          ì‹ ì²­ ë‚´ìš© í™•ì¸ìœ¼ë¡œ ëŒì•„ê°€ê¸°
         </button>
       </div>
     </div>
