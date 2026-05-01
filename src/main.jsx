@@ -5,6 +5,7 @@ import { ApplicationFlowProvider } from "./context/ApplicationFlowContext";
 import { ApplyCompletePage } from "./pages/ApplyCompletePage";
 import { ApplyPage } from "./pages/ApplyPage";
 import { ApplyReviewPage } from "./pages/ApplyReviewPage";
+import { ApplySelectPage } from "./pages/ApplySelectPage";
 import { BrandpayCheckoutPage } from "./pages/brandpay/BrandpayCheckout";
 import { FailPage } from "./pages/Fail";
 import { HomePage } from "./pages/HomePage";
@@ -25,6 +26,10 @@ const router = createBrowserRouter([
   },
   {
     path: "apply",
+    element: <ApplySelectPage />,
+  },
+  {
+    path: "apply/detail",
     element: <ApplyPage />,
   },
   {

@@ -1,19 +1,27 @@
-﻿import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "../components/common/Button";
 import { Checkbox } from "../components/common/Checkbox";
 import { Input } from "../components/common/Input";
 import { NoticeBox } from "../components/common/NoticeBox";
 import { PageShell } from "../components/layout/PageShell";
 import { useApplicationFlow } from "../context/ApplicationFlowContext";
-import { createDraft, updateDraft, uploadFile } from "../lib/applicationApi";
+import { buildApiUrl, createDraft, updateDraft, uploadFile } from "../lib/applicationApi";
+
+function getRegisterImageUrl(key) {
+  return buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(key)}`);
+}
 
 export function ApplyPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { state, dispatch } = useApplicationFlow();
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
+
+  const competitionName = searchParams.get("discipline") || "대회명";
+  const selectedImageKey = searchParams.get("imageKey");
 
   const setApplicantField = (field) => (event) => {
     dispatch({
@@ -107,25 +115,21 @@ export function ApplyPage() {
 
   return (
     <PageShell>
-      <section className="site-page">
-        <div className="site-form-layout">
-          <aside className="site-form-layout__sidebar">
-            <NoticeBox title="신청 전 확인사항">
-              <ul className="site-list">
-                <li>이 단계에서 draft를 생성하거나 수정한 뒤 review 단계로 이동합니다.</li>
-                <li>첨부 파일은 draft 저장 뒤 서버를 거쳐 외부 스토리지에 업로드됩니다.</li>
-                <li>개인정보, 환불 규정, 참가 유의사항 동의는 결제 전에 필수로 저장됩니다.</li>
-              </ul>
-            </NoticeBox>
-            <NoticeBox title="파일 업로드 주의">
-              <ul className="site-list">
-                <li>허용된 문서 파일만 업로드할 수 있고 파일 크기 제한이 적용됩니다.</li>
-                <li>실제 저장 파일명은 서버에서 별도 object key로 생성됩니다.</li>
-              </ul>
-            </NoticeBox>
+      <section className="site-apply-detail">
+        <div className="site-apply-detail__layout">
+          <aside className="site-apply-detail__summary">
+            <Link className="site-apply-detail__back-link" to="/apply">
+              &lt; 뒤로가기
+            </Link>
+            <h1>{competitionName}</h1>
+            {selectedImageKey ? (
+              <img src={getRegisterImageUrl(selectedImageKey)} alt={competitionName} />
+            ) : (
+              <div className="site-apply-detail__image-placeholder">대회 이미지</div>
+            )}
           </aside>
 
-          <form className="site-form-card" onSubmit={handleSubmit}>
+          <form className="site-form-card site-apply-detail__form" onSubmit={handleSubmit}>
             <div className="site-form-card__header">
               <p className="site-kicker">Application</p>
               <h1>신청 정보 입력</h1>
@@ -147,21 +151,39 @@ export function ApplyPage() {
               </label>
             </div>
 
-            <div className="site-consent-group">
-              <Checkbox label="개인정보 수집 및 이용 동의" checked={state.consents.privacy} onChange={setConsent("privacy")} required />
-              <Checkbox label="참가 유의사항 동의" checked={state.consents.terms} onChange={setConsent("terms")} required />
-              <Checkbox label="환불 규정 동의" checked={state.consents.refund} onChange={setConsent("refund")} required />
-              <Checkbox label="마케팅 정보 수신 동의" checked={state.consents.marketing} onChange={setConsent("marketing")} />
-            </div>
+            <div className="site-apply-detail__form-lower">
+              <div className="site-apply-detail__submit-area">
+                <div className="site-consent-group">
+                  <Checkbox label="개인정보 수집 및 이용 동의 (필수)" checked={state.consents.privacy} onChange={setConsent("privacy")} required />
+                  <Checkbox label="참가 유의사항 동의 (필수)" checked={state.consents.terms} onChange={setConsent("terms")} required />
+                  <Checkbox label="환불 규정 동의 (필수)" checked={state.consents.refund} onChange={setConsent("refund")} required />
+                  <Checkbox label="마케팅 정보 수신 동의 (선택)" checked={state.consents.marketing} onChange={setConsent("marketing")} />
+                </div>
 
-            <div className="site-form-card__actions">
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "저장 중..." : "다음 단계로"}
-              </Button>
+                <div className="site-form-card__actions">
+                  <Button type="submit" disabled={isSubmitting}>
+                    {isSubmitting ? "저장 중..." : "다음 단계로"}
+                  </Button>
+                </div>
+                {errorMessage ? <p className="site-error-message">{errorMessage}</p> : null}
+              </div>
+
+              <aside className="site-apply-detail__upload-notice">
+                <h2>파일 업로드 주의사항</h2>
+                <p>허용된 문서 파일만 업로드할 수 있고 파일 크기 제한이 적용됩니다.</p>
+                <p>실제 저장 파일명은 서버에서 별도 object key로 생성됩니다.</p>
+              </aside>
             </div>
-            {errorMessage ? <p className="site-error-message">{errorMessage}</p> : null}
           </form>
         </div>
+
+        <NoticeBox title="신청 전 확인 사항">
+          <ul className="site-list">
+            <li>이 단계에서 draft를 생성하거나 수정한 뒤 review 단계로 이동합니다.</li>
+            <li>첨부 파일은 draft 저장 뒤 서버를 거쳐 외부 스토리지에 업로드됩니다.</li>
+            <li>개인정보, 환불 규정, 참가 유의사항 동의는 결제 전에 필수로 저장됩니다.</li>
+          </ul>
+        </NoticeBox>
       </section>
     </PageShell>
   );

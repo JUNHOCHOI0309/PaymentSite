@@ -48,7 +48,7 @@ export function ApplyReviewPage() {
   async function handleProceedPayment() {
     if (!state.draftId) {
       setErrorMessage("먼저 신청 정보를 저장해 주세요.");
-      navigate("/apply");
+      navigate("/apply/detail");
       return;
     }
 
@@ -130,7 +130,7 @@ export function ApplyReviewPage() {
           </NoticeBox>
 
           <div className="site-inline-actions">
-            <Button variant="ghost" onClick={() => navigate("/apply")}>이전으로</Button>
+            <Button variant="ghost" onClick={() => navigate("/apply/detail")}>이전으로</Button>
             <Button onClick={handleProceedPayment} disabled={isPreparingPayment}>
               {isPreparingPayment ? "결제 준비 중..." : "결제 진행하기"}
             </Button>
