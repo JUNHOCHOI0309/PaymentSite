@@ -4,7 +4,7 @@ export function SiteFooter() {
   return (
     <footer className="site-footer">
       <div>
-        <p className="site-footer__brand">SHERLYY</p>
+        <p className="site-footer__brand">MMKorea</p>
         <p className="site-footer__meta">Competition Landing + Application Flow Skeleton</p>
       </div>
       <div className="site-footer__links">
