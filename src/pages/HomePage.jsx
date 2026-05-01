@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { PageShell } from "../components/layout/PageShell";
-import { getHomeGalleryImages } from "../lib/applicationApi";
+import { buildApiUrl, getHomeGalleryImages } from "../lib/applicationApi";
 
 const scheduleItems = [
   ["신청 기간", "2026.05.01 - 2026.05.31"],
@@ -8,6 +9,29 @@ const scheduleItems = [
   ["본선 일정", "2026.06.21"],
   ["최종 결과", "2026.06.30"],
 ];
+
+const competitionGroups = {
+  man: {
+    title: "MAN",
+    mainImage: "home/man_main.png",
+    items: [
+      { key: "home/man_1.png", title: "BODY BUILDING" },
+      { key: "home/man_2.png", title: "BODY BUILDING 101" },
+      { key: "home/man_3.png", title: "SPORTS MODEL MEN" },
+      { key: "home/man_4.png", title: "CLASSIC BODY BUILDING" },
+      { key: "home/man_5.png", title: "PHYSIQUE" },
+    ],
+  },
+  woman: {
+    title: "WOMAN",
+    mainImage: "home/woman_main.png",
+    items: [
+      { key: "home/woman_1.png", title: "BODY BUILDING 102" },
+      { key: "home/woman_2.png", title: "SPORTS MODEL WOMEN" },
+      { key: "home/woman_3.png", title: "BIKINI FITNESS" },
+    ],
+  },
+};
 
 function isVideoMedia(media) {
   return media?.type === "video" || /\.(mp4|webm|mov)$/i.test(media?.key || media?.src || "");
@@ -27,9 +51,15 @@ function getVideoMimeType(media) {
   return "video/mp4";
 }
 
+function getHomeImageUrl(key) {
+  return buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(key)}`);
+}
+
 export function HomePage() {
   const [images, setImages] = useState([]);
   const [galleryError, setGalleryError] = useState("");
+  const [expandedGroup, setExpandedGroup] = useState(null);
+  const [selectedItem, setSelectedItem] = useState(null);
 
   useEffect(() => {
     async function fetchGalleryImages() {
@@ -46,6 +76,25 @@ export function HomePage() {
 
   const heroMedia = images.find(isVideoMedia) || images[0] || null;
   const heroIsVideo = isVideoMedia(heroMedia);
+  const expandedData = expandedGroup ? competitionGroups[expandedGroup] : null;
+
+  function openGroup(groupKey) {
+    setExpandedGroup(groupKey);
+    setSelectedItem(null);
+  }
+
+  function closeExpandedArea() {
+    setExpandedGroup(null);
+    setSelectedItem(null);
+  }
+
+  function openItem(item) {
+    setSelectedItem(item);
+  }
+
+  function goBackToExpanded() {
+    setSelectedItem(null);
+  }
 
   return (
     <PageShell hero>
@@ -92,14 +141,62 @@ export function HomePage() {
       </section>
 
       <section className="site-home-intro" id="competition-intro" aria-label="대회 소개">
-        <div className="site-home-intro__grid">
-          <article className="site-home-intro-card">
-            <h2>MAN</h2>
-          </article>
-          <article className="site-home-intro-card">
-            <h2>WOMAN</h2>
-          </article>
-        </div>
+        {!expandedData ? (
+          <div className="site-home-intro__grid">
+            {Object.entries(competitionGroups).map(([groupKey, group]) => (
+              <button
+                className="site-home-intro-card"
+                key={groupKey}
+                type="button"
+                style={{ backgroundImage: `url("${getHomeImageUrl(group.mainImage)}")` }}
+                onClick={() => openGroup(groupKey)}
+              >
+                <span>{group.title}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div
+            className={`site-home-expanded site-home-expanded--${expandedGroup} ${
+              selectedItem ? "site-home-expanded--detail" : ""
+            }`}
+            role="presentation"
+            onClick={closeExpandedArea}
+          >
+            {!selectedItem ? (
+              <div className="site-home-category-grid" onClick={(event) => event.stopPropagation()}>
+                {expandedData.items.map((item, index) => (
+                  <button
+                    className="site-home-category-card"
+                    data-index={index + 1}
+                    key={item.key}
+                    type="button"
+                    onClick={() => openItem(item)}
+                  >
+                    <img src={getHomeImageUrl(item.key)} alt={item.title} />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="site-home-detail" onClick={(event) => event.stopPropagation()}>
+                <button className="site-home-detail__back" type="button" onClick={goBackToExpanded} aria-label="뒤로가기">
+                  ←
+                </button>
+                <div className="site-home-detail__image">
+                  <img src={getHomeImageUrl(selectedItem.key)} alt={selectedItem.title} />
+                </div>
+                <div className="site-home-detail__side">
+                  <div className="site-home-detail__info">
+                    <h2>대회 설명<br />및<br />상금 안내</h2>
+                  </div>
+                  <Link className="site-home-detail__apply" to="/apply">
+                    신청하기
+                  </Link>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </section>
     </PageShell>
   );
