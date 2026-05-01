@@ -666,8 +666,9 @@ const encryptedApiSecretKey =
   "Basic " + Buffer.from(apiSecretKey + ":").toString("base64");
 
 // 결제위젯 승인
-app.post("/confirm/widget", async function (req, res) {
-  const { paymentKey, orderId, amount } = req.body;
+async function confirmPaymentAndPersist(req, res, options) {
+  const { paymentKey, orderId, amount, customerKey } = req.body;
+  const { authorization, confirmUrl, includeCustomerKey = false, logLabel } = options;
 
   if(!paymentKey || !orderId || amount == null) {
     return res.status(400).json({
@@ -682,6 +683,13 @@ app.post("/confirm/widget", async function (req, res) {
     return res.status(400).json({
       ok: false,
       message: "Invalid amount",
+    });
+  }
+
+  if (includeCustomerKey && !customerKey) {
+    return res.status(400).json({
+      ok: false,
+      message: "Missing customerKey",
     });
   }
 
@@ -766,21 +774,27 @@ app.post("/confirm/widget", async function (req, res) {
     // 결제 승인 API를 호출하세요.
     // 결제를 승인하면 결제수단에서 금액이 차감돼요.
     // @docs https://docs.tosspayments.com/guides/v2/payment-widget/integration#3-결제-승인하기
-    const tossResponse = await fetch("https://api.tosspayments.com/v1/payments/confirm", {
+    const confirmBody = {
+      orderId,
+      amount: normalizedAmount,
+      paymentKey,
+    };
+
+    if (includeCustomerKey) {
+      confirmBody.customerKey = customerKey;
+    }
+
+    const tossResponse = await fetch(confirmUrl, {
       method: "POST",
       headers: {
-        Authorization: encryptedWidgetSecretKey,
+        Authorization: authorization,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        orderId,
-        amount: normalizedAmount,
-        paymentKey,
-      }),
+      body: JSON.stringify(confirmBody),
     });
 
     const tossResult = await tossResponse.json();
-    console.log("Toss confirm result:", tossResult);
+    console.log(`${logLabel} confirm result:`, tossResult);
  
     if (!tossResponse.ok) {
       await client.query(
@@ -817,12 +831,12 @@ app.post("/confirm/widget", async function (req, res) {
       `,
       [
         orderId,
-        tossResult.paymentKey,
+        tossResult.paymentKey || paymentKey,
         tossResult.method || null,
         tossResult.type || null,
-        tossResult.status,
+        tossResult.status || "DONE",
         tossResult.approvedAt || null,
-        tossResult.totalAmount,
+        tossResult.totalAmount || normalizedAmount,
         JSON.stringify(tossResult),
       ]
     );
@@ -844,7 +858,7 @@ app.post("/confirm/widget", async function (req, res) {
     });
   } catch (error) {
     await client.query("ROLLBACK");
-    console.error("Failed to confirm widget payment:", error);
+    console.error(`Failed to confirm ${logLabel} payment:`, error);
 
     if (error.code === "23505") {
       return res.status(409).json({
@@ -860,74 +874,32 @@ app.post("/confirm/widget", async function (req, res) {
   } finally {
     client.release();
   }
+}
+
+app.post("/confirm/widget", async function (req, res) {
+  await confirmPaymentAndPersist(req, res, {
+    authorization: encryptedWidgetSecretKey,
+    confirmUrl: "https://api.tosspayments.com/v1/payments/confirm",
+    logLabel: "widget",
+  });
 });
 
 // 결제창 승인
-app.post("/confirm/payment", function (req, res) {
-  const { paymentKey, orderId, amount } = req.body;
-
-  // 결제 승인 API를 호출하세요.
-  // 결제를 승인하면 결제수단에서 금액이 차감돼요.
-  // @docs https://docs.tosspayments.com/guides/v2/payment-widget/integration#3-결제-승인하기
-  fetch("https://api.tosspayments.com/v1/payments/confirm", {
-    method: "POST",
-    headers: {
-      Authorization: encryptedApiSecretKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      orderId: orderId,
-      amount: amount,
-      paymentKey: paymentKey,
-    }),
-  }).then(async function (response) {
-    const result = await response.json();
-    console.log(result);
-
-    if (!response.ok) {
-      // TODO: 결제 승인 실패 비즈니스 로직을 구현하세요.
-      res.status(response.status).json(result);
-
-      return;
-    }
-
-    // TODO: 결제 완료 비즈니스 로직을 구현하세요.
-    res.status(response.status).json(result);
+app.post("/confirm/payment", async function (req, res) {
+  return confirmPaymentAndPersist(req, res, {
+    authorization: encryptedApiSecretKey,
+    confirmUrl: "https://api.tosspayments.com/v1/payments/confirm",
+    logLabel: "payment",
   });
 });
 
 // 브랜드페이 승인
-app.post("/confirm/brandpay", function (req, res) {
-  const { paymentKey, orderId, amount, customerKey } = req.body;
-
-  // 결제 승인 API를 호출하세요.
-  // 결제를 승인하면 결제수단에서 금액이 차감돼요.
-  // @docs https://docs.tosspayments.com/guides/v2/payment-widget/integration#3-결제-승인하기
-  fetch("https://api.tosspayments.com/v1/brandpay/payments/confirm", {
-    method: "POST",
-    headers: {
-      Authorization: encryptedApiSecretKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      orderId: orderId,
-      amount: amount,
-      paymentKey: paymentKey,
-      customerKey: customerKey,
-    }),
-  }).then(async function (response) {
-    const result = await response.json();
-    console.log(result);
-
-    if (!response.ok) {
-      // TODO: 결제 승인 실패 비즈니스 로직을 구현하세요.
-      res.status(response.status).json(result);
-
-      return;
-    }
-
-    // TODO: 결제 완료 비즈니스 로직을 구현하세요.
-    res.status(response.status).json(result);
+app.post("/confirm/brandpay", async function (req, res) {
+  return confirmPaymentAndPersist(req, res, {
+    authorization: encryptedApiSecretKey,
+    confirmUrl: "https://api.tosspayments.com/v1/brandpay/payments/confirm",
+    includeCustomerKey: true,
+    logLabel: "brandpay",
   });
 });
 
@@ -1084,17 +1056,18 @@ app.get("/home/gallery-images", async function (req, res) {
       })
     );
 
-    const images = (result.Contents || [])
+    const media = (result.Contents || [])
       .filter((item) => item.Key && !item.Key.endsWith("/"))
-      .filter((item) => /\.(png|jpe?g|webp|gif)$/i.test(item.Key))
+      .filter((item) => /\.(png|jpe?g|webp|gif|mp4|webm|mov)$/i.test(item.Key))
       .map((item) => ({
         key: item.Key,
+        type: /\.(mp4|webm|mov)$/i.test(item.Key) ? "video" : "image",
         src: "/api/home/gallery-image?key=" + encodeURIComponent(item.Key),
       }));
 
     return res.status(200).json({
       ok: true,
-      images,
+      images: media,
     });
   } catch (error) {
     console.error("Failed to list home gallery images:", error);

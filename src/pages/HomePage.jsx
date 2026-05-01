@@ -18,6 +18,24 @@ const prizeItems = [
   ["우수상", "상금 50만원"],
 ];
 
+function isVideoMedia(media) {
+  return media?.type === "video" || /\.(mp4|webm|mov)$/i.test(media?.key || media?.src || "");
+}
+
+function getVideoMimeType(media) {
+  const source = (media?.key || media?.src || "").toLowerCase();
+
+  if (source.endsWith(".webm")) {
+    return "video/webm";
+  }
+
+  if (source.endsWith(".mov")) {
+    return "video/quicktime";
+  }
+
+  return "video/mp4";
+}
+
 export function HomePage() {
   const [images, setImages] = useState([]);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -55,6 +73,7 @@ export function HomePage() {
   }, [currentImageIndex, images.length]);
 
   const currentImage = images[currentImageIndex] || null;
+  const currentIsVideo = isVideoMedia(currentImage);
 
   return (
     <PageShell hero>
@@ -62,11 +81,26 @@ export function HomePage() {
         <article className="site-home-hero__gallery">
           {currentImage ? (
             <>
-              <img
-                className="site-home-hero__image"
-                src={currentImage.src}
-                alt={`대회 이미지 ${currentImageIndex + 1}`}
-              />
+              {currentIsVideo ? (
+                <video
+                  key={currentImage.src}
+                  className="site-home-hero__image"
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  preload="metadata"
+                  aria-label={`대회 영상 ${currentImageIndex + 1}`}
+                >
+                  <source src={currentImage.src} type={getVideoMimeType(currentImage)} />
+                </video>
+              ) : (
+                <img
+                  className="site-home-hero__image"
+                  src={currentImage.src}
+                  alt={`대회 이미지 ${currentImageIndex + 1}`}
+                />
+              )}
               <div className="site-home-hero__overlay">
                 <p className="site-kicker">Creative Entry Program</p>
                 <h1>신청부터 결제까지 한 번에 연결되는 대회 접수 페이지</h1>
