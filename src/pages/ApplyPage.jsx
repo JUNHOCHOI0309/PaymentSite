@@ -137,13 +137,16 @@ export function ApplyPage() {
             </div>
 
             <div className="site-form-grid">
-              <Input label="성함" value={state.applicantInfo.name} onChange={setApplicantField("name")} required />
-              <Input label="연락처" value={state.applicantInfo.phone} onChange={setApplicantField("phone")} placeholder="010-0000-0000" required />
-              <Input label="이메일" type="email" value={state.applicantInfo.email} onChange={setApplicantField("email")} required />
-              <Input label="생년월일" type="date" value={state.applicantInfo.birthDate} onChange={setApplicantField("birthDate")} required />
-              <Input label="소속" value={state.applicantInfo.organization} onChange={setApplicantField("organization")} />
+              <Input label="성함" requirement="필수" value={state.applicantInfo.name} onChange={setApplicantField("name")} required />
+              <Input label="연락처" requirement="필수" value={state.applicantInfo.phone} onChange={setApplicantField("phone")} placeholder="010-0000-0000" required />
+              <Input label="이메일" requirement="필수" type="email" value={state.applicantInfo.email} onChange={setApplicantField("email")} required />
+              <Input label="생년월일" requirement="필수" type="date" value={state.applicantInfo.birthDate} onChange={setApplicantField("birthDate")} required />
+              <Input label="소속" requirement="선택" value={state.applicantInfo.organization} onChange={setApplicantField("organization")} />
               <label className="site-field">
-                <span className="site-field__label">제출 파일</span>
+                <span className="site-field__label">
+                  제출 파일
+                  <span className="site-field__requirement">(선택)</span>
+                </span>
                 <input className="site-input site-input--file" type="file" onChange={handleFileChange} />
                 <span className="site-field__hint">
                   {state.uploadedFileMeta.originalFilename || "선택된 파일이 없습니다."}
@@ -154,10 +157,10 @@ export function ApplyPage() {
             <div className="site-apply-detail__form-lower">
               <div className="site-apply-detail__submit-area">
                 <div className="site-consent-group">
-                  <Checkbox label="개인정보 수집 및 이용 동의 (필수)" checked={state.consents.privacy} onChange={setConsent("privacy")} required />
-                  <Checkbox label="참가 유의사항 동의 (필수)" checked={state.consents.terms} onChange={setConsent("terms")} required />
-                  <Checkbox label="환불 규정 동의 (필수)" checked={state.consents.refund} onChange={setConsent("refund")} required />
-                  <Checkbox label="마케팅 정보 수신 동의 (선택)" checked={state.consents.marketing} onChange={setConsent("marketing")} />
+                  <Checkbox label="개인정보 수집 및 이용 동의" checked={state.consents.privacy} onChange={setConsent("privacy")} required />
+                  <Checkbox label="참가 유의사항 동의" checked={state.consents.terms} onChange={setConsent("terms")} required />
+                  <Checkbox label="환불 규정 동의" checked={state.consents.refund} onChange={setConsent("refund")} required />
+                  <Checkbox label="마케팅 정보 수신 동의" checked={state.consents.marketing} onChange={setConsent("marketing")} />
                 </div>
 
                 <div className="site-form-card__actions">

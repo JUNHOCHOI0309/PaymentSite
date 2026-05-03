@@ -919,6 +919,13 @@ body {
   font-weight: 600;
 }
 
+.site-field__requirement {
+  margin-left: 4px;
+  color: #9aa3b4;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
 .site-field__hint {
   color: #7a8292;
   font-size: 0.88rem;
@@ -2088,6 +2095,10 @@ body {
   min-width: 0;
 }
 
+.site-apply-detail__submit-area .site-form-card__actions {
+  margin-top: 61px;
+}
+
 .site-apply-detail__upload-notice {
   min-height: 210px;
   padding: 28px;
@@ -2102,9 +2113,10 @@ body {
 
 .site-apply-detail__upload-notice h2 {
   margin: 0;
-  font-size: clamp(1.55rem, 3vw, 2.25rem);
+  font-size: clamp(1.25rem, 2.1vw, 1.65rem);
   font-weight: 900;
   letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .site-apply-detail__upload-notice p {
@@ -2188,6 +2200,10 @@ body {
 
   .site-apply-detail__upload-notice {
     border-radius: 34px;
+  }
+
+  .site-apply-detail__upload-notice h2 {
+    font-size: clamp(1.05rem, 5vw, 1.35rem);
   }
 
   .site-apply-detail > .site-notice {

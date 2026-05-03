@@ -5,7 +5,7 @@ const STORAGE_KEY = "application-flow-state";
 const initialState = {
   draftId: null,
   orderId: null,
-  paymentMethod: "widget",
+  paymentMethod: "payment",
   applicantInfo: {
     name: "",
     phone: "",
