@@ -1,6 +1,7 @@
 import ReactDOM from "react-dom/client";
 import { createBrowserRouter, Outlet, RouterProvider } from "react-router-dom";
 import "./App.css";
+import { SiteFavicon } from "./components/layout/SiteFavicon";
 import { ScrollToTop } from "./components/layout/ScrollToTop";
 import { ApplicationFlowProvider } from "./context/ApplicationFlowContext";
 import { ApplyCompletePage } from "./pages/ApplyCompletePage";
@@ -23,6 +24,7 @@ import { WidgetSuccessPage } from "./pages/widget/WidgetSuccess";
 function RootLayout() {
   return (
     <>
+      <SiteFavicon />
       <ScrollToTop />
       <Outlet />
     </>
