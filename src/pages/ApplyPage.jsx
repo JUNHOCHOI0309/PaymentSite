@@ -12,6 +12,20 @@ function getRegisterImageUrl(key) {
   return buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(key)}`);
 }
 
+function formatPhoneNumber(value) {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+
+  if (digits.length <= 3) {
+    return digits;
+  }
+
+  if (digits.length <= 7) {
+    return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  }
+
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
 export function ApplyPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -27,7 +41,10 @@ export function ApplyPage() {
     dispatch({
       type: "SET_APPLICANT_FIELD",
       field,
-      value: event.target.value,
+      value:
+        field === "phone"
+          ? formatPhoneNumber(event.target.value)
+          : event.target.value,
     });
   };
 

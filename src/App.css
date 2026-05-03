@@ -1014,6 +1014,18 @@ body {
   margin-top: 24px;
 }
 
+.site-lookup-card .site-review-card__header h1 {
+  color: #050609;
+}
+
+.site-lookup-card .site-inline-actions {
+  margin-bottom: 42px;
+}
+
+.site-lookup-card .site-notice {
+  border-radius: 14px;
+}
+
 .site-button {
   border: 0;
   border-radius: 999px;
