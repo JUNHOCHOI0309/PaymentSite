@@ -3,9 +3,13 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApplicationFlow } from "../../context/ApplicationFlowContext";
 
-const clientKey = "test_ck_D5GePWvyJnrK0W0k6q8gLzN97Eoq";
+const clientKey = import.meta.env.VITE_TOSS_API_CLIENT_KEY;
 const customerKey = generateRandomString();
 const amount = { currency: "KRW", value: 1 };
+
+if (!clientKey) {
+  throw new Error("VITE_TOSS_API_CLIENT_KEY is not set");
+}
 
 export function PaymentCheckoutPage() {
   const navigate = useNavigate();

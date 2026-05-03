@@ -654,15 +654,16 @@ async function verifyDepositCallbackSecret({ paymentKey, orderId, secret }) {
 const widgetSecretKey = process.env.TOSS_WIDGET_SECRET_KEY;
 const apiSecretKey = process.env.TOSS_API_SECRET_KEY;
 
-if (!widgetSecretKey || !apiSecretKey) {
-  throw new Error("Missing Toss secret keys in .env");
+if (!apiSecretKey) {
+  throw new Error("Missing TOSS_API_SECRET_KEY in .env");
 }
 
 // 토스페이먼츠 API는 시크릿 키를 사용자 ID로 사용하고, 비밀번호는 사용하지 않습니다.
 // 비밀번호가 없다는 것을 알리기 위해 시크릿 키 뒤에 콜론을 추가합니다.
 // @docs https://docs.tosspayments.com/reference/using-api/authorization#%EC%9D%B8%EC%A6%9D
-const encryptedWidgetSecretKey =
-  "Basic " + Buffer.from(widgetSecretKey + ":").toString("base64");
+const encryptedWidgetSecretKey = widgetSecretKey
+  ? "Basic " + Buffer.from(widgetSecretKey + ":").toString("base64")
+  : null;
 const encryptedApiSecretKey =
   "Basic " + Buffer.from(apiSecretKey + ":").toString("base64");
 
@@ -878,6 +879,13 @@ async function confirmPaymentAndPersist(req, res, options) {
 }
 
 app.post("/confirm/widget", async function (req, res) {
+  if (!encryptedWidgetSecretKey) {
+    return res.status(503).json({
+      ok: false,
+      message: "Toss payment widget is not configured",
+    });
+  }
+
   await confirmPaymentAndPersist(req, res, {
     authorization: encryptedWidgetSecretKey,
     confirmUrl: "https://api.tosspayments.com/v1/payments/confirm",

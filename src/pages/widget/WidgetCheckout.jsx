@@ -6,10 +6,6 @@ import { useApplicationFlow } from "../../context/ApplicationFlowContext";
 const clientKey = import.meta.env.VITE_TOSS_WIDGET_CLIENT_KEY;
 const customerKey = generateRandomString();
 
-if (!clientKey) {
-  throw new Error("VITE_TOSS_WIDGET_CLIENT_KEY is not set");
-}
-
 export function WidgetCheckoutPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -24,6 +20,10 @@ export function WidgetCheckoutPage() {
   useEffect(() => {
     async function initializeOrderAndWidgets() {
       try {
+        if (!clientKey) {
+          throw new Error("결제위젯 연동 키가 설정되지 않았습니다. 일반 결제를 선택해 주세요.");
+        }
+
         const queryOrderId = searchParams.get("orderId");
         const draftId = searchParams.get("draftId") || state.draftId;
         const resolvedOrder = {
