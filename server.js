@@ -141,6 +141,20 @@ function normalizeBoolean(value) {
   return value === true;
 }
 
+function formatPhoneNumber(value) {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 11);
+
+  if (digits.length <= 3) {
+    return digits;
+  }
+
+  if (digits.length <= 7) {
+    return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  }
+
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
 function normalizeR2Prefix(prefix) {
   if (!prefix) {
     return "";
@@ -257,7 +271,7 @@ function mapApplicationRow(row) {
 // Draft 정규화 작업
 function validateDraftPayload(body) {
   const name = normalizeText(body.name);
-  const phone = normalizeText(body.phone);
+  const phone = normalizeText(formatPhoneNumber(body.phone));
   const email = normalizeText(body.email);
   const birthDate = normalizeText(body.birthDate);
   const organization = normalizeText(body.organization);
@@ -1670,7 +1684,7 @@ app.post("/files/upload", async function (req, res) {
 app.post("/applications/lookup", async function (req, res) {
   try {
     const applicationNumber = normalizeText(req.body.applicationNumber);
-    const phone = normalizeText(req.body.phone);
+    const phone = normalizeText(formatPhoneNumber(req.body.phone));
 
     if (!applicationNumber || !phone) {
       return res.status(400).json({

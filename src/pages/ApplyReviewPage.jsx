@@ -91,7 +91,7 @@ export function ApplyReviewPage() {
   return (
     <PageShell>
       <section className="site-page site-page--narrow">
-        <div className="site-review-card">
+        <div className="site-review-card site-apply-review-card">
           <div className="site-review-card__header">
             <p className="site-kicker">Review</p>
             <h1>신청 내용 확인</h1>
@@ -117,8 +117,6 @@ export function ApplyReviewPage() {
                 .filter(Boolean)
                 .join(", ")}
             />
-            <ReviewRow label="신청 초안 ID" value={state.draftId} />
-            <ReviewRow label="주문 ID" value={state.orderId} />
           </div>
 
           <NoticeBox title="결제 전 확인 사항">
@@ -129,15 +127,8 @@ export function ApplyReviewPage() {
             </ul>
           </NoticeBox>
 
-          <div className="site-inline-actions">
-            <Button variant="ghost" onClick={() => navigate("/apply/detail")}>이전으로</Button>
-            <Button onClick={handleProceedPayment} disabled={isPreparingPayment}>
-              {isPreparingPayment ? "결제 준비 중..." : "결제 진행하기"}
-            </Button>
-          </div>
-
           <div className="site-payment-methods">
-            <span>결제 수단 선택</span>
+            <h2 className="site-payment-methods__title">결제 방식</h2>
             <div className="site-chip-group">
               <button
                 className={`site-chip ${state.paymentMethod === "widget" ? "site-chip--active" : ""}`}
@@ -158,9 +149,16 @@ export function ApplyReviewPage() {
                 type="button"
                 onClick={() => dispatch({ type: "SET_PAYMENT_METHOD", value: "brandpay" })}
               >
-                Brandpay
+                BrandBay
               </button>
             </div>
+          </div>
+
+          <div className="site-inline-actions">
+            <Button variant="ghost" onClick={() => navigate("/apply/detail")}>이전으로</Button>
+            <Button onClick={handleProceedPayment} disabled={isPreparingPayment}>
+              {isPreparingPayment ? "결제 준비 중..." : "결제 진행하기"}
+            </Button>
           </div>
 
           {errorMessage ? <p className="site-error-message">{errorMessage}</p> : null}

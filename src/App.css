@@ -1018,6 +1018,33 @@ body {
   color: #050609;
 }
 
+.site-apply-review-card .site-review-card__header h1 {
+  color: #050609;
+}
+
+.site-apply-review-card .site-notice {
+  border-radius: 18px;
+  padding: 38px 42px;
+}
+
+.site-apply-review-card .site-payment-methods {
+  margin-top: 34px;
+  display: grid;
+  gap: 16px;
+}
+
+.site-apply-review-card .site-payment-methods__title {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.1;
+  color: #050609;
+}
+
+.site-apply-review-card .site-inline-actions {
+  justify-content: flex-end;
+  margin-top: 32px;
+}
+
 .site-lookup-card .site-inline-actions {
   margin-bottom: 42px;
 }

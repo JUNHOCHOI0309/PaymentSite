@@ -5,6 +5,20 @@ import { NoticeBox } from "../components/common/NoticeBox";
 import { PageShell } from "../components/layout/PageShell";
 import { lookupApplication } from "../lib/applicationApi";
 
+function formatPhoneNumber(value) {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+
+  if (digits.length <= 3) {
+    return digits;
+  }
+
+  if (digits.length <= 7) {
+    return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  }
+
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
 export function LookupPage() {
   const [form, setForm] = useState({
     applicationNumber: "",
@@ -17,7 +31,10 @@ export function LookupPage() {
   const setField = (field) => (event) => {
     setForm((current) => ({
       ...current,
-      [field]: event.target.value,
+      [field]:
+        field === "phone"
+          ? formatPhoneNumber(event.target.value)
+          : event.target.value,
     }));
   };
 
@@ -39,7 +56,7 @@ export function LookupPage() {
   return (
     <PageShell>
       <section className="site-page site-page--narrow">
-        <div className="site-review-card">
+        <div className="site-review-card site-lookup-card">
           <div className="site-review-card__header">
             <p className="site-kicker">Lookup</p>
             <h1>신청 조회</h1>

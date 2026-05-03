@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useReducer } from "react";
+import { createContext, useContext, useEffect, useMemo, useReducer, useState } from "react";
 
 const STORAGE_KEY = "application-flow-state";
 
@@ -81,13 +81,15 @@ const ApplicationFlowContext = createContext(null);
 
 export function ApplicationFlowProvider({ children }) {
   const [state, dispatch] = useReducer(applicationFlowReducer, initialState);
-  const value = useMemo(() => ({ state, dispatch }), [state]);
+  const [isHydrated, setIsHydrated] = useState(false);
+  const value = useMemo(() => ({ state, dispatch, isHydrated }), [state, isHydrated]);
 
   useEffect(() => {
     try {
       const savedState = window.sessionStorage.getItem(STORAGE_KEY);
 
       if (!savedState) {
+        setIsHydrated(true);
         return;
       }
 
@@ -97,6 +99,8 @@ export function ApplicationFlowProvider({ children }) {
       });
     } catch (error) {
       console.error("Failed to hydrate application flow state:", error);
+    } finally {
+      setIsHydrated(true);
     }
   }, []);
 

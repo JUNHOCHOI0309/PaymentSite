@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "../components/common/Button";
 import { Checkbox } from "../components/common/Checkbox";
@@ -29,13 +29,23 @@ function formatPhoneNumber(value) {
 export function ApplyPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { state, dispatch } = useApplicationFlow();
+  const { state, dispatch, isHydrated } = useApplicationFlow();
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
 
   const competitionName = searchParams.get("discipline") || "대회명";
   const selectedImageKey = searchParams.get("imageKey");
+
+  useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+
+    dispatch({ type: "RESET_APPLICATION_FLOW" });
+    setSelectedFile(null);
+    setErrorMessage("");
+  }, [dispatch, isHydrated]);
 
   const setApplicantField = (field) => (event) => {
     dispatch({
