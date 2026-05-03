@@ -1,6 +1,7 @@
 import ReactDOM from "react-dom/client";
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { createBrowserRouter, Outlet, RouterProvider } from "react-router-dom";
 import "./App.css";
+import { ScrollToTop } from "./components/layout/ScrollToTop";
 import { ApplicationFlowProvider } from "./context/ApplicationFlowContext";
 import { ApplyCompletePage } from "./pages/ApplyCompletePage";
 import { ApplyPage } from "./pages/ApplyPage";
@@ -19,89 +20,104 @@ import { TermsPage } from "./pages/TermsPage";
 import { WidgetCheckoutPage } from "./pages/widget/WidgetCheckout";
 import { WidgetSuccessPage } from "./pages/widget/WidgetSuccess";
 
+function RootLayout() {
+  return (
+    <>
+      <ScrollToTop />
+      <Outlet />
+    </>
+  );
+}
+
 const router = createBrowserRouter([
   {
     path: "/",
-    element: <HomePage />,
-  },
-  {
-    path: "apply",
-    element: <ApplySelectPage />,
-  },
-  {
-    path: "apply/detail",
-    element: <ApplyPage />,
-  },
-  {
-    path: "apply/review",
-    element: <ApplyReviewPage />,
-  },
-  {
-    path: "apply/complete",
-    element: <ApplyCompletePage />,
-  },
-  {
-    path: "lookup",
-    element: <LookupPage />,
-  },
-  {
-    path: "privacy",
-    element: <PrivacyPage />,
-  },
-  {
-    path: "terms",
-    element: <TermsPage />,
-  },
-  {
-    path: "widget",
+    element: <RootLayout />,
     children: [
+      {
+        index: true,
+        element: <HomePage />,
+      },
+      {
+        path: "apply",
+        element: <ApplySelectPage />,
+      },
+      {
+        path: "apply/detail",
+        element: <ApplyPage />,
+      },
+      {
+        path: "apply/review",
+        element: <ApplyReviewPage />,
+      },
+      {
+        path: "apply/complete",
+        element: <ApplyCompletePage />,
+      },
+      {
+        path: "lookup",
+        element: <LookupPage />,
+      },
+      {
+        path: "privacy",
+        element: <PrivacyPage />,
+      },
+      {
+        path: "terms",
+        element: <TermsPage />,
+      },
+      {
+        path: "widget",
+        children: [
+          {
+            path: "checkout",
+            element: <WidgetCheckoutPage />,
+          },
+          {
+            path: "success",
+            element: <WidgetSuccessPage />,
+          },
+        ],
+      },
       {
         path: "checkout",
         element: <WidgetCheckoutPage />,
       },
       {
-        path: "success",
-        element: <WidgetSuccessPage />,
+        path: "brandpay",
+        children: [
+          {
+            path: "checkout",
+            element: <BrandpayCheckoutPage />,
+          },
+          {
+            path: "success",
+            element: <BrandpaySuccessPage />,
+          },
+        ],
+      },
+      {
+        path: "payment",
+        children: [
+          {
+            path: "checkout",
+            element: <PaymentCheckoutPage />,
+          },
+          {
+            path: "billing",
+            element: <PaymentBillingPage />,
+          },
+          {
+            path: "success",
+            element: <PaymentSuccessPage />,
+          },
+        ],
+      },
+      {
+        path: "fail",
+        element: <FailPage />,
       },
     ],
-  },
-  {
-    path: "checkout",
-    element: <WidgetCheckoutPage />,
-  },
-  {
-    path: "brandpay",
-    children: [
-      {
-        path: "checkout",
-        element: <BrandpayCheckoutPage />,
-      },
-      {
-        path: "success",
-        element: <BrandpaySuccessPage />,
-      },
-    ],
-  },
-  {
-    path: "payment",
-    children: [
-      {
-        path: "checkout",
-        element: <PaymentCheckoutPage />,
-      },
-      {
-        path: "billing",
-        element: <PaymentBillingPage />,
-      },
-      {
-        path: "success",
-        element: <PaymentSuccessPage />,
-      },
-    ],
-  },
-  {
-    path: "fail",
-    element: <FailPage />,
   },
 ]);
 

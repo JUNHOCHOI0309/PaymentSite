@@ -15,20 +15,20 @@ const competitionGroups = {
     title: "MAN",
     mainImage: "home/man_main.png",
     items: [
-      { key: "home/man_1.png", title: "BODY BUILDING" },
-      { key: "home/man_2.png", title: "BODY BUILDING 101" },
-      { key: "home/man_3.png", title: "SPORTS MODEL MEN" },
-      { key: "home/man_4.png", title: "CLASSIC BODY BUILDING" },
-      { key: "home/man_5.png", title: "PHYSIQUE" },
+      { key: "home/man_1.png", registerKey: "register/man_1.png", title: "Body Building" },
+      { key: "home/man_2.png", registerKey: "register/man_2.png", title: "Body Building 101" },
+      { key: "home/man_3.png", registerKey: "register/man_3.png", title: "Sports Model Men" },
+      { key: "home/man_4.png", registerKey: "register/man_4.png", title: "Classic Body Building" },
+      { key: "home/man_5.png", registerKey: "register/man_5.png", title: "Physique" },
     ],
   },
   woman: {
     title: "WOMAN",
     mainImage: "home/woman_main.png",
     items: [
-      { key: "home/woman_1.png", title: "BODY BUILDING 102" },
-      { key: "home/woman_2.png", title: "SPORTS MODEL WOMEN" },
-      { key: "home/woman_3.png", title: "BIKINI FITNESS" },
+      { key: "home/woman_1.png", registerKey: "register/woman_1.png", title: "Body Building 102" },
+      { key: "home/woman_2.png", registerKey: "register/woman_2.png", title: "Sports Model Women" },
+      { key: "home/woman_3.png", registerKey: "register/woman_3.png", title: "Bikini Fitness" },
     ],
   },
 };
@@ -53,6 +53,16 @@ function getVideoMimeType(media) {
 
 function getHomeImageUrl(key) {
   return buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(key)}`);
+}
+
+function getApplyDetailPath(groupKey, item) {
+  const params = new URLSearchParams({
+    division: groupKey,
+    discipline: item.title,
+    imageKey: item.registerKey,
+  });
+
+  return `/apply/detail?${params.toString()}`;
 }
 
 export function HomePage() {
@@ -189,7 +199,7 @@ export function HomePage() {
                   <div className="site-home-detail__info">
                     <h2>대회 설명<br />및<br />상금 안내</h2>
                   </div>
-                  <Link className="site-home-detail__apply" to="/apply">
+                  <Link className="site-home-detail__apply" to={getApplyDetailPath(expandedGroup, selectedItem)}>
                     신청하기
                   </Link>
                 </div>

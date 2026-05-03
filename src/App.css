@@ -1478,6 +1478,7 @@ body {
 }
 
 .site-home-intro-card {
+  position: relative;
   min-height: 340px;
   border-radius: 0;
   background: #d8d8d8;
@@ -1495,6 +1496,13 @@ body {
   transition: transform 0.25s ease, filter 0.25s ease;
 }
 
+.site-home-intro-card::before {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.42);
+  content: "";
+}
+
 .site-home-intro-card:hover,
 .site-home-intro-card:focus-visible {
   filter: brightness(1.06);
@@ -1502,6 +1510,8 @@ body {
 }
 
 .site-home-intro-card span {
+  position: relative;
+  z-index: 1;
   margin: 0;
   font-size: clamp(2rem, 4vw, 3rem);
   font-weight: 900;
