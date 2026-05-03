@@ -119,7 +119,7 @@ export function ApplyPage() {
         <div className="site-apply-detail__layout">
           <aside className="site-apply-detail__summary">
             <Link className="site-apply-detail__back-link" to="/apply">
-              &lt; 뒤로가기
+             &lt; 뒤로가기
             </Link>
             <h1>{competitionName}</h1>
             {selectedImageKey ? (
