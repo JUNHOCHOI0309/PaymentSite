@@ -1726,19 +1726,45 @@ body {
 
 .site-home-detail__info {
   background: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   padding: 36px;
-  text-align: center;
+  text-align: left;
+}
+
+.site-home-detail__eyebrow {
+  margin: 0;
+  color: #767676;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .site-home-detail__info h2 {
-  margin: 0;
-  font-size: clamp(2rem, 4vw, 3.4rem);
+  margin: 16px 0 0;
+  font-size: clamp(1.8rem, 3vw, 2.8rem);
   font-weight: 900;
-  line-height: 1.35;
+  line-height: 1.15;
   letter-spacing: 0;
+}
+
+.site-home-detail__copy {
+  display: grid;
+  gap: 22px;
+  margin-top: 30px;
+}
+
+.site-home-detail__copy h3 {
+  margin: 0 0 8px;
+  color: #050609;
+  font-size: 1.15rem;
+  font-weight: 900;
+}
+
+.site-home-detail__copy p {
+  margin: 0;
+  color: #4b4b4b;
+  line-height: 1.7;
+  white-space: pre-line;
 }
 
 .site-home-detail__apply {
