@@ -3,23 +3,28 @@ import { useNavigate } from "react-router-dom";
 import { PageShell } from "../components/layout/PageShell";
 import { buildApiUrl } from "../lib/applicationApi";
 
+const commonItems = [
+  { key: "register/common_1.png", title: "Model Korea" },
+  { key: "register/common_2.png", title: "Fitness Korea" },
+  { key: "register/common_3.png", title: "Danim Korea" },
+];
+
 const disciplineGroups = {
   man: {
     label: "MAN",
     items: [
       { key: "register/man_1.png", title: "Body Building" },
-      { key: "register/man_2.png", title: "Body Building 101" },
-      { key: "register/man_3.png", title: "Sports Model Men" },
-      { key: "register/man_4.png", title: "Classic Body Building" },
-      { key: "register/man_5.png", title: "Physique" },
+      { key: "register/man_2.png", title: "Classic" },
+      { key: "register/man_3.png", title: "Physique" },
+      ...commonItems,
     ],
   },
   woman: {
     label: "WOMAN",
     items: [
-      { key: "register/woman_1.png", title: "Body Building 102" },
-      { key: "register/woman_2.png", title: "Sports Model Women" },
-      { key: "register/woman_3.png", title: "Bikini Fitness" },
+      { key: "register/woman_1.png", title: "Ms. Bikini Korea" },
+      { key: "register/woman_2.png", title: "Figure Korea" },
+      ...commonItems,
     ],
   },
 };

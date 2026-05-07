@@ -35,7 +35,7 @@ export function ApplyCompletePage() {
   return (
     <PageShell>
       <section className="site-page site-page--narrow">
-        <div className="site-complete-card">
+        <div className="site-complete-card site-apply-complete-card">
           <p className="site-kicker">Complete</p>
           <h1>신청 완료</h1>
           <p>신청이 정상적으로 접수되었습니다. 아래 신청 정보를 확인해 주세요.</p>
