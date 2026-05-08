@@ -110,7 +110,7 @@ export function ApplySelectPage() {
   }
 
   return (
-    <PageShell>
+    <PageShell className="site-shell--register-select">
       <section className="site-register-select" aria-labelledby="register-select-title">
         <div className="site-register-select__heading">
           <h1 id="register-select-title">DISCIPLINES</h1>

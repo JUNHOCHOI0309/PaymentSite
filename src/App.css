@@ -1088,8 +1088,8 @@ body {
 }
 
 .site-footer {
-  margin-top: 64px;
-  padding: 28px 0 56px;
+  margin-top: 0px;
+  padding: 92px 0 56px;
   border-top: 1px solid rgba(45, 49, 64, 0.12);
   display: flex;
   justify-content: space-between;
@@ -1333,6 +1333,7 @@ body {
 }
 
 .site-shell main {
+  background: #000;
   padding-bottom: 0;
 }
 
@@ -1529,7 +1530,7 @@ body {
 
 .site-home-intro-card {
   position: relative;
-  min-height: 340px;
+  min-height: 440px;
   border-radius: 0;
   background: #d8d8d8;
   color: #050609;
@@ -1542,7 +1543,7 @@ body {
   background-repeat: no-repeat;
   background-size: cover;
   overflow: hidden;
-  padding: 0;
+  padding: 0 0 30px;
   transition: transform 0.25s ease, filter 0.25s ease;
 }
 
@@ -1563,6 +1564,7 @@ body {
   position: relative;
   z-index: 1;
   margin: 0;
+  transform: translateY(100px);
   font-size: clamp(2rem, 4vw, 3rem);
   font-weight: 900;
   letter-spacing: 0;
@@ -1793,6 +1795,9 @@ body {
 }
 
 .site-footer {
+  background: #000;
+  box-shadow: 0 0 0 100vmax #000;
+  clip-path: inset(0 -100vmax);
   color: #fff;
   border-top-color: rgba(255, 255, 255, 0.12);
 }
