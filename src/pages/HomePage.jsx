@@ -3,6 +3,9 @@ import { Link } from "react-router-dom";
 import { PageShell } from "../components/layout/PageShell";
 import { buildApiUrl, getHomeGalleryImages } from "../lib/applicationApi";
 
+const homeUpImageKeys = Array.from({ length: 10 }, (_, index) => `home/home_up_${index + 1}.png`);
+
+
 const scheduleItems = [
   ["신청 기간", "2026.05.01 - 2026.05.31"],
   ["예선 발표", "2026.06.10"],
@@ -196,17 +199,19 @@ export function HomePage() {
         </div>
       </section>
 
-      <section className="site-home-schedule" aria-labelledby="home-schedule-title">
-        <div className="site-home-schedule__inner">
-          <h2 id="home-schedule-title">핵심 일정</h2>
-          <ul className="site-home-schedule__list">
-            {scheduleItems.map(([label, value]) => (
-              <li key={label}>
-                <span>{label}</span>
-                <strong>{value}</strong>
-              </li>
+      <section className="site-home-up" aria-label="? ?? ??? ??">
+        <div className="site-home-up__viewport">
+          <div className="site-home-up__track">
+            {[...homeUpImageKeys, ...homeUpImageKeys].map((key, index) => (
+              <img
+                key={`${key}-${index}`}
+                className="site-home-up__image"
+                src={getHomeImageUrl(key)}
+                alt=""
+                aria-hidden="true"
+              />
             ))}
-          </ul>
+          </div>
         </div>
       </section>
 

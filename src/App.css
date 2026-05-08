@@ -1531,64 +1531,34 @@ body {
   line-height: 1.7;
 }
 
-.site-home-schedule,
+.site-home-up,
 .site-home-intro {
   width: min(1180px, calc(100% - 48px));
   margin: 0 auto;
 }
 
-.site-home-schedule {
+.site-home-up {
   padding: 42px 0 18px;
 }
 
-.site-home-schedule__inner {
-  width: min(900px, 100%);
-  margin: 0 auto;
-  padding: clamp(28px, 4vw, 46px);
-  border-radius: 8px;
-  background: #d8d8d8;
-  color: #08090c;
+.site-home-up__viewport {
+  overflow: hidden;
 }
 
-.site-home-schedule__inner h2 {
-  margin: 0 0 26px;
-  text-align: center;
-  font-size: clamp(1.8rem, 3vw, 2.4rem);
-  font-weight: 800;
-  letter-spacing: 0;
-}
-
-.site-home-schedule__list {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.site-home-schedule__list li {
-  min-height: 88px;
-  padding: 16px 14px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.58);
+.site-home-up__track {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 8px;
-  text-align: center;
+  align-items: center;
+  gap: 22px;
+  width: max-content;
+  animation: siteHomeUpScroll 52s linear infinite;
 }
 
-.site-home-schedule__list span {
-  color: #494b52;
-  font-size: 0.9rem;
-  font-weight: 700;
-}
-
-.site-home-schedule__list strong {
-  color: #0b0c10;
-  font-size: 0.95rem;
-  line-height: 1.35;
+.site-home-up__image {
+  display: block;
+  width: auto;
+  height: clamp(180px, 20vw, 260px);
+  flex: 0 0 auto;
+  object-fit: contain;
 }
 
 .site-home-intro {
@@ -1850,6 +1820,16 @@ body {
   }
 }
 
+@keyframes siteHomeUpScroll {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(calc(-50% - 11px));
+  }
+}
+
 .site-footer {
   background: #000;
   box-shadow: 0 0 0 100vmax #000;
@@ -1892,13 +1872,13 @@ body {
     min-height: 560px;
   }
 
-  .site-home-schedule,
+  .site-home-up,
   .site-home-intro {
     width: min(100%, calc(100% - 32px));
   }
 
-  .site-home-schedule__list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .site-home-up__image {
+    height: clamp(150px, 26vw, 220px);
   }
 }
 
@@ -1920,7 +1900,6 @@ body {
     font-size: 0.72rem;
   }
 
-  .site-home-schedule__list,
   .site-home-intro__grid {
     grid-template-columns: 1fr;
   }
