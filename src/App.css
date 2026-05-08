@@ -1905,7 +1905,7 @@ body {
   }
 
   .site-home-intro-card {
-    min-height: 260px;
+    min-height: 410px;
   }
 }
 
@@ -2450,6 +2450,10 @@ body {
 .site-introduce-page__gallery {
   display: grid;
   gap: 32px;
+}
+
+.site-introduce-page__gallery--flush {
+  gap: 0;
 }
 
 .site-introduce-page__gallery-image {
