@@ -64,7 +64,7 @@ export function CompetitionIntroPage() {
 export function MmkIntroPage() {
   return (
     <IntroPageLayout title="MMK Introduce" bodyTitle="MMK 소개">
-      <div className="site-introduce-page__gallery">
+      <div className="site-introduce-page__gallery site-introduce-page__gallery--flush">
         {mmkIntroImageKeys.map((key, index) => (
           <img
             key={key}
