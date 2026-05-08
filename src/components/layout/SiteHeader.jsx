@@ -25,7 +25,15 @@ export function SiteHeader() {
           <Link to="/">HOME</Link>
           <Link to="/apply">대회신청</Link>
           <Link to="/lookup">신청조회</Link>
-          <Link to="/#competition-intro">대회소개</Link>
+          <div className="site-header__dropdown">
+            <button className="site-header__dropdown-trigger" type="button">
+              대회소개
+            </button>
+            <div className="site-header__dropdown-menu">
+              <Link to="/mma-intro">MMA 소개</Link>
+              <Link to="/competition-intro">대회 소개</Link>
+            </div>
+          </div>
         </nav>
       </div>
     </header>
