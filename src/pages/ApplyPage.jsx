@@ -24,7 +24,7 @@ const defaultAdditionalInfo = {
 
 const additionalInfoByImageKey = {
   "register/man_1.png": {
-    title: "머슬마니아 보디빌딩 (MUSCLEMANIA BODYBUILDING)",
+    title: "머슬마니아 보디빌딩\n\n (MUSCLEMANIA BODYBUILDING)",
     sections: [
       {
         title: "종목 소개",
@@ -64,7 +64,7 @@ const additionalInfoByImageKey = {
     ],
   },
   "register/man_2.png": {
-    title: "머슬마니아 클래식 (MUSCLEMANIA CLASSIC)",
+    title: "머슬마니아 클래식 \n\n (MUSCLEMANIA CLASSIC)",
     sections: [
       {
         title: "종목 소개",
@@ -95,6 +95,11 @@ const additionalInfoByImageKey = {
           "1. 프론트 더블 바이셉스 2. 사이드 체스트 3. 트라이셉스\n\n4. 리어 더블 바이셉스 5. 업도미널 앤 타이\n\n클래식보디빌딩 규정포즈",
       },
       {
+        title: "클래식 규정포즈 이미지",
+        type: "image",
+        imageKey: "register/man_2_1.png",
+      },
+      {
         title: "클래식 복장규정",
         body:
           "규정복장 : 남성 브리프\n\n액세서리 및 신발 착용 금지\n\n의상 규정에 어긋나는 복장 착용시 감점\n\n컬러크림 또는 과도한 오일 사용시 감점",
@@ -103,7 +108,7 @@ const additionalInfoByImageKey = {
     ],
   },
   "register/man_3.png": {
-    title: "피지크 (PHYSIQUE)",
+    title: "피지크 \n\n(PHYSIQUE)",
     sections: [
       {
         title: "종목 소개",
@@ -137,7 +142,7 @@ const additionalInfoByImageKey = {
     ],
   },
   "register/woman_1.png": {
-    title: "미즈비키니 (MS.BIKINI)",
+    title: "미즈비키니 \n\n (MS.BIKINI)",
     sections: [
       {
         title: "종목 소개",
@@ -172,7 +177,7 @@ const additionalInfoByImageKey = {
     ],
   },
   "register/woman_2.png": {
-    title: "피규어 (FIGURE)",
+    title: "피규어 \n\n (FIGURE)",
     sections: [
       {
         title: "종목 소개",
@@ -206,7 +211,7 @@ const additionalInfoByImageKey = {
     ],
   },
   "register/common_1.png": {
-    title: "모델 (MODEL)",
+    title: "모델 \n\n (MODEL)",
     sections: [
       {
         title: "종목 소개",
@@ -241,7 +246,7 @@ const additionalInfoByImageKey = {
     ],
   },
   "register/common_2.png": {
-    title: "피트니스 (FITNESS)",
+    title: "피트니스 \n\n (FITNESS)",
     sections: [
       {
         title: "종목 소개",
@@ -307,6 +312,10 @@ export function ApplyPage() {
   const competitionName = searchParams.get("discipline") || "대회명";
   const selectedImageKey = searchParams.get("imageKey");
   const additionalInfo = additionalInfoByImageKey[selectedImageKey] || defaultAdditionalInfo;
+  const [additionalInfoTitlePrimary, additionalInfoTitleSecondary] = additionalInfo.title
+    .split(/\n\s*\n/)
+    .map((part) => part.trim())
+    .filter(Boolean);
 
   useEffect(() => {
     if (!isHydrated) {
@@ -322,10 +331,7 @@ export function ApplyPage() {
     dispatch({
       type: "SET_APPLICANT_FIELD",
       field,
-      value:
-        field === "phone"
-          ? formatPhoneNumber(event.target.value)
-          : event.target.value,
+      value: field === "phone" ? formatPhoneNumber(event.target.value) : event.target.value,
     });
   };
 
@@ -383,7 +389,6 @@ export function ApplyPage() {
         : await createDraft(payload);
 
       const draftId = draftResponse.draft.draftId;
-
       dispatch({ type: "SET_DRAFT_ID", value: draftId });
 
       if (selectedFile) {
@@ -417,7 +422,7 @@ export function ApplyPage() {
         <div className="site-apply-detail__layout">
           <aside className="site-apply-detail__summary">
             <Link className="site-apply-detail__back-link" to="/apply">
-             &lt; 뒤로가기
+              {"< 뒤로가기"}
             </Link>
             <h1>{competitionName}</h1>
             {selectedImageKey ? (
@@ -487,7 +492,14 @@ export function ApplyPage() {
         </NoticeBox>
 
         <section className="site-apply-detail__additional-info" aria-labelledby="apply-additional-info-title">
-          <h2 id="apply-additional-info-title">{additionalInfo.title}</h2>
+          <h2 id="apply-additional-info-title">
+            <span className="site-apply-detail__additional-title-primary">
+              {additionalInfoTitlePrimary || additionalInfo.title}
+            </span>
+            {additionalInfoTitleSecondary ? (
+              <span className="site-apply-detail__additional-title-secondary">{additionalInfoTitleSecondary}</span>
+            ) : null}
+          </h2>
           <div className="site-apply-detail__additional-sections">
             {additionalInfo.sections.map((section) => (
               <section
@@ -496,8 +508,18 @@ export function ApplyPage() {
                 }`}
                 key={section.title}
               >
-                <h3>{section.title}</h3>
-                <p>{section.body}</p>
+                {section.type === "image" ? (
+                  <img
+                    className="site-apply-detail__additional-image"
+                    src={getRegisterImageUrl(section.imageKey)}
+                    alt={section.title}
+                  />
+                ) : (
+                  <>
+                    <h3>{section.title}</h3>
+                    <p>{section.body}</p>
+                  </>
+                )}
               </section>
             ))}
           </div>
