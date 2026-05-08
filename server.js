@@ -49,7 +49,7 @@ const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID;
 const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
 const r2BucketName = process.env.R2_BUCKET_NAME;
 const r2HomeImagePrefix = normalizeR2Prefix(process.env.R2_HOME_IMAGE_PREFIX || "home/");
-const r2ReadableImagePrefixes = [r2HomeImagePrefix, "register/", "favicon/"].filter(Boolean);
+const r2ReadableImagePrefixes = [r2HomeImagePrefix, "register/", "favicon/", "introduce/"].filter(Boolean);
 const r2Endpoint =
   process.env.R2_ENDPOINT ||
   (r2AccountId ? `https://${r2AccountId}.r2.cloudflarestorage.com` : null);

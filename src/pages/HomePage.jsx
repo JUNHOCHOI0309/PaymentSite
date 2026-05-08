@@ -218,11 +218,10 @@ export function HomePage() {
                 className="site-home-intro-card"
                 key={groupKey}
                 type="button"
+                aria-label={group.title}
                 style={{ backgroundImage: `url("${getHomeImageUrl(group.mainImage)}")` }}
                 onClick={() => openGroup(groupKey)}
-              >
-                <span>{group.title}</span>
-              </button>
+              />
             ))}
           </div>
         ) : (
