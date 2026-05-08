@@ -1,7 +1,7 @@
 import { PageShell } from "../components/layout/PageShell";
 import { buildApiUrl } from "../lib/applicationApi";
 
-const mmaIntroImageKeys = [
+const mmkIntroImageKeys = [
   "introduce/introduce_2.png",
   "introduce/introduce_3.png",
   "introduce/introduce_4.png",
@@ -61,16 +61,16 @@ export function CompetitionIntroPage() {
   );
 }
 
-export function MmaIntroPage() {
+export function MmkIntroPage() {
   return (
-    <IntroPageLayout title="MMA Introduce" bodyTitle="MMA 소개">
+    <IntroPageLayout title="MMK Introduce" bodyTitle="MMK 소개">
       <div className="site-introduce-page__gallery">
-        {mmaIntroImageKeys.map((key, index) => (
+        {mmkIntroImageKeys.map((key, index) => (
           <img
             key={key}
             className="site-introduce-page__gallery-image"
             src={getIntroduceImageUrl(key)}
-            alt={`MMA 소개 이미지 ${index + 1}`}
+            alt={`MMK 소개 이미지 ${index + 1}`}
           />
         ))}
       </div>

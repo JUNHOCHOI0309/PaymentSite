@@ -30,7 +30,7 @@ export function SiteHeader() {
               대회소개
             </button>
             <div className="site-header__dropdown-menu">
-              <Link to="/mma-intro">MMA 소개</Link>
+              <Link to="/mmk-intro">MMK 소개</Link>
               <Link to="/competition-intro">대회 소개</Link>
             </div>
           </div>
