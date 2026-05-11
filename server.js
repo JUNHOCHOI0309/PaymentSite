@@ -291,13 +291,6 @@ function validateDraftPayload(body) {
     };
   }
 
-  if (!consents.privacy || !consents.terms || !consents.refund) {
-    return {
-      ok: false,
-      message: "Required consents are missing",
-    };
-  }
-
   return {
     ok: true,
     payload: {

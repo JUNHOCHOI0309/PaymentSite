@@ -6,6 +6,11 @@ const initialState = {
   draftId: null,
   orderId: null,
   paymentMethod: "payment",
+  selection: {
+    division: "",
+    discipline: "",
+    imageKey: "",
+  },
   applicantInfo: {
     name: "",
     phone: "",
@@ -24,6 +29,7 @@ const initialState = {
     terms: false,
     refund: false,
     marketing: false,
+    photoVideo: false,
   },
 };
 
@@ -50,10 +56,23 @@ function applicationFlowReducer(state, action) {
           [action.field]: action.value,
         },
       };
+    case "SET_ALL_CONSENTS":
+      return {
+        ...state,
+        consents: {
+          ...state.consents,
+          ...action.payload,
+        },
+      };
     case "SET_PAYMENT_METHOD":
       return {
         ...state,
         paymentMethod: action.value,
+      };
+    case "SET_SELECTION":
+      return {
+        ...state,
+        selection: action.value,
       };
     case "SET_DRAFT_ID":
       return {
@@ -69,6 +88,10 @@ function applicationFlowReducer(state, action) {
       return {
         ...state,
         ...action.payload,
+        consents: {
+          ...initialState.consents,
+          ...(action.payload?.consents || {}),
+        },
       };
     case "RESET_APPLICATION_FLOW":
       return initialState;

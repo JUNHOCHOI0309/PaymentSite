@@ -6,6 +6,8 @@ import { PageShell } from "../components/layout/PageShell";
 import { useApplicationFlow } from "../context/ApplicationFlowContext";
 import { createOrder, getDraft } from "../lib/applicationApi";
 
+const requiredConsentKeys = ["privacy", "terms", "refund"];
+
 function ReviewRow({ label, value }) {
   return (
     <div className="site-review-row">
@@ -28,7 +30,14 @@ export function ApplyReviewPage() {
     brandpay: "/brandpay/checkout",
   };
 
+  const requiredConsentsAccepted = requiredConsentKeys.every((key) => state.consents[key]);
+
   useEffect(() => {
+    if (!requiredConsentsAccepted) {
+      navigate("/apply/consent");
+      return;
+    }
+
     async function fetchDraft() {
       if (!state.draftId) {
         return;
@@ -43,7 +52,7 @@ export function ApplyReviewPage() {
     }
 
     fetchDraft();
-  }, [state.draftId]);
+  }, [navigate, requiredConsentsAccepted, state.draftId]);
 
   async function handleProceedPayment() {
     if (!state.draftId) {
@@ -113,6 +122,7 @@ export function ApplyReviewPage() {
                 state.consents.terms ? "유의사항" : null,
                 state.consents.refund ? "환불규정" : null,
                 state.consents.marketing ? "마케팅" : null,
+                state.consents.photoVideo ? "사진/동영상" : null,
               ]
                 .filter(Boolean)
                 .join(", ")}
@@ -155,7 +165,7 @@ export function ApplyReviewPage() {
           </div>
 
           <div className="site-inline-actions">
-            <Button variant="ghost" onClick={() => navigate("/apply/detail")}>이전으로</Button>
+            <Button variant="ghost" onClick={() => navigate("/apply/consent")}>이전으로</Button>
             <Button onClick={handleProceedPayment} disabled={isPreparingPayment}>
               {isPreparingPayment ? "결제 준비 중..." : "결제 진행하기"}
             </Button>
