@@ -1,12 +1,20 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "../components/common/Button";
 import { Input } from "../components/common/Input";
 import { NoticeBox } from "../components/common/NoticeBox";
 import { PageShell } from "../components/layout/PageShell";
 import { useApplicationFlow } from "../context/ApplicationFlowContext";
-import { additionalInfoByImageKey, defaultAdditionalInfo } from "../data/applicationAdditionalInfo";
-import { buildApiUrl, createDraft, updateDraft, uploadFile } from "../lib/applicationApi";
+import {
+  additionalInfoByImageKey,
+  defaultAdditionalInfo,
+} from "../data/applicationAdditionalInfo";
+import {
+  buildApiUrl,
+  createDraft,
+  updateDraft,
+  uploadFile,
+} from "../lib/applicationApi";
 
 function getRegisterImageUrl(key) {
   return buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(key)}`);
@@ -33,21 +41,33 @@ function splitDisplayTitle(title) {
     .filter(Boolean);
 }
 
+function getInitialFieldErrors() {
+  return {
+    name: "",
+    phone: "",
+    email: "",
+    birthDate: "",
+  };
+}
+
 export function ApplyPage() {
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { state, dispatch, isHydrated } = useApplicationFlow();
+  const handledLocationKeyRef = useRef("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [fieldErrors, setFieldErrors] = useState(getInitialFieldErrors);
 
   const selectedDivision = searchParams.get("division") || "";
   const competitionName = searchParams.get("discipline") || "대회명";
   const selectedImageKey = searchParams.get("imageKey") || "";
-  const additionalInfo = additionalInfoByImageKey[selectedImageKey] || defaultAdditionalInfo;
-  const [additionalInfoTitlePrimary, additionalInfoTitleSecondary] = splitDisplayTitle(
-    additionalInfo.title,
-  );
+  const additionalInfo =
+    additionalInfoByImageKey[selectedImageKey] || defaultAdditionalInfo;
+  const [additionalInfoTitlePrimary, additionalInfoTitleSecondary] =
+    splitDisplayTitle(additionalInfo.title);
 
   useEffect(() => {
     if (!isHydrated) {
@@ -65,32 +85,100 @@ export function ApplyPage() {
       state.selection?.division === incomingSelection.division &&
       state.selection?.discipline === incomingSelection.discipline &&
       state.selection?.imageKey === incomingSelection.imageKey;
+    const navigationSource = location.state?.source;
+    const shouldHandleNavigationSource =
+      Boolean(navigationSource) && handledLocationKeyRef.current !== location.key;
+
+    if (shouldHandleNavigationSource) {
+      handledLocationKeyRef.current = location.key;
+
+      if (navigationSource === "consent" && hasSavedSelection && isSameSelection) {
+        return;
+      }
+
+      if (navigationSource === "select") {
+        dispatch({ type: "RESET_APPLICATION_FLOW" });
+        dispatch({ type: "SET_SELECTION", value: incomingSelection });
+        setSelectedFile(null);
+        setErrorMessage("");
+        setFieldErrors(getInitialFieldErrors());
+        return;
+      }
+    }
 
     if (!hasSavedSelection || !isSameSelection) {
       dispatch({ type: "RESET_APPLICATION_FLOW" });
       dispatch({ type: "SET_SELECTION", value: incomingSelection });
       setSelectedFile(null);
       setErrorMessage("");
+      setFieldErrors(getInitialFieldErrors());
     }
   }, [
     dispatch,
     isHydrated,
+    location.key,
+    location.state,
     searchParams,
     selectedDivision,
     selectedImageKey,
     state.selection,
   ]);
 
+  function validateApplicantField(field, value) {
+    const normalizedValue = typeof value === "string" ? value.trim() : value;
+
+    switch (field) {
+      case "name":
+        return normalizedValue ? "" : "성함을 입력해 주세요.";
+      case "phone": {
+        const digits = String(value || "").replace(/\D/g, "");
+        return digits.length === 11 ? "" : "연락처를 정확히 입력해 주세요.";
+      }
+      case "email":
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(normalizedValue || ""))
+          ? ""
+          : "이메일 형식을 확인해 주세요.";
+      case "birthDate":
+        return normalizedValue ? "" : "생년월일을 입력해 주세요.";
+      default:
+        return "";
+    }
+  }
+
+  function validateApplicantForm() {
+    const nextErrors = {
+      name: validateApplicantField("name", state.applicantInfo.name),
+      phone: validateApplicantField("phone", state.applicantInfo.phone),
+      email: validateApplicantField("email", state.applicantInfo.email),
+      birthDate: validateApplicantField(
+        "birthDate",
+        state.applicantInfo.birthDate,
+      ),
+    };
+
+    setFieldErrors(nextErrors);
+    return !Object.values(nextErrors).some(Boolean);
+  }
+
   function setApplicantField(field) {
     return (event) => {
+      const nextValue =
+        field === "phone"
+          ? formatPhoneNumber(event.target.value)
+          : event.target.value;
+
       dispatch({
         type: "SET_APPLICANT_FIELD",
         field,
-        value:
-          field === "phone"
-            ? formatPhoneNumber(event.target.value)
-            : event.target.value,
+        value: nextValue,
       });
+
+      if (field in fieldErrors) {
+        setFieldErrors((current) => ({
+          ...current,
+          [field]: validateApplicantField(field, nextValue),
+        }));
+      }
     };
   }
 
@@ -118,8 +206,13 @@ export function ApplyPage() {
 
   async function handleSubmit(event) {
     event.preventDefault();
-    setIsSubmitting(true);
     setErrorMessage("");
+
+    if (!validateApplicantForm()) {
+      return;
+    }
+
+    setIsSubmitting(true);
 
     try {
       const payload = {
@@ -178,13 +271,21 @@ export function ApplyPage() {
             </Link>
             <h1>{competitionName}</h1>
             {selectedImageKey ? (
-              <img src={getRegisterImageUrl(selectedImageKey)} alt={competitionName} />
+              <img
+                src={getRegisterImageUrl(selectedImageKey)}
+                alt={competitionName}
+              />
             ) : (
-              <div className="site-apply-detail__image-placeholder">대회 이미지</div>
+              <div className="site-apply-detail__image-placeholder">
+                대회 이미지
+              </div>
             )}
           </aside>
 
-          <form className="site-form-card site-apply-detail__form" onSubmit={handleSubmit}>
+          <form
+            className="site-form-card site-apply-detail__form"
+            onSubmit={handleSubmit}
+          >
             <div className="site-form-card__header">
               <p className="site-kicker">Application</p>
               <h1>신청 정보 입력</h1>
@@ -200,6 +301,7 @@ export function ApplyPage() {
                 requirement="필수"
                 value={state.applicantInfo.name}
                 onChange={setApplicantField("name")}
+                error={fieldErrors.name}
                 required
               />
               <Input
@@ -207,6 +309,7 @@ export function ApplyPage() {
                 requirement="필수"
                 value={state.applicantInfo.phone}
                 onChange={setApplicantField("phone")}
+                error={fieldErrors.phone}
                 placeholder="010-0000-0000"
                 required
               />
@@ -216,6 +319,7 @@ export function ApplyPage() {
                 type="email"
                 value={state.applicantInfo.email}
                 onChange={setApplicantField("email")}
+                error={fieldErrors.email}
                 required
               />
               <Input
@@ -224,6 +328,7 @@ export function ApplyPage() {
                 type="date"
                 value={state.applicantInfo.birthDate}
                 onChange={setApplicantField("birthDate")}
+                error={fieldErrors.birthDate}
                 required
               />
               <Input
@@ -283,9 +388,17 @@ export function ApplyPage() {
 
         <NoticeBox title="신청 전 확인 사항">
           <ul className="site-list">
-            <li>이 단계에서 draft를 생성하거나 수정한 뒤 동의 단계로 이동합니다.</li>
-            <li>첨부 파일은 draft 저장 이후 서버를 거쳐 별도 object key로 업로드됩니다.</li>
-            <li>개인정보, 환불 규정, 참가 유의사항 동의는 다음 단계에서 필수로 확인됩니다.</li>
+            <li>
+              이 단계에서 draft를 생성하거나 수정한 뒤 동의 단계로 이동합니다.
+            </li>
+            <li>
+              첨부 파일은 draft 저장 이후 서버를 거쳐 별도 object key로
+              업로드됩니다.
+            </li>
+            <li>
+              개인정보, 환불 규정, 참가 유의사항 동의는 다음 단계에서 필수로
+              확인됩니다.
+            </li>
           </ul>
         </NoticeBox>
 

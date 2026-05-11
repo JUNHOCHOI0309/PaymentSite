@@ -106,7 +106,9 @@ export function ApplySelectPage() {
       imageKey: item.key,
     });
 
-    navigate(`/apply/detail?${params.toString()}`);
+    navigate(`/apply/detail?${params.toString()}`, {
+      state: { source: "select" },
+    });
   }
 
   return (

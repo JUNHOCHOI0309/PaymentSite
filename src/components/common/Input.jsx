@@ -1,6 +1,7 @@
 export function Input({
   label,
   hint,
+  error,
   requirement,
   className = "",
   ...props
@@ -13,8 +14,9 @@ export function Input({
           <span className="site-field__requirement">({requirement})</span>
         ) : null}
       </span>
-      <input className="site-input" {...props} />
+      <input className={`site-input ${error ? "site-input--error" : ""}`.trim()} {...props} />
       {hint ? <span className="site-field__hint">{hint}</span> : null}
+      {error ? <span className="site-field__error">{error}</span> : null}
     </label>
   );
 }

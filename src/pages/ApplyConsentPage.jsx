@@ -245,7 +245,7 @@ export function ApplyConsentPage() {
 
   useEffect(() => {
     if (!state.draftId) {
-      navigate(detailPath, { replace: true });
+      navigate(detailPath, { replace: true, state: { source: "consent" } });
     }
   }, [detailPath, navigate, state.draftId]);
 
@@ -322,7 +322,10 @@ export function ApplyConsentPage() {
           </div>
 
           <div className="site-inline-actions">
-            <Button variant="ghost" onClick={() => navigate(detailPath)}>
+            <Button
+              variant="ghost"
+              onClick={() => navigate(detailPath, { state: { source: "consent" } })}
+            >
               이전으로
             </Button>
             <Button onClick={handleProceed} disabled={!requiredChecked}>

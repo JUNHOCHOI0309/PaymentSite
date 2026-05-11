@@ -931,6 +931,12 @@ body {
   font-size: 0.88rem;
 }
 
+.site-field__error {
+  color: #c0362c;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
 .site-input {
   width: 100%;
   border: 1px solid rgba(45, 49, 64, 0.14);
@@ -938,6 +944,10 @@ body {
   padding: 14px 16px;
   background: #fff;
   font-size: 0.95rem;
+}
+
+.site-input--error {
+  border-color: #c0362c;
 }
 
 .site-input--file {
