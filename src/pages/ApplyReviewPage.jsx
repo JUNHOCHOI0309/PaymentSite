@@ -4,6 +4,7 @@ import { Button } from "../components/common/Button";
 import { NoticeBox } from "../components/common/NoticeBox";
 import { PageShell } from "../components/layout/PageShell";
 import { useApplicationFlow } from "../context/ApplicationFlowContext";
+import { buildApplyDetailPath } from "../lib/applicationFlowRoutes";
 import { createOrder, getDraft } from "../lib/applicationApi";
 
 const requiredConsentKeys = ["privacy", "terms", "refund"];
@@ -20,6 +21,7 @@ function ReviewRow({ label, value }) {
 export function ApplyReviewPage() {
   const navigate = useNavigate();
   const { state, dispatch } = useApplicationFlow();
+  const detailPath = buildApplyDetailPath(state.selection);
   const [draftSnapshot, setDraftSnapshot] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
   const [isPreparingPayment, setIsPreparingPayment] = useState(false);
@@ -31,6 +33,8 @@ export function ApplyReviewPage() {
   };
 
   const requiredConsentsAccepted = requiredConsentKeys.every((key) => state.consents[key]);
+  const reviewDraft = draftSnapshot?.draft;
+  const reviewConsents = draftSnapshot?.consents || state.consents;
 
   useEffect(() => {
     if (!requiredConsentsAccepted) {
@@ -57,7 +61,7 @@ export function ApplyReviewPage() {
   async function handleProceedPayment() {
     if (!state.draftId) {
       setErrorMessage("먼저 신청 정보를 저장해 주세요.");
-      navigate("/apply/detail");
+      navigate(detailPath);
       return;
     }
 
@@ -108,6 +112,8 @@ export function ApplyReviewPage() {
           </div>
 
           <div className="site-review-grid">
+            <ReviewRow label="참가 부문" value={reviewDraft?.division || state.selection.division} />
+            <ReviewRow label="종목" value={reviewDraft?.discipline || state.selection.discipline} />
             <ReviewRow label="성함" value={draftSnapshot?.draft?.name || state.applicantInfo.name} />
             <ReviewRow label="연락처" value={draftSnapshot?.draft?.phone || state.applicantInfo.phone} />
             <ReviewRow label="이메일" value={draftSnapshot?.draft?.email || state.applicantInfo.email} />
@@ -118,11 +124,11 @@ export function ApplyReviewPage() {
             <ReviewRow
               label="동의 항목"
               value={[
-                state.consents.privacy ? "개인정보" : null,
-                state.consents.terms ? "유의사항" : null,
-                state.consents.refund ? "환불규정" : null,
-                state.consents.marketing ? "마케팅" : null,
-                state.consents.photoVideo ? "사진/동영상" : null,
+                reviewConsents.privacy ? "개인정보" : null,
+                reviewConsents.terms ? "유의사항" : null,
+                reviewConsents.refund ? "환불규정" : null,
+                reviewConsents.marketing ? "마케팅" : null,
+                reviewConsents.photoVideo ? "사진/동영상" : null,
               ]
                 .filter(Boolean)
                 .join(", ")}

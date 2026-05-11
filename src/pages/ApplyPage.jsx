@@ -129,6 +129,7 @@ export function ApplyPage() {
         birthDate: state.applicantInfo.birthDate,
         organization: state.applicantInfo.organization,
         paymentMethod: state.paymentMethod,
+        selection: state.selection,
         consents: {
           ...state.consents,
           version: "v1",

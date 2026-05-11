@@ -4,6 +4,7 @@ import { Button } from "../components/common/Button";
 import { PageShell } from "../components/layout/PageShell";
 import { useApplicationFlow } from "../context/ApplicationFlowContext";
 import { applicationConsentItems } from "../data/applicationConsentContent";
+import { buildApplyDetailPath } from "../lib/applicationFlowRoutes";
 
 function renderInlineMarkup(text) {
   const segments = text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
@@ -229,6 +230,7 @@ function ConsentItem({ item, checked, isExpanded, onToggleExpand, onToggleConsen
 export function ApplyConsentPage() {
   const navigate = useNavigate();
   const { state, dispatch } = useApplicationFlow();
+  const detailPath = buildApplyDetailPath(state.selection);
   const [expandedKeys, setExpandedKeys] = useState(() =>
     applicationConsentItems.filter((item) => item.required).map((item) => item.key),
   );
@@ -243,9 +245,9 @@ export function ApplyConsentPage() {
 
   useEffect(() => {
     if (!state.draftId) {
-      navigate("/apply/detail");
+      navigate(detailPath, { replace: true });
     }
-  }, [navigate, state.draftId]);
+  }, [detailPath, navigate, state.draftId]);
 
   function toggleExpand(key) {
     setExpandedKeys((current) =>
@@ -320,7 +322,7 @@ export function ApplyConsentPage() {
           </div>
 
           <div className="site-inline-actions">
-            <Button variant="ghost" onClick={() => navigate("/apply/detail")}>
+            <Button variant="ghost" onClick={() => navigate(detailPath)}>
               이전으로
             </Button>
             <Button onClick={handleProceed} disabled={!requiredChecked}>

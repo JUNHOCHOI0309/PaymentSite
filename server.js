@@ -245,6 +245,9 @@ function mapDraftRow(row) {
     email: row.email,
     birthDate: row.birth_date,
     organization: row.organization,
+    division: row.division,
+    discipline: row.discipline,
+    imageKey: row.image_key,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -263,8 +266,27 @@ function mapApplicationRow(row) {
     email: maskEmail(row.email),
     birthDate: row.birth_date,
     organization: row.organization,
+    division: row.division,
+    discipline: row.discipline,
+    imageKey: row.image_key,
     submittedAt: row.submitted_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function mapConsentRow(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    privacy: row.privacy_consent,
+    terms: row.terms_consent,
+    refund: row.refund_consent,
+    marketing: row.marketing_consent,
+    photoVideo: row.photo_video_consent,
+    version: row.consent_version,
+    consentedAt: row.consented_at,
   };
 }
 
@@ -276,12 +298,18 @@ function validateDraftPayload(body) {
   const birthDate = normalizeText(body.birthDate);
   const organization = normalizeText(body.organization);
   const paymentMethod = normalizeText(body.paymentMethod) || "widget";
+  const selection = {
+    division: normalizeText(body.selection?.division),
+    discipline: normalizeText(body.selection?.discipline),
+    imageKey: normalizeText(body.selection?.imageKey),
+  };
 
   const consents = {
     privacy: normalizeBoolean(body.consents?.privacy),
     terms: normalizeBoolean(body.consents?.terms),
     refund: normalizeBoolean(body.consents?.refund),
     marketing: normalizeBoolean(body.consents?.marketing),
+    photoVideo: normalizeBoolean(body.consents?.photoVideo),
   };
 
   if (!name || !phone || !email || !birthDate) {
@@ -300,6 +328,7 @@ function validateDraftPayload(body) {
       birthDate,
       organization,
       paymentMethod,
+      selection,
       consents,
     },
   };
@@ -1298,10 +1327,13 @@ app.post("/applications/draft", async function (req, res) {
           email,
           birth_date,
           organization,
+          division,
+          discipline,
+          image_key,
           created_at,
           updated_at
         )
-        VALUES ($1, $2, 'DRAFT', $3, $4, $5, $6, $7, NOW(), NOW())
+        VALUES ($1, $2, 'DRAFT', $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
         RETURNING
           draft_id,
           order_id,
@@ -1312,6 +1344,9 @@ app.post("/applications/draft", async function (req, res) {
           email,
           birth_date,
           organization,
+          division,
+          discipline,
+          image_key,
           created_at,
           updated_at
       `,
@@ -1323,6 +1358,9 @@ app.post("/applications/draft", async function (req, res) {
         payload.email,
         payload.birthDate,
         payload.organization,
+        payload.selection.division,
+        payload.selection.discipline,
+        payload.selection.imageKey,
       ]
     );
 
@@ -1334,10 +1372,11 @@ app.post("/applications/draft", async function (req, res) {
           terms_consent,
           refund_consent,
           marketing_consent,
+          photo_video_consent,
           consent_version,
           consented_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, NOW())
+        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
       `,
       [
         draftResult.rows[0].draft_id,
@@ -1345,6 +1384,7 @@ app.post("/applications/draft", async function (req, res) {
         payload.consents.terms,
         payload.consents.refund,
         payload.consents.marketing,
+        payload.consents.photoVideo,
         consentVersion,
       ]
     );
@@ -1396,6 +1436,9 @@ app.patch("/applications/draft/:draftId", async function (req, res) {
           email = $5,
           birth_date = $6,
           organization = $7,
+          division = $8,
+          discipline = $9,
+          image_key = $10,
           updated_at = NOW()
         WHERE draft_id = $1
         RETURNING
@@ -1408,6 +1451,9 @@ app.patch("/applications/draft/:draftId", async function (req, res) {
           email,
           birth_date,
           organization,
+          division,
+          discipline,
+          image_key,
           created_at,
           updated_at
       `,
@@ -1419,6 +1465,9 @@ app.patch("/applications/draft/:draftId", async function (req, res) {
         payload.email,
         payload.birthDate,
         payload.organization,
+        payload.selection.division,
+        payload.selection.discipline,
+        payload.selection.imageKey,
       ]
     );
 
@@ -1447,10 +1496,11 @@ app.patch("/applications/draft/:draftId", async function (req, res) {
           terms_consent,
           refund_consent,
           marketing_consent,
+          photo_video_consent,
           consent_version,
           consented_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, NOW())
+        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
       `,
       [
         draftId,
@@ -1458,6 +1508,7 @@ app.patch("/applications/draft/:draftId", async function (req, res) {
         payload.consents.terms,
         payload.consents.refund,
         payload.consents.marketing,
+        payload.consents.photoVideo,
         consentVersion,
       ]
     );
@@ -1498,6 +1549,9 @@ app.get("/applications/draft/:draftId", async function (req, res) {
           email,
           birth_date,
           organization,
+          division,
+          discipline,
+          image_key,
           created_at,
           updated_at
         FROM application_drafts
@@ -1521,6 +1575,7 @@ app.get("/applications/draft/:draftId", async function (req, res) {
           terms_consent,
           refund_consent,
           marketing_consent,
+          photo_video_consent,
           consent_version,
           consented_at
         FROM application_consents
@@ -1551,7 +1606,7 @@ app.get("/applications/draft/:draftId", async function (req, res) {
     return res.status(200).json({
       ok: true,
       draft: mapDraftRow(draft),
-      consents: consentResult.rows[0] || null,
+      consents: mapConsentRow(consentResult.rows[0]),
       file: fileResult.rows[0] || null,
     });
   } catch (error) {
@@ -1700,6 +1755,9 @@ app.post("/applications/lookup", async function (req, res) {
           email,
           birth_date,
           organization,
+          division,
+          discipline,
+          image_key,
           submitted_at,
           updated_at
         FROM applications
@@ -1761,6 +1819,9 @@ app.post("/applications/complete", async function (req, res) {
           email,
           birth_date,
           organization,
+          division,
+          discipline,
+          image_key,
           submitted_at,
           updated_at
         FROM applications
@@ -1791,7 +1852,10 @@ app.post("/applications/complete", async function (req, res) {
           phone,
           email,
           birth_date,
-          organization
+          organization,
+          division,
+          discipline,
+          image_key
         FROM application_drafts
         WHERE draft_id = $1
         FOR UPDATE
@@ -1846,10 +1910,13 @@ app.post("/applications/complete", async function (req, res) {
           email,
           birth_date,
           organization,
+          division,
+          discipline,
+          image_key,
           submitted_at,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, 'SUBMITTED', $5, $6, $7, $8, $9, $10, NOW(), NOW())
+        VALUES ($1, $2, $3, $4, 'SUBMITTED', $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
         RETURNING
           id,
           application_number,
@@ -1863,6 +1930,9 @@ app.post("/applications/complete", async function (req, res) {
           email,
           birth_date,
           organization,
+          division,
+          discipline,
+          image_key,
           submitted_at,
           updated_at
       `,
@@ -1877,6 +1947,9 @@ app.post("/applications/complete", async function (req, res) {
         draft.email,
         draft.birth_date,
         draft.organization,
+        draft.division,
+        draft.discipline,
+        draft.image_key,
       ]
     );
 
@@ -1951,6 +2024,9 @@ app.get("/applications/:applicationNumber", async function (req, res) {
           email,
           birth_date,
           organization,
+          division,
+          discipline,
+          image_key,
           submitted_at,
           updated_at
         FROM applications
@@ -1998,6 +2074,9 @@ app.get("/applications/by-order/:orderId", async function (req, res) {
           email,
           birth_date,
           organization,
+          division,
+          discipline,
+          image_key,
           submitted_at,
           updated_at
         FROM applications

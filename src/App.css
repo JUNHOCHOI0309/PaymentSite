@@ -2406,6 +2406,10 @@ body {
   gap: 28px;
 }
 
+.site-consent-page .site-review-card__header h1 {
+  color: #111;
+}
+
 .site-consent-page__all {
   padding: 20px 22px;
   border: 1px solid rgba(45, 49, 64, 0.08);
