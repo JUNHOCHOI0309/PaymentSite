@@ -5,6 +5,7 @@ import { SiteFavicon } from "./components/layout/SiteFavicon";
 import { ScrollToTop } from "./components/layout/ScrollToTop";
 import { ApplicationFlowProvider } from "./context/ApplicationFlowContext";
 import { ApplyCompletePage } from "./pages/ApplyCompletePage";
+import { ApplyConsentPage } from "./pages/ApplyConsentPage";
 import { ApplyPage } from "./pages/ApplyPage";
 import { ApplyReviewPage } from "./pages/ApplyReviewPage";
 import { ApplySelectPage } from "./pages/ApplySelectPage";
@@ -48,6 +49,10 @@ const router = createBrowserRouter([
       {
         path: "apply/detail",
         element: <ApplyPage />,
+      },
+      {
+        path: "apply/consent",
+        element: <ApplyConsentPage />,
       },
       {
         path: "apply/review",
