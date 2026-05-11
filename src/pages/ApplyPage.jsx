@@ -16,6 +16,29 @@ import {
   uploadFile,
 } from "../lib/applicationApi";
 
+const maxUploadBytes = 10 * 1024 * 1024;
+const allowedUploadExtensions = new Set([
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".ppt",
+  ".pptx",
+  ".jpg",
+  ".jpeg",
+  ".png",
+]);
+const allowedUploadMimeTypes = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "image/jpeg",
+  "image/png",
+]);
+const fileInputAccept =
+  ".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/jpeg,image/png";
+
 function getRegisterImageUrl(key) {
   return buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(key)}`);
 }
@@ -50,6 +73,36 @@ function getInitialFieldErrors() {
   };
 }
 
+function getUploadExtension(filename) {
+  const match = String(filename || "").match(/(\.[^.]+)$/);
+  return match ? match[1].toLowerCase() : "";
+}
+
+function validateSelectedFile(file) {
+  if (!file) {
+    return "";
+  }
+
+  const extension = getUploadExtension(file.name);
+
+  if (
+    !allowedUploadExtensions.has(extension) ||
+    !allowedUploadMimeTypes.has(file.type)
+  ) {
+    return "PDF, DOC, DOCX, PPT, PPTX, JPG, JPEG, PNG 파일만 업로드할 수 있습니다.";
+  }
+
+  if (!Number.isFinite(file.size) || file.size <= 0) {
+    return "빈 파일은 업로드할 수 없습니다.";
+  }
+
+  if (file.size > maxUploadBytes) {
+    return "파일 크기는 10MB 이하여야 합니다.";
+  }
+
+  return "";
+}
+
 export function ApplyPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -59,6 +112,7 @@ export function ApplyPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [fileError, setFileError] = useState("");
   const [fieldErrors, setFieldErrors] = useState(getInitialFieldErrors);
 
   const selectedDivision = searchParams.get("division") || "";
@@ -101,6 +155,7 @@ export function ApplyPage() {
         dispatch({ type: "SET_SELECTION", value: incomingSelection });
         setSelectedFile(null);
         setErrorMessage("");
+        setFileError("");
         setFieldErrors(getInitialFieldErrors());
         return;
       }
@@ -111,6 +166,7 @@ export function ApplyPage() {
       dispatch({ type: "SET_SELECTION", value: incomingSelection });
       setSelectedFile(null);
       setErrorMessage("");
+      setFileError("");
       setFieldErrors(getInitialFieldErrors());
     }
   }, [
@@ -150,10 +206,7 @@ export function ApplyPage() {
       name: validateApplicantField("name", state.applicantInfo.name),
       phone: validateApplicantField("phone", state.applicantInfo.phone),
       email: validateApplicantField("email", state.applicantInfo.email),
-      birthDate: validateApplicantField(
-        "birthDate",
-        state.applicantInfo.birthDate,
-      ),
+      birthDate: validateApplicantField("birthDate", state.applicantInfo.birthDate),
     };
 
     setFieldErrors(nextErrors);
@@ -184,6 +237,26 @@ export function ApplyPage() {
 
   function handleFileChange(event) {
     const file = event.target.files?.[0] || null;
+    const validationMessage = validateSelectedFile(file);
+
+    if (validationMessage) {
+      setSelectedFile(null);
+      setFileError(validationMessage);
+      event.target.value = "";
+
+      dispatch({
+        type: "SET_FILE_META",
+        payload: {
+          originalFilename: "",
+          storedFilename: "",
+          mimeType: "",
+          fileSize: 0,
+        },
+      });
+      return;
+    }
+
+    setFileError("");
     setSelectedFile(file);
 
     dispatch({
@@ -207,9 +280,19 @@ export function ApplyPage() {
   async function handleSubmit(event) {
     event.preventDefault();
     setErrorMessage("");
+    setFileError("");
 
     if (!validateApplicantForm()) {
       return;
+    }
+
+    if (selectedFile) {
+      const validationMessage = validateSelectedFile(selectedFile);
+
+      if (validationMessage) {
+        setFileError(validationMessage);
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -345,12 +428,16 @@ export function ApplyPage() {
                 <input
                   className="site-input site-input--file"
                   type="file"
+                  accept={fileInputAccept}
                   onChange={handleFileChange}
                 />
                 <span className="site-field__hint">
                   {state.uploadedFileMeta.originalFilename ||
                     "선택된 파일이 없습니다."}
                 </span>
+                {fileError ? (
+                  <span className="site-field__error">{fileError}</span>
+                ) : null}
                 <div className="site-file-help">
                   <button
                     className="site-file-help__trigger"
@@ -363,9 +450,11 @@ export function ApplyPage() {
                     파일 업로드 주의사항
                   </span>
                   <div className="site-file-help__tooltip" role="tooltip">
-                    허용된 문서 파일만 업로드할 수 있고 파일 크기 제한이
-                    적용됩니다. 실제 저장 파일명은 서버에서 별도 object key로
-                    생성됩니다.
+                    허용 확장자: PDF, DOC, DOCX, PPT, PPTX, JPG, JPEG, PNG
+                    <br />
+                    최대 파일 크기: 10MB
+                    <br />
+                    실제 저장 파일명은 서버에서 별도 object key로 생성됩니다.
                   </div>
                 </div>
               </label>
@@ -388,17 +477,9 @@ export function ApplyPage() {
 
         <NoticeBox title="신청 전 확인 사항">
           <ul className="site-list">
-            <li>
-              이 단계에서 draft를 생성하거나 수정한 뒤 동의 단계로 이동합니다.
-            </li>
-            <li>
-              첨부 파일은 draft 저장 이후 서버를 거쳐 별도 object key로
-              업로드됩니다.
-            </li>
-            <li>
-              개인정보, 환불 규정, 참가 유의사항 동의는 다음 단계에서 필수로
-              확인됩니다.
-            </li>
+            <li>이 단계에서 draft를 생성하거나 수정한 뒤 동의 단계로 이동합니다.</li>
+            <li>첨부 파일은 draft 저장 이후 서버를 거쳐 별도 object key로 업로드됩니다.</li>
+            <li>개인정보, 환불 규정, 참가 유의사항 동의는 다음 단계에서 확인합니다.</li>
           </ul>
         </NoticeBox>
 

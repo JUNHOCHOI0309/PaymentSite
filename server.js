@@ -67,6 +67,12 @@ const r2Client =
 
 app.set("trust proxy", true);
 
+app.use(function (_req, res, next) {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  next();
+});
+
 app.use(function (req, res, next) {
   const origin = req.headers.origin;
   const hasConfiguredOrigins = corsAllowedOrigins.length > 0;
@@ -167,6 +173,15 @@ function getUploadExtension(filename) {
   return path.extname(filename || "").toLowerCase();
 }
 
+function sanitizeOriginalFilename(filename) {
+  return path
+    .basename(String(filename || ""))
+    .replace(/[\u0000-\u001f\u007f]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180) || "file";
+}
+
 function sanitizeFilenameStem(filename) {
   return path
     .basename(filename || "", getUploadExtension(filename))
@@ -185,6 +200,45 @@ function isAllowedUpload(file) {
   );
 }
 
+function hasSignature(buffer, bytes) {
+  return (
+    Buffer.isBuffer(buffer) &&
+    buffer.length >= bytes.length &&
+    bytes.every((byte, index) => buffer[index] === byte)
+  );
+}
+
+function hasZipSignature(buffer) {
+  return (
+    hasSignature(buffer, [0x50, 0x4b, 0x03, 0x04]) ||
+    hasSignature(buffer, [0x50, 0x4b, 0x05, 0x06]) ||
+    hasSignature(buffer, [0x50, 0x4b, 0x07, 0x08])
+  );
+}
+
+function matchesUploadSignature(file) {
+  const extension = getUploadExtension(file.originalname);
+  const { buffer } = file;
+
+  switch (extension) {
+    case ".pdf":
+      return hasSignature(buffer, [0x25, 0x50, 0x44, 0x46, 0x2d]);
+    case ".jpg":
+    case ".jpeg":
+      return hasSignature(buffer, [0xff, 0xd8, 0xff]);
+    case ".png":
+      return hasSignature(buffer, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    case ".doc":
+    case ".ppt":
+      return hasSignature(buffer, [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+    case ".docx":
+    case ".pptx":
+      return hasZipSignature(buffer);
+    default:
+      return false;
+  }
+}
+
 function buildUploadObjectKey(draftId, originalFilename) {
   const extension = getUploadExtension(originalFilename);
   const safeStem = sanitizeFilenameStem(originalFilename);
@@ -200,6 +254,16 @@ function ensureR2UploadReady() {
 
 function ensureR2ReadReady() {
   return Boolean(r2Client && r2BucketName);
+}
+
+function hasTrustedWriteOrigin(req) {
+  const origin = normalizeText(req.headers.origin);
+
+  if (!origin || corsAllowedOrigins.length === 0) {
+    return true;
+  }
+
+  return corsAllowedOrigins.includes(origin);
 }
 
 function runSingleFileUpload(req, res) {
@@ -1628,6 +1692,13 @@ app.post("/files/upload", async function (req, res) {
       });
     }
 
+    if (!hasTrustedWriteOrigin(req)) {
+      return res.status(403).json({
+        ok: false,
+        message: "Untrusted upload origin",
+      });
+    }
+
     await runSingleFileUpload(req, res);
 
     const draftId = normalizeText(req.body.draftId);
@@ -1663,6 +1734,13 @@ app.post("/files/upload", async function (req, res) {
       });
     }
 
+    if (!matchesUploadSignature(uploadedFile)) {
+      return res.status(400).json({
+        ok: false,
+        message: "Uploaded file signature does not match the declared type",
+      });
+    }
+
     if (!Number.isFinite(uploadedFile.size) || uploadedFile.size <= 0) {
       return res.status(400).json({
         ok: false,
@@ -1670,7 +1748,8 @@ app.post("/files/upload", async function (req, res) {
       });
     }
 
-    const storedFilename = buildUploadObjectKey(draftId, uploadedFile.originalname);
+    const safeOriginalFilename = sanitizeOriginalFilename(uploadedFile.originalname);
+    const storedFilename = buildUploadObjectKey(draftId, safeOriginalFilename);
 
     await r2Client.send(
       new PutObjectCommand({
@@ -1678,6 +1757,7 @@ app.post("/files/upload", async function (req, res) {
         Key: storedFilename,
         Body: uploadedFile.buffer,
         ContentType: uploadedFile.mimetype,
+        ContentDisposition: `attachment; filename="${safeOriginalFilename.replace(/"/g, "")}"`,
       })
     );
 
@@ -1702,7 +1782,7 @@ app.post("/files/upload", async function (req, res) {
       `,
       [
         draftResult.rows[0].id,
-        uploadedFile.originalname,
+        safeOriginalFilename,
         storedFilename,
         uploadedFile.mimetype,
         uploadedFile.size,
