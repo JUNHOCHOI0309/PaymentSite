@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "../components/common/Button";
 import { Input } from "../components/common/Input";
 import { NoticeBox } from "../components/common/NoticeBox";
@@ -17,6 +17,13 @@ function hasValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
 }
 
+function formatRemainingTime(remainingSeconds) {
+  const safeSeconds = Math.max(0, remainingSeconds);
+  const minutes = String(Math.floor(safeSeconds / 60)).padStart(2, "0");
+  const seconds = String(safeSeconds % 60).padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
 export function LookupPage() {
   const [form, setForm] = useState({
     name: "",
@@ -28,9 +35,39 @@ export function LookupPage() {
   const [verificationMessage, setVerificationMessage] = useState("");
   const [verificationToken, setVerificationToken] = useState("");
   const [devVerificationCode, setDevVerificationCode] = useState("");
+  const [verificationDeadline, setVerificationDeadline] = useState(null);
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [isSendingCode, setIsSendingCode] = useState(false);
   const [isVerifyingCode, setIsVerifyingCode] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!verificationDeadline) {
+      setRemainingSeconds(0);
+      return;
+    }
+
+    function updateRemainingSeconds() {
+      const nextRemainingSeconds = Math.max(
+        0,
+        Math.ceil((verificationDeadline - Date.now()) / 1000)
+      );
+
+      setRemainingSeconds(nextRemainingSeconds);
+
+      if (nextRemainingSeconds === 0) {
+        setVerificationDeadline(null);
+        setVerificationToken("");
+        setVerificationMessage("");
+        setActionErrorMessage("인증번호 입력 시간이 만료되었습니다. 다시 전송해 주세요.");
+      }
+    }
+
+    updateRemainingSeconds();
+
+    const intervalId = window.setInterval(updateRemainingSeconds, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [verificationDeadline]);
 
   const setField = (field) => (event) => {
     const nextValue =
@@ -55,6 +92,7 @@ export function LookupPage() {
       setVerificationToken("");
       setVerificationMessage("");
       setDevVerificationCode("");
+      setVerificationDeadline(null);
     }
   };
 
@@ -87,6 +125,7 @@ export function LookupPage() {
     setVerificationMessage("");
     setVerificationToken("");
     setDevVerificationCode("");
+    setVerificationDeadline(null);
     setResults([]);
 
     try {
@@ -101,6 +140,7 @@ export function LookupPage() {
       }));
       setVerificationMessage(json.message || "이메일 인증번호를 전송했습니다.");
       setDevVerificationCode(json.devVerificationCode || "");
+      setVerificationDeadline(Date.now() + (json.expiresInSeconds || 300) * 1000);
     } catch (error) {
       setVerificationMessage("");
       setActionErrorMessage(error.message || "이메일 인증번호를 전송하지 못했습니다.");
@@ -127,6 +167,11 @@ export function LookupPage() {
       return;
     }
 
+    if (!remainingSeconds) {
+      setActionErrorMessage("인증번호 입력 시간이 만료되었습니다. 다시 전송해 주세요.");
+      return;
+    }
+
     setIsVerifyingCode(true);
     setActionErrorMessage("");
     setVerificationMessage("");
@@ -140,6 +185,7 @@ export function LookupPage() {
 
       setVerificationToken(json.verificationToken || "");
       setVerificationMessage(json.message || "이메일 인증이 완료되었습니다.");
+      setVerificationDeadline(null);
     } catch (error) {
       setVerificationToken("");
       setVerificationMessage("");
@@ -164,6 +210,7 @@ export function LookupPage() {
 
     setIsSubmitting(true);
     setActionErrorMessage("");
+    setVerificationMessage("");
 
     try {
       const json = await lookupApplication({
@@ -179,6 +226,7 @@ export function LookupPage() {
             ? [json.application]
             : []
       );
+      setVerificationMessage("신청 내역을 조회했습니다.");
     } catch (error) {
       setResults([]);
       setActionErrorMessage(error.message || "입력한 정보와 일치하는 신청 내역을 찾을 수 없습니다.");
@@ -186,6 +234,8 @@ export function LookupPage() {
       setIsSubmitting(false);
     }
   }
+
+  const hasStatusMessage = Boolean(actionErrorMessage || verificationMessage || devVerificationCode);
 
   return (
     <PageShell>
@@ -204,54 +254,85 @@ export function LookupPage() {
               onChange={setField("name")}
               placeholder="홍길동"
             />
-            <Input
-              label="이메일"
-              value={form.email}
-              onChange={setField("email")}
-              placeholder="name@example.com"
-              type="email"
-              inputMode="email"
-            />
-          </div>
-
-          {actionErrorMessage ? <p className="site-error-message">{actionErrorMessage}</p> : null}
-
-          <div className="site-lookup-actions">
-            <Button onClick={handleSendVerificationCode} disabled={isSendingCode}>
-              {isSendingCode ? "전송 중..." : "이메일 인증번호 전송"}
-            </Button>
+            <div className="site-lookup-field-action">
+              <Input
+                className="site-lookup-field-action__input"
+                label="이메일"
+                value={form.email}
+                onChange={setField("email")}
+                placeholder="name@example.com"
+                type="email"
+                inputMode="email"
+              />
+              <Button
+                className="site-lookup-field-action__button"
+                onClick={handleSendVerificationCode}
+                disabled={isSendingCode}
+              >
+                {isSendingCode ? "전송 중..." : "인증번호 전송"}
+              </Button>
+            </div>
           </div>
 
           <div className="site-lookup-verification">
-            <Input
-              label="인증번호"
-              value={form.verificationCode}
-              onChange={setField("verificationCode")}
-              placeholder="6자리 숫자"
-              type="tel"
-              inputMode="numeric"
-              hint="입력한 이메일 주소로 전송된 6자리 인증번호를 입력해 주세요."
-            />
-
-            <div className="site-lookup-actions">
-              <Button onClick={handleVerifyCode} disabled={isVerifyingCode}>
+            <div className="site-lookup-field-action">
+              <label className="site-field site-lookup-field-action__input">
+                <span className="site-lookup-field__label-row">
+                  <span className="site-field__label">인증번호</span>
+                </span>
+                <span className="site-lookup-code-input-wrap">
+                  <input
+                    className="site-input site-lookup-code-input"
+                    value={form.verificationCode}
+                    onChange={setField("verificationCode")}
+                    placeholder="6자리 숫자"
+                    type="tel"
+                    inputMode="numeric"
+                  />
+                  {remainingSeconds > 0 ? (
+                    <span className="site-lookup-timer">{formatRemainingTime(remainingSeconds)}</span>
+                  ) : null}
+                </span>
+                <span className="site-field__hint">
+                  입력한 이메일 주소로 전송된 6자리 인증번호를 입력해 주세요.
+                </span>
+              </label>
+              <Button
+                className="site-lookup-field-action__button"
+                onClick={handleVerifyCode}
+                disabled={isVerifyingCode}
+              >
                 {isVerifyingCode ? "확인 중..." : "인증 확인"}
               </Button>
+            </div>
+
+            <div className="site-lookup-status-area">
+              {hasStatusMessage ? (
+                <div
+                  className={`site-lookup-status-box ${
+                    actionErrorMessage ? "site-lookup-status-box--error" : "site-lookup-status-box--success"
+                  }`.trim()}
+                >
+                  <span className="site-lookup-status-box__badge">
+                    {actionErrorMessage ? "안내" : "상태"}
+                  </span>
+                  {actionErrorMessage ? <p>{actionErrorMessage}</p> : null}
+                  {verificationMessage ? <p>{verificationMessage}</p> : null}
+                  {devVerificationCode ? (
+                    <p className="site-lookup-status-box__meta">
+                      개발 환경 인증번호: <strong>{devVerificationCode}</strong>
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="site-lookup-actions">
               <Button onClick={handleLookup} disabled={isSubmitting}>
                 {isSubmitting ? "조회 중..." : "조회하기"}
               </Button>
             </div>
           </div>
-
-          {verificationMessage ? (
-            <p className="site-lookup-message site-lookup-message--success">{verificationMessage}</p>
-          ) : null}
-
-          {devVerificationCode ? (
-            <p className="site-lookup-message">
-              개발 환경 인증번호: <strong>{devVerificationCode}</strong>
-            </p>
-          ) : null}
 
           <NoticeBox title="조회 안내">
             <ul className="site-list">

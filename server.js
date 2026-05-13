@@ -2155,6 +2155,7 @@ app.post("/applications/lookup-verification/send", async function (req, res) {
     return res.status(200).json({
       ok: true,
       message: "이메일 인증번호를 전송했습니다.",
+      expiresInSeconds: lookupVerificationCodeTtlMinutes * 60,
       ...(sendResult.deliveryMethod === "console" ? { devVerificationCode: code } : {}),
     });
   } catch (error) {
