@@ -1134,6 +1134,37 @@ body {
   border-radius: 14px;
 }
 
+.site-lookup-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.site-lookup-verification {
+  margin-top: 12px;
+}
+
+.site-lookup-message {
+  margin: 16px 0 0;
+  color: #4f566b;
+  line-height: 1.6;
+}
+
+.site-lookup-message--success {
+  color: #1d6b42;
+}
+
+.site-lookup-results {
+  display: grid;
+  gap: 16px;
+}
+
+.site-lookup-result {
+  padding: 20px 22px;
+  border-radius: 20px;
+  background: rgba(24, 63, 107, 0.05);
+}
+
 .site-button {
   border: 0;
   border-radius: 999px;
@@ -1360,6 +1391,10 @@ body {
 
   .site-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .site-lookup-actions {
+    flex-direction: column;
   }
 
   .site-header,

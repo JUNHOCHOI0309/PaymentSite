@@ -1,6 +1,7 @@
 require("dotenv").config();
 
 const crypto = require("crypto");
+const nodemailer = require("nodemailer");
 const path = require("path");
 const express = require("express");
 const multer = require("multer");
@@ -64,6 +65,36 @@ const r2Client =
         },
       })
     : null;
+const lookupVerificationCodeTtlMinutes = Math.max(
+  1,
+  Number(process.env.LOOKUP_VERIFICATION_CODE_TTL_MINUTES || 5)
+);
+const lookupVerificationSendCooldownSeconds = Math.max(
+  0,
+  Number(process.env.LOOKUP_VERIFICATION_SEND_COOLDOWN_SECONDS || 60)
+);
+const lookupVerificationSessionTtlMinutes = Math.max(
+  1,
+  Number(process.env.LOOKUP_VERIFICATION_SESSION_TTL_MINUTES || 30)
+);
+const lookupVerificationMaxAttempts = Math.max(
+  1,
+  Number(process.env.LOOKUP_VERIFICATION_MAX_ATTEMPTS || 5)
+);
+const smtpHost = normalizeText(process.env.SMTP_HOST);
+const smtpPort = Number(process.env.SMTP_PORT || 587);
+const smtpUser = normalizeText(process.env.SMTP_USER);
+const smtpPass = normalizeText(process.env.SMTP_PASS);
+const smtpSecure =
+  process.env.SMTP_SECURE === "true" || (!Number.isNaN(smtpPort) && smtpPort === 465);
+const lookupFromEmail =
+  normalizeText(process.env.LOOKUP_FROM_EMAIL) ||
+  normalizeText(process.env.FROM_EMAIL) ||
+  smtpUser;
+const emailBrandName = normalizeText(process.env.EMAIL_BRAND_NAME) || "신청 조회";
+const allowEmailConsoleFallback =
+  process.env.NODE_ENV !== "production" ||
+  process.env.ALLOW_EMAIL_CONSOLE_FALLBACK === "true";
 
 app.set("trust proxy", true);
 
@@ -143,6 +174,11 @@ function normalizeText(value) {
   return trimmed ? trimmed : null;
 }
 
+function normalizeEmail(value) {
+  const normalized = normalizeText(value);
+  return normalized ? normalized.toLowerCase() : null;
+}
+
 function normalizeBoolean(value) {
   return value === true;
 }
@@ -159,6 +195,132 @@ function formatPhoneNumber(value) {
   }
 
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
+function hasValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+function isValidLookupVerificationCode(value) {
+  return /^\d{6}$/.test(String(value || "").trim());
+}
+
+function generateLookupVerificationCode() {
+  return String(crypto.randomInt(100000, 1000000));
+}
+
+function generateLookupVerificationToken() {
+  return `lookupv_${crypto.randomBytes(24).toString("hex")}`;
+}
+
+function hashLookupVerificationCode(code) {
+  return crypto.createHash("sha256").update(String(code)).digest("hex");
+}
+
+let emailTransporter = null;
+
+function getEmailTransporter() {
+  if (!smtpHost || !smtpUser || !smtpPass || !lookupFromEmail) {
+    return null;
+  }
+
+  if (!emailTransporter) {
+    emailTransporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure,
+      auth: {
+        user: smtpUser,
+        pass: smtpPass,
+      },
+    });
+  }
+
+  return emailTransporter;
+}
+
+let lookupVerificationStoreReadyPromise = null;
+
+async function ensureLookupVerificationStoreReady() {
+  if (!lookupVerificationStoreReadyPromise) {
+    lookupVerificationStoreReadyPromise = (async function () {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS application_lookup_email_verifications (
+          id BIGSERIAL PRIMARY KEY,
+          name VARCHAR(120) NOT NULL,
+          email VARCHAR(255) NOT NULL,
+          code_hash VARCHAR(64) NOT NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+          verification_token VARCHAR(80),
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          expires_at TIMESTAMPTZ NOT NULL,
+          verified_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_application_lookup_email_verifications_email_created
+        ON application_lookup_email_verifications (email, created_at DESC)
+      `);
+
+      await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_application_lookup_email_verifications_token
+        ON application_lookup_email_verifications (verification_token)
+        WHERE verification_token IS NOT NULL
+      `);
+    })().catch((error) => {
+      lookupVerificationStoreReadyPromise = null;
+      throw error;
+    });
+  }
+
+  return lookupVerificationStoreReadyPromise;
+}
+
+async function purgeExpiredLookupVerifications() {
+  await pool.query(`
+    DELETE FROM application_lookup_email_verifications
+    WHERE created_at < NOW() - INTERVAL '3 days'
+  `);
+}
+
+async function sendLookupVerificationEmail({ email, name, code }) {
+  const transporter = getEmailTransporter();
+  const subject = `[${emailBrandName}] 이메일 인증번호 안내`;
+  const text = `${name}님, 신청 조회 인증번호는 ${code} 입니다. ${lookupVerificationCodeTtlMinutes}분 내에 입력해 주세요.`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937;">
+      <p>${name}님, 안녕하세요.</p>
+      <p>신청 조회를 위한 이메일 인증번호를 안내드립니다.</p>
+      <p style="font-size: 24px; font-weight: 700; letter-spacing: 0.08em;">${code}</p>
+      <p>${lookupVerificationCodeTtlMinutes}분 내에 입력해 주세요.</p>
+    </div>
+  `;
+
+  if (!transporter) {
+    if (!allowEmailConsoleFallback) {
+      throw new Error("Email provider is not configured");
+    }
+
+    console.log(`[lookup verification] email=${email} code=${code}`);
+    return {
+      deliveryMethod: "console",
+    };
+  }
+
+  await transporter.sendMail({
+    from: lookupFromEmail,
+    to: email,
+    subject,
+    text,
+    html,
+  });
+
+  return {
+    deliveryMethod: "email",
+  };
 }
 
 function normalizeR2Prefix(prefix) {
@@ -1235,6 +1397,7 @@ app.get("/home/gallery-image", async function (req, res) {
 async function startServer() {
   try {
     await pool.query("SELECT 1");
+    await ensureLookupVerificationStoreReady();
     console.log("PostgreSQL connected");
     app.listen(port, () =>
       console.log(`http://localhost:${port} 으로 샘플 앱이 실행되었습니다.`),
@@ -1811,13 +1974,45 @@ app.post("/files/upload", async function (req, res) {
 
 app.post("/applications/lookup", async function (req, res) {
   try {
-    const applicationNumber = normalizeText(req.body.applicationNumber);
-    const phone = normalizeText(formatPhoneNumber(req.body.phone));
+    await ensureLookupVerificationStoreReady();
+    await purgeExpiredLookupVerifications();
 
-    if (!applicationNumber || !phone) {
+    const name = normalizeText(req.body.name);
+    const email = normalizeEmail(req.body.email);
+    const verificationToken = normalizeText(req.body.verificationToken);
+
+    if (!name || !email || !verificationToken) {
       return res.status(400).json({
         ok: false,
-        message: "Missing applicationNumber or phone",
+        message: "Missing name, email, or verificationToken",
+      });
+    }
+
+    if (!hasValidEmail(email)) {
+      return res.status(400).json({
+        ok: false,
+        message: "유효한 이메일 주소를 입력해 주세요.",
+      });
+    }
+
+    const verificationResult = await pool.query(
+      `
+        SELECT id
+        FROM application_lookup_email_verifications
+        WHERE name = $1
+          AND email = $2
+          AND verification_token = $3
+          AND status = 'VERIFIED'
+          AND verified_at >= NOW() - ($4::text || ' minutes')::interval
+        LIMIT 1
+      `,
+      [name, email, verificationToken, String(lookupVerificationSessionTtlMinutes)]
+    );
+
+    if (verificationResult.rowCount === 0) {
+      return res.status(403).json({
+        ok: false,
+        message: "이메일 인증이 만료되었거나 유효하지 않습니다. 다시 인증해 주세요.",
       });
     }
 
@@ -1841,11 +2036,12 @@ app.post("/applications/lookup", async function (req, res) {
           submitted_at,
           updated_at
         FROM applications
-        WHERE application_number = $1
-          AND phone = $2
-        LIMIT 1
+        WHERE name = $1
+          AND LOWER(email) = $2
+        ORDER BY submitted_at DESC NULLS LAST, updated_at DESC
+        LIMIT 10
       `,
-      [applicationNumber, phone]
+      [name, email]
     );
 
     if (result.rowCount === 0) {
@@ -1858,6 +2054,7 @@ app.post("/applications/lookup", async function (req, res) {
     return res.status(200).json({
       ok: true,
       application: mapApplicationRow(result.rows[0]),
+      applications: result.rows.map(mapApplicationRow),
     });
   } catch (error) {
     console.error("Failed to lookup application:", error);
@@ -1865,6 +2062,274 @@ app.post("/applications/lookup", async function (req, res) {
       ok: false,
       message: "Failed to lookup application",
     });
+  }
+});
+
+app.post("/applications/lookup-verification/send", async function (req, res) {
+  try {
+    await ensureLookupVerificationStoreReady();
+    await purgeExpiredLookupVerifications();
+
+    const name = normalizeText(req.body.name);
+    const email = normalizeEmail(req.body.email);
+
+    if (!name || !email) {
+      return res.status(400).json({
+        ok: false,
+        message: "Missing name or email",
+      });
+    }
+
+    if (!hasValidEmail(email)) {
+      return res.status(400).json({
+        ok: false,
+        message: "유효한 이메일 주소를 입력해 주세요.",
+      });
+    }
+
+    const applicationResult = await pool.query(
+      `
+        SELECT application_number
+        FROM applications
+        WHERE name = $1
+          AND LOWER(email) = $2
+        ORDER BY submitted_at DESC NULLS LAST, updated_at DESC
+        LIMIT 1
+      `,
+      [name, email]
+    );
+
+    if (applicationResult.rowCount === 0) {
+      return res.status(404).json({
+        ok: false,
+        message: "데이터베이스에 일치하는 성함과 이메일이 없습니다.",
+      });
+    }
+
+    const recentVerificationResult = await pool.query(
+      `
+        SELECT created_at
+        FROM application_lookup_email_verifications
+        WHERE name = $1
+          AND email = $2
+        ORDER BY created_at DESC
+        LIMIT 1
+      `,
+      [name, email]
+    );
+
+    if (recentVerificationResult.rowCount > 0) {
+      const elapsedMs = Date.now() - new Date(recentVerificationResult.rows[0].created_at).getTime();
+      const cooldownMs = lookupVerificationSendCooldownSeconds * 1000;
+
+      if (elapsedMs < cooldownMs) {
+        const remainingSeconds = Math.ceil((cooldownMs - elapsedMs) / 1000);
+        return res.status(429).json({
+          ok: false,
+          message: `${remainingSeconds}초 후에 다시 인증번호를 요청해 주세요.`,
+        });
+      }
+    }
+
+    const code = generateLookupVerificationCode();
+    const sendResult = await sendLookupVerificationEmail({ email, name, code });
+
+    await pool.query(
+      `
+        INSERT INTO application_lookup_email_verifications (
+          name,
+          email,
+          code_hash,
+          expires_at
+        )
+        VALUES (
+          $1,
+          $2,
+          $3,
+          NOW() + ($4::text || ' minutes')::interval
+        )
+      `,
+      [name, email, hashLookupVerificationCode(code), String(lookupVerificationCodeTtlMinutes)]
+    );
+
+    return res.status(200).json({
+      ok: true,
+      message: "이메일 인증번호를 전송했습니다.",
+      ...(sendResult.deliveryMethod === "console" ? { devVerificationCode: code } : {}),
+    });
+  } catch (error) {
+    console.error("Failed to send lookup verification code:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "이메일 인증번호를 전송하지 못했습니다.",
+    });
+  }
+});
+
+app.post("/applications/lookup-verification/verify", async function (req, res) {
+  let client = null;
+
+  try {
+    client = await pool.connect();
+    await ensureLookupVerificationStoreReady();
+    await purgeExpiredLookupVerifications();
+
+    const name = normalizeText(req.body.name);
+    const email = normalizeEmail(req.body.email);
+    const code = normalizeText(req.body.code);
+
+    if (!name || !email || !code) {
+      return res.status(400).json({
+        ok: false,
+        message: "Missing name, email, or code",
+      });
+    }
+
+    if (!hasValidEmail(email)) {
+      return res.status(400).json({
+        ok: false,
+        message: "유효한 이메일 주소를 입력해 주세요.",
+      });
+    }
+
+    if (!isValidLookupVerificationCode(code)) {
+      return res.status(400).json({
+        ok: false,
+        message: "인증번호는 6자리 숫자여야 합니다.",
+      });
+    }
+
+    await client.query("BEGIN");
+
+    const verificationResult = await client.query(
+      `
+        SELECT
+          id,
+          code_hash,
+          attempt_count,
+          expires_at
+        FROM application_lookup_email_verifications
+        WHERE name = $1
+          AND email = $2
+          AND status = 'PENDING'
+        ORDER BY created_at DESC
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [name, email]
+    );
+
+    if (verificationResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({
+        ok: false,
+        message: "먼저 인증번호를 전송해 주세요.",
+      });
+    }
+
+    const verification = verificationResult.rows[0];
+
+    if (new Date(verification.expires_at).getTime() < Date.now()) {
+      await client.query(
+        `
+          UPDATE application_lookup_email_verifications
+          SET
+            status = 'EXPIRED',
+            updated_at = NOW()
+          WHERE id = $1
+        `,
+        [verification.id]
+      );
+
+      await client.query("COMMIT");
+
+      return res.status(410).json({
+        ok: false,
+        message: "인증번호가 만료되었습니다. 다시 요청해 주세요.",
+      });
+    }
+
+    if (verification.attempt_count >= lookupVerificationMaxAttempts) {
+      await client.query(
+        `
+          UPDATE application_lookup_email_verifications
+          SET
+            status = 'FAILED',
+            updated_at = NOW()
+          WHERE id = $1
+        `,
+        [verification.id]
+      );
+
+      await client.query("COMMIT");
+
+      return res.status(429).json({
+        ok: false,
+        message: "인증 시도 횟수를 초과했습니다. 인증번호를 다시 요청해 주세요.",
+      });
+    }
+
+    if (verification.code_hash !== hashLookupVerificationCode(code)) {
+      const nextAttemptCount = verification.attempt_count + 1;
+
+      await client.query(
+        `
+          UPDATE application_lookup_email_verifications
+          SET
+            attempt_count = $2,
+            status = CASE WHEN $2 >= $3 THEN 'FAILED' ELSE status END,
+            updated_at = NOW()
+          WHERE id = $1
+        `,
+        [verification.id, nextAttemptCount, lookupVerificationMaxAttempts]
+      );
+
+      await client.query("COMMIT");
+
+      return res.status(400).json({
+        ok: false,
+        message:
+          nextAttemptCount >= lookupVerificationMaxAttempts
+            ? "인증 시도 횟수를 초과했습니다. 인증번호를 다시 요청해 주세요."
+            : "인증번호가 올바르지 않습니다.",
+      });
+    }
+
+    const verificationToken = generateLookupVerificationToken();
+
+    await client.query(
+      `
+        UPDATE application_lookup_email_verifications
+        SET
+          status = 'VERIFIED',
+          verification_token = $2,
+          verified_at = NOW(),
+          updated_at = NOW()
+        WHERE id = $1
+      `,
+      [verification.id, verificationToken]
+    );
+
+    await client.query("COMMIT");
+
+    return res.status(200).json({
+      ok: true,
+      message: "이메일 인증이 완료되었습니다.",
+      verificationToken,
+    });
+  } catch (error) {
+    if (client) {
+      await client.query("ROLLBACK").catch(() => {});
+    }
+    console.error("Failed to verify lookup verification code:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "인증번호 확인에 실패했습니다.",
+    });
+  } finally {
+    if (client) {
+      client.release();
+    }
   }
 });
 

@@ -111,6 +111,30 @@ export async function lookupApplication(payload) {
   return readJson(response);
 }
 
+export async function sendLookupVerificationCode(payload) {
+  const response = await apiFetch("/api/applications/lookup-verification/send", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
+export async function verifyLookupVerificationCode(payload) {
+  const response = await apiFetch("/api/applications/lookup-verification/verify", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
 export async function getApplicationByNumber(applicationNumber) {
   const response = await apiFetch(`/api/applications/${applicationNumber}`);
   return readJson(response);
