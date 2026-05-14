@@ -2175,12 +2175,86 @@ body {
 }
 
 .site-register-select {
+  position: relative;
   min-height: calc(100vh - 88px);
   margin-top: -88px;
   padding: 170px 0 96px;
   overflow: hidden;
   background: #000;
   color: #fff;
+}
+
+.site-register-scroll-hint {
+  position: fixed;
+  z-index: 9999;
+  top: 50%;
+  width: 84px;
+  height: 84px;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: #fff;
+  transform: translateY(-50%);
+  cursor: pointer;
+  box-shadow: none;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+  overflow: visible;
+}
+
+.site-register-scroll-hint::after {
+  content: none;
+}
+
+.site-register-scroll-hint__icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 33px;
+  height: 33px;
+  transform-origin: center;
+  filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.45));
+}
+
+.site-register-scroll-hint__icon::before,
+.site-register-scroll-hint__icon::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 0;
+  width: 24px;
+  height: 6px;
+  background: #fff;
+  border-radius: 999px;
+  transform-origin: right center;
+}
+
+.site-register-scroll-hint__icon::before {
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.site-register-scroll-hint__icon::after {
+  transform: translateY(-50%) rotate(-45deg);
+}
+
+.site-register-scroll-hint:hover,
+.site-register-scroll-hint:focus-visible {
+  transform: translateY(-50%) scale(1.05);
+}
+
+.site-register-scroll-hint--left {
+  left: 18px;
+}
+
+.site-register-scroll-hint--left .site-register-scroll-hint__icon {
+  transform: translate(-38%, -50%) rotate(180deg);
+}
+
+.site-register-scroll-hint--right {
+  right: 18px;
+}
+
+.site-register-scroll-hint--right .site-register-scroll-hint__icon {
+  transform: translate(-62%, -50%);
 }
 
 .site-register-select__heading {
@@ -2321,6 +2395,19 @@ body {
   .site-register-carousel__spacer {
     flex-basis: max(16px, calc(50vw - (var(--register-card-width) / 2)));
   }
+
+  .site-register-scroll-hint {
+    width: 72px;
+    height: 72px;
+  }
+
+  .site-register-scroll-hint--left {
+    left: 12px;
+  }
+
+  .site-register-scroll-hint--right {
+    right: 12px;
+  }
 }
 
 @media (max-width: 640px) {
@@ -2344,6 +2431,30 @@ body {
 
   .site-register-carousel {
     --register-card-width: 230px;
+  }
+
+  .site-register-scroll-hint {
+    width: 60px;
+    height: 60px;
+    top: auto;
+    bottom: 34px;
+    transform: none;
+  }
+
+  .site-register-scroll-hint__icon {
+    width: 27px;
+    height: 27px;
+  }
+
+  .site-register-scroll-hint__icon::before,
+  .site-register-scroll-hint__icon::after {
+    width: 20px;
+    height: 5px;
+  }
+
+  .site-register-scroll-hint:hover,
+  .site-register-scroll-hint:focus-visible {
+    transform: scale(1.06);
   }
 }
 

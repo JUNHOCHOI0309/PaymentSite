@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PageShell } from "../components/layout/PageShell";
 import { buildApiUrl } from "../lib/applicationApi";
@@ -44,13 +44,56 @@ export function ApplySelectPage() {
   });
   const [activeGroup, setActiveGroup] = useState("man");
   const [isDragging, setIsDragging] = useState(false);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(true);
   const activeItems = disciplineGroups[activeGroup].items;
+
+  useEffect(() => {
+    const track = trackRef.current;
+
+    if (!track) {
+      return undefined;
+    }
+
+    function updateScrollHints() {
+      const maxScrollLeft = Math.max(0, track.scrollWidth - track.clientWidth);
+      const threshold = 4;
+
+      setCanScrollLeft(track.scrollLeft > threshold);
+      setCanScrollRight(track.scrollLeft < maxScrollLeft - threshold);
+    }
+
+    updateScrollHints();
+    track.addEventListener("scroll", updateScrollHints, { passive: true });
+    window.addEventListener("resize", updateScrollHints);
+
+    const frameId = window.requestAnimationFrame(updateScrollHints);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      track.removeEventListener("scroll", updateScrollHints);
+      window.removeEventListener("resize", updateScrollHints);
+    };
+  }, [activeGroup]);
 
   function handleGroupChange(group) {
     setActiveGroup(group);
 
     window.requestAnimationFrame(() => {
       trackRef.current?.scrollTo({ left: 0, behavior: "smooth" });
+    });
+  }
+
+  function handleArrowClick(direction) {
+    const track = trackRef.current;
+
+    if (!track) {
+      return;
+    }
+
+    track.scrollBy({
+      left: direction * (track.clientWidth * 0.72),
+      behavior: "smooth",
     });
   }
 
@@ -114,6 +157,26 @@ export function ApplySelectPage() {
   return (
     <PageShell className="site-shell--register-select">
       <section className="site-register-select" aria-labelledby="register-select-title">
+        {canScrollLeft ? (
+          <button
+            aria-label="이전 카드 보기"
+            className="site-register-scroll-hint site-register-scroll-hint--left"
+            onClick={() => handleArrowClick(-1)}
+            type="button"
+          >
+            <span aria-hidden="true" className="site-register-scroll-hint__icon" />
+          </button>
+        ) : null}
+        {canScrollRight ? (
+          <button
+            aria-label="다음 카드 보기"
+            className="site-register-scroll-hint site-register-scroll-hint--right"
+            onClick={() => handleArrowClick(1)}
+            type="button"
+          >
+            <span aria-hidden="true" className="site-register-scroll-hint__icon" />
+          </button>
+        ) : null}
         <div className="site-register-select__heading">
           <h1 id="register-select-title">DISCIPLINES</h1>
           <div className={`site-register-tabs site-register-tabs--${activeGroup}`} role="tablist" aria-label="참가 구분">
