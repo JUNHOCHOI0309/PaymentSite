@@ -1,7 +1,8 @@
-﻿import { loadTossPayments } from "@tosspayments/tosspayments-sdk";
+import { loadTossPayments } from "@tosspayments/tosspayments-sdk";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApplicationFlow } from "../../context/ApplicationFlowContext";
+import { useLanguage } from "../../context/LanguageContext";
 
 const clientKey = import.meta.env.VITE_TOSS_API_CLIENT_KEY;
 const customerKey = generateRandomString();
@@ -15,6 +16,7 @@ export function PaymentCheckoutPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { state } = useApplicationFlow();
+  const { t } = useLanguage();
   const [payment, setPayment] = useState(null);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("CARD");
   const [errorMessage, setErrorMessage] = useState("");
@@ -28,16 +30,16 @@ export function PaymentCheckoutPage() {
         const tossPayments = await loadTossPayments(clientKey);
         setPayment(tossPayments.payment({ customerKey }));
       } catch (error) {
-        setErrorMessage(error.message || "결제창 준비에 실패했습니다.");
+        setErrorMessage(error.message || t("payment.prepareError"));
       }
     }
 
     fetchPayment();
-  }, []);
+  }, [t]);
 
   async function requestPayment() {
     if (!orderId) {
-      setErrorMessage("주문 정보가 없습니다. review 단계에서 다시 진입해 주세요.");
+      setErrorMessage(t("payment.missingOrder"));
       return;
     }
 
@@ -45,25 +47,25 @@ export function PaymentCheckoutPage() {
       method: selectedPaymentMethod,
       amount,
       orderId,
-      orderName: "대회 신청 결제",
+      orderName: t("payment.orderName"),
       successUrl: `${window.location.origin}/payment/success?draftId=${encodeURIComponent(draftId || "")}`,
       failUrl: window.location.origin + "/fail",
       customerEmail: state.applicantInfo.email || "customer@example.com",
-      customerName: state.applicantInfo.name || "신청자",
+      customerName: state.applicantInfo.name || t("payment.applicant"),
     });
   }
 
   return (
     <div className="wrapper">
       <div className="box_section">
-        <h1>일반 결제</h1>
+        <h1>{t("payment.title")}</h1>
         {errorMessage ? <p style={{ color: "#d14343" }}>{errorMessage}</p> : null}
         <div id="payment-method" style={{ display: "flex", flexWrap: "wrap" }}>
           {[
-            ["CARD", "카드"],
-            ["TRANSFER", "계좌이체"],
-            ["VIRTUAL_ACCOUNT", "가상계좌"],
-            ["MOBILE_PHONE", "휴대폰"],
+            ["CARD", t("payment.card")],
+            ["TRANSFER", t("payment.transfer")],
+            ["VIRTUAL_ACCOUNT", t("payment.virtualAccount")],
+            ["MOBILE_PHONE", t("payment.mobilePhone")],
           ].map(([value, label]) => (
             <button
               key={value}
@@ -75,12 +77,12 @@ export function PaymentCheckoutPage() {
           ))}
         </div>
         <button className="button" onClick={() => requestPayment()} disabled={!payment}>
-          결제하기
+          {t("payment.pay")}
         </button>
       </div>
       <div className="box_section" style={{ padding: "32px" }}>
         <button className="button" style={{ marginTop: "0" }} onClick={() => navigate("/apply/review")}>
-          신청 내용 확인으로 돌아가기
+          {t("payment.backToReview")}
         </button>
       </div>
     </div>

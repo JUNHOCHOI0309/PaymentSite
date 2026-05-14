@@ -1,9 +1,13 @@
+import { useLanguage } from "../../context/LanguageContext";
+
 export function Checkbox({
   label,
   checked,
   onChange,
   required = false,
 }) {
+  const { t } = useLanguage();
+
   return (
     <label className="site-checkbox">
       <input
@@ -13,7 +17,7 @@ export function Checkbox({
       />
       <span>
         {label}
-        {required ? " (필수)" : " (선택)"}
+        {required ? ` (${t("common.required")})` : ` (${t("common.optional")})`}
       </span>
     </label>
   );

@@ -1,7 +1,8 @@
-﻿import { loadTossPayments } from "@tosspayments/tosspayments-sdk";
+import { loadTossPayments } from "@tosspayments/tosspayments-sdk";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApplicationFlow } from "../../context/ApplicationFlowContext";
+import { useLanguage } from "../../context/LanguageContext";
 
 const clientKey = import.meta.env.VITE_TOSS_WIDGET_CLIENT_KEY;
 const customerKey = generateRandomString();
@@ -10,6 +11,7 @@ export function WidgetCheckoutPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { state } = useApplicationFlow();
+  const { t } = useLanguage();
 
   const [order, setOrder] = useState(null);
   const [amount, setAmount] = useState({ currency: "KRW", value: 1 });
@@ -21,14 +23,14 @@ export function WidgetCheckoutPage() {
     async function initializeOrderAndWidgets() {
       try {
         if (!clientKey) {
-          throw new Error("결제위젯 연동 키가 설정되지 않았습니다. 일반 결제를 선택해 주세요.");
+          throw new Error(t("widget.missingClientKey"));
         }
 
         const queryOrderId = searchParams.get("orderId");
         const draftId = searchParams.get("draftId") || state.draftId;
         const resolvedOrder = {
           orderId: queryOrderId || state.orderId,
-          orderName: "참가 신청 결제",
+          orderName: t("widget.orderName"),
           amount: 1,
           customerEmail: state.applicantInfo.email,
           customerName: state.applicantInfo.name,
@@ -36,7 +38,7 @@ export function WidgetCheckoutPage() {
         };
 
         if (!resolvedOrder.orderId) {
-          throw new Error("결제에 사용할 주문 정보가 없습니다. 신청 내용 확인 단계에서 다시 진입해 주세요.");
+          throw new Error(t("widget.missingOrder"));
         }
 
         setOrder(resolvedOrder);
@@ -46,12 +48,12 @@ export function WidgetCheckoutPage() {
         const nextWidgets = tossPayments.widgets({ customerKey });
         setWidgets(nextWidgets);
       } catch (error) {
-        setErrorMessage(error.message || "결제 위젯 준비에 실패했습니다.");
+        setErrorMessage(error.message || t("widget.prepareError"));
       }
     }
 
     initializeOrderAndWidgets();
-  }, [searchParams, state]);
+  }, [searchParams, state, t]);
 
   useEffect(() => {
     async function renderPaymentWidgets() {
@@ -75,9 +77,9 @@ export function WidgetCheckoutPage() {
     }
 
     renderPaymentWidgets().catch((error) => {
-      setErrorMessage(error.message || "결제 위젯 렌더링에 실패했습니다.");
+      setErrorMessage(error.message || t("widget.renderError"));
     });
-  }, [widgets, order, amount]);
+  }, [widgets, order, amount, t]);
 
   return (
     <div className="wrapper">
@@ -100,16 +102,16 @@ export function WidgetCheckoutPage() {
                 customerName: order.customerName || undefined,
               });
             } catch (error) {
-              setErrorMessage(error.message || "결제 요청에 실패했습니다.");
+              setErrorMessage(error.message || t("widget.requestError"));
             }
           }}
         >
-          결제 진행하기
+          {t("widget.pay")}
         </button>
       </div>
       <div className="box_section" style={{ padding: "32px" }}>
         <button className="button" style={{ marginTop: "0" }} onClick={() => navigate("/apply/review")}>
-          신청 내용 확인으로 돌아가기
+          {t("widget.backToReview")}
         </button>
       </div>
     </div>

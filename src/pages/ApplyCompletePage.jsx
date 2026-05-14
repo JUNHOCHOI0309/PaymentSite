@@ -2,10 +2,12 @@
 import { Link, useSearchParams } from "react-router-dom";
 import { Button } from "../components/common/Button";
 import { PageShell } from "../components/layout/PageShell";
+import { useLanguage } from "../context/LanguageContext";
 import { getApplicationByNumber, getApplicationByOrder } from "../lib/applicationApi";
 
 export function ApplyCompletePage() {
   const [searchParams] = useSearchParams();
+  const { t } = useLanguage();
   const [application, setApplication] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -25,42 +27,42 @@ export function ApplyCompletePage() {
 
         setApplication(json.application);
       } catch (error) {
-        setErrorMessage(error.message || "신청 완료 정보를 불러오지 못했습니다.");
+        setErrorMessage(error.message || t("complete.loadError"));
       }
     }
 
     fetchApplication();
-  }, [searchParams]);
+  }, [searchParams, t]);
 
   return (
     <PageShell>
       <section className="site-page site-page--narrow">
         <div className="site-complete-card site-apply-complete-card">
-          <p className="site-kicker">Complete</p>
-          <h1>신청 완료</h1>
-          <p>신청이 정상적으로 접수되었습니다. 아래 신청 정보를 확인해 주세요.</p>
+          <p className="site-kicker">{t("common.kickerComplete")}</p>
+          <h1>{t("complete.title")}</h1>
+          <p>{t("complete.description")}</p>
 
           {errorMessage ? <p className="site-error-message">{errorMessage}</p> : null}
 
           <div className="site-review-grid">
-            <div className="site-review-row"><span>신청 번호</span><strong>{application?.applicationNumber || "-"}</strong></div>
-            <div className="site-review-row"><span>성함</span><strong>{application?.name || "-"}</strong></div>
-            <div className="site-review-row"><span>연락처</span><strong>{application?.phone || "-"}</strong></div>
-            <div className="site-review-row"><span>이메일</span><strong>{application?.email || "-"}</strong></div>
-            <div className="site-review-row"><span>접수 일시</span><strong>{application?.submittedAt || "-"}</strong></div>
-            <div className="site-review-row"><span>결제 상태</span><strong>{application?.paymentStatus || "-"}</strong></div>
+            <div className="site-review-row"><span>{t("complete.applicationNumber")}</span><strong>{application?.applicationNumber || "-"}</strong></div>
+            <div className="site-review-row"><span>{t("complete.name")}</span><strong>{application?.name || "-"}</strong></div>
+            <div className="site-review-row"><span>{t("complete.phone")}</span><strong>{application?.phone || "-"}</strong></div>
+            <div className="site-review-row"><span>{t("complete.email")}</span><strong>{application?.email || "-"}</strong></div>
+            <div className="site-review-row"><span>{t("complete.submittedAt")}</span><strong>{application?.submittedAt || "-"}</strong></div>
+            <div className="site-review-row"><span>{t("complete.paymentStatus")}</span><strong>{application?.paymentStatus || "-"}</strong></div>
           </div>
 
           <p className="site-field__hint">
-            신청 번호는 이후 조회 및 문의 시 필요할 수 있으니 별도로 보관해 주세요.
+            {t("complete.hint")}
           </p>
 
           <div className="site-inline-actions">
             <Link to="/">
-              <Button variant="ghost">메인으로</Button>
+              <Button variant="ghost">{t("complete.home")}</Button>
             </Link>
             <Link to="/lookup">
-              <Button>신청 조회</Button>
+              <Button>{t("complete.lookup")}</Button>
             </Link>
           </div>
         </div>

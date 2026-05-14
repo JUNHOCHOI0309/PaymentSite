@@ -5,10 +5,8 @@ import { Input } from "../components/common/Input";
 import { NoticeBox } from "../components/common/NoticeBox";
 import { PageShell } from "../components/layout/PageShell";
 import { useApplicationFlow } from "../context/ApplicationFlowContext";
-import {
-  additionalInfoByImageKey,
-  defaultAdditionalInfo,
-} from "../data/applicationAdditionalInfo";
+import { useLanguage } from "../context/LanguageContext";
+import { getApplicationAdditionalInfo } from "../data/applicationAdditionalInfo";
 import {
   buildApiUrl,
   createDraft,
@@ -79,7 +77,7 @@ function getUploadExtension(filename) {
   return match ? match[1].toLowerCase() : "";
 }
 
-function validateSelectedFile(file) {
+function validateSelectedFile(file, t) {
   if (!file) {
     return "";
   }
@@ -90,15 +88,15 @@ function validateSelectedFile(file) {
     !allowedUploadExtensions.has(extension) ||
     !allowedUploadMimeTypes.has(file.type)
   ) {
-    return "PDF, DOC, DOCX, PPT, PPTX, JPG, JPEG, PNG 파일만 업로드할 수 있습니다.";
+    return t("apply.fileTypeError");
   }
 
   if (!Number.isFinite(file.size) || file.size <= 0) {
-    return "빈 파일은 업로드할 수 없습니다.";
+    return t("apply.emptyFileError");
   }
 
   if (file.size > maxUploadBytes) {
-    return "파일 크기는 10MB 이하여야 합니다.";
+    return t("apply.fileSizeError");
   }
 
   return "";
@@ -109,6 +107,7 @@ export function ApplyPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { state, dispatch, isHydrated } = useApplicationFlow();
+  const { locale, t } = useLanguage();
   const handledLocationKeyRef = useRef("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -117,10 +116,9 @@ export function ApplyPage() {
   const [fieldErrors, setFieldErrors] = useState(getInitialFieldErrors);
 
   const selectedDivision = searchParams.get("division") || "";
-  const competitionName = searchParams.get("discipline") || "대회명";
+  const competitionName = searchParams.get("discipline") || t("apply.fallbackCompetition");
   const selectedImageKey = searchParams.get("imageKey") || "";
-  const additionalInfo =
-    additionalInfoByImageKey[selectedImageKey] || defaultAdditionalInfo;
+  const additionalInfo = getApplicationAdditionalInfo(locale, selectedImageKey);
   const [additionalInfoTitlePrimary, additionalInfoTitleSecondary] =
     splitDisplayTitle(additionalInfo.title);
 
@@ -186,17 +184,17 @@ export function ApplyPage() {
 
     switch (field) {
       case "name":
-        return normalizedValue ? "" : "성함을 입력해 주세요.";
+        return normalizedValue ? "" : t("apply.nameError");
       case "phone": {
         const digits = String(value || "").replace(/\D/g, "");
-        return digits.length === 11 ? "" : "연락처를 정확히 입력해 주세요.";
+        return digits.length === 11 ? "" : t("apply.phoneError");
       }
       case "email":
         return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(normalizedValue || ""))
           ? ""
-          : "이메일 형식을 확인해 주세요.";
+          : t("apply.emailError");
       case "birthDate":
-        return normalizedValue ? "" : "생년월일을 입력해 주세요.";
+        return normalizedValue ? "" : t("apply.birthDateError");
       default:
         return "";
     }
@@ -238,7 +236,7 @@ export function ApplyPage() {
 
   function handleFileChange(event) {
     const file = event.target.files?.[0] || null;
-    const validationMessage = validateSelectedFile(file);
+    const validationMessage = validateSelectedFile(file, t);
 
     if (validationMessage) {
       setSelectedFile(null);
@@ -288,7 +286,7 @@ export function ApplyPage() {
     }
 
     if (selectedFile) {
-      const validationMessage = validateSelectedFile(selectedFile);
+      const validationMessage = validateSelectedFile(selectedFile, t);
 
       if (validationMessage) {
         setFileError(validationMessage);
@@ -343,7 +341,7 @@ export function ApplyPage() {
       });
       navigate("/apply/consent");
     } catch (error) {
-      setErrorMessage(error.message || "신청 초안 저장에 실패했습니다.");
+      setErrorMessage(error.message || t("apply.saveDraftError"));
     } finally {
       setIsSubmitting(false);
     }
@@ -355,7 +353,7 @@ export function ApplyPage() {
         <div className="site-apply-detail__layout">
           <aside className="site-apply-detail__summary">
             <Link className="site-apply-detail__back-link" to="/apply">
-              {"< 뒤로가기"}
+              {`< ${t("apply.back")}`}
             </Link>
             <h1>{competitionName}</h1>
             {selectedImageKey ? (
@@ -365,7 +363,7 @@ export function ApplyPage() {
               />
             ) : (
               <div className="site-apply-detail__image-placeholder">
-                대회 이미지
+                {t("apply.imagePlaceholder")}
               </div>
             )}
           </aside>
@@ -375,26 +373,23 @@ export function ApplyPage() {
             onSubmit={handleSubmit}
           >
             <div className="site-form-card__header">
-              <p className="site-kicker">Application</p>
-              <h1>신청 정보 입력</h1>
-              <p>
-                입력값을 draft로 먼저 저장하고 review 단계 전에 동의 사항을
-                확인하는 흐름입니다.
-              </p>
+              <p className="site-kicker">{t("common.kickerApplication")}</p>
+              <h1>{t("apply.title")}</h1>
+              <p>{t("apply.description")}</p>
             </div>
 
             <div className="site-form-grid">
               <Input
-                label="성함"
-                requirement="필수"
+                label={t("apply.name")}
+                requirement={t("apply.required")}
                 value={state.applicantInfo.name}
                 onChange={setApplicantField("name")}
                 error={fieldErrors.name}
                 required
               />
               <Input
-                label="연락처"
-                requirement="필수"
+                label={t("apply.phone")}
+                requirement={t("apply.required")}
                 value={state.applicantInfo.phone}
                 onChange={setApplicantField("phone")}
                 error={fieldErrors.phone}
@@ -402,8 +397,8 @@ export function ApplyPage() {
                 required
               />
               <Input
-                label="이메일"
-                requirement="필수"
+                label={t("apply.email")}
+                requirement={t("apply.required")}
                 type="email"
                 value={state.applicantInfo.email}
                 onChange={setApplicantField("email")}
@@ -411,8 +406,8 @@ export function ApplyPage() {
                 required
               />
               <Input
-                label="생년월일"
-                requirement="필수"
+                label={t("apply.birthDate")}
+                requirement={t("apply.required")}
                 type="date"
                 value={state.applicantInfo.birthDate}
                 onChange={setApplicantField("birthDate")}
@@ -420,15 +415,15 @@ export function ApplyPage() {
                 required
               />
               <Input
-                label="소속"
-                requirement="선택"
+                label={t("apply.organization")}
+                requirement={t("apply.optional")}
                 value={state.applicantInfo.organization}
                 onChange={setApplicantField("organization")}
               />
               <label className="site-field">
                 <span className="site-field__label">
-                  제출 파일
-                  <span className="site-field__requirement">(선택)</span>
+                  {t("apply.submitFile")}
+                  <span className="site-field__requirement">({t("apply.optional")})</span>
                 </span>
                 <input
                   className="site-input site-input--file"
@@ -438,7 +433,7 @@ export function ApplyPage() {
                 />
                 <span className="site-field__hint">
                   {state.uploadedFileMeta.originalFilename ||
-                    "선택된 파일이 없습니다."}
+                    t("apply.noFileSelected")}
                 </span>
                 {fileError ? (
                   <span className="site-field__error">{fileError}</span>
@@ -447,19 +442,19 @@ export function ApplyPage() {
                   <button
                     className="site-file-help__trigger"
                     type="button"
-                    aria-label="파일 업로드 주의사항"
+                    aria-label={t("apply.fileUploadTipsAria")}
                   >
                     i
                   </button>
                   <span className="site-file-help__label">
-                    파일 업로드 주의사항
+                    {t("apply.fileUploadTips")}
                   </span>
                   <div className="site-file-help__tooltip" role="tooltip">
-                    허용 확장자: PDF, DOC, DOCX, PPT, PPTX, JPG, JPEG, PNG
+                    {t("apply.allowedExtensions")}
                     <br />
-                    최대 파일 크기: 10MB
+                    {t("apply.maxFileSize")}
                     <br />
-                    실제 저장 파일명은 서버에서 별도 object key로 생성됩니다.
+                    {t("apply.objectKeyMessage")}
                   </div>
                 </div>
               </label>
@@ -469,7 +464,7 @@ export function ApplyPage() {
               <div className="site-apply-detail__submit-area">
                 <div className="site-form-card__actions">
                   <Button type="submit" disabled={isSubmitting}>
-                    {isSubmitting ? "저장 중..." : "다음 단계로"}
+                    {isSubmitting ? t("apply.saving") : t("apply.nextStep")}
                   </Button>
                 </div>
                 {errorMessage ? (
@@ -480,11 +475,11 @@ export function ApplyPage() {
           </form>
         </div>
 
-        <NoticeBox title="신청 전 확인 사항">
+        <NoticeBox title={t("apply.noticeTitle")}>
           <ul className="site-list">
-            <li>이 단계에서 draft를 생성하거나 수정한 뒤 동의 단계로 이동합니다.</li>
-            <li>첨부 파일은 draft 저장 이후 서버를 거쳐 별도 object key로 업로드됩니다.</li>
-            <li>개인정보, 환불 규정, 참가 유의사항 동의는 다음 단계에서 확인합니다.</li>
+            <li>{t("apply.notice1")}</li>
+            <li>{t("apply.notice2")}</li>
+            <li>{t("apply.notice3")}</li>
           </ul>
         </NoticeBox>
 

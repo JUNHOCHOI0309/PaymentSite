@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApplicationFlow } from "../../context/ApplicationFlowContext";
+import { useLanguage } from "../../context/LanguageContext";
 import { applicationFlowSteps } from "../../lib/applicationFlowAccess";
 import { apiFetch, completeApplication } from "../../lib/applicationApi";
 
@@ -8,7 +9,8 @@ export function WidgetSuccessPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { dispatch } = useApplicationFlow();
-  const [message, setMessage] = useState("결제 승인 결과를 확인하고 신청서를 확정하는 중입니다.");
+  const { t } = useLanguage();
+  const [message, setMessage] = useState(t("widget.successPending"));
 
   useEffect(() => {
     async function confirmAndComplete() {
@@ -30,7 +32,7 @@ export function WidgetSuccessPage() {
         throw { message: json.message, code: json.code };
       }
 
-      setMessage("결제가 확인되었습니다. 신청 완료 페이지로 이동합니다.");
+      setMessage(t("widget.successConfirmed"));
 
       const completeResult = await completeApplication({
         draftId: searchParams.get("draftId"),
@@ -45,21 +47,21 @@ export function WidgetSuccessPage() {
     }
 
     confirmAndComplete().catch((error) => {
-      navigate(`/fail?code=${error.code || "APPLICATION"}&message=${encodeURIComponent(error.message || "신청 확정에 실패했습니다.")}`);
+      navigate(`/fail?code=${error.code || "APPLICATION"}&message=${encodeURIComponent(error.message || t("widget.completeFailed"))}`);
     });
-  }, [dispatch, navigate, searchParams]);
+  }, [dispatch, navigate, searchParams, t]);
 
   return (
     <div className="box_section" style={{ width: "600px" }}>
       <img
         width="100px"
         src="https://static.toss.im/illusts/check-blue-spot-ending-frame.png"
-        alt="결제 완료"
+        alt={t("widget.successAlt")}
       />
-      <h2>결제를 확인하고 있어요</h2>
+      <h2>{t("widget.successTitle")}</h2>
       <p className="typography--p" style={{ marginTop: "24px" }}>{message}</p>
       <div className="p-grid typography--p" style={{ marginTop: "40px" }}>
-        <div className="p-grid-col text--left"><b>주문번호</b></div>
+        <div className="p-grid-col text--left"><b>{t("widget.orderId")}</b></div>
         <div className="p-grid-col text--right" id="orderId">{searchParams.get("orderId")}</div>
       </div>
     </div>

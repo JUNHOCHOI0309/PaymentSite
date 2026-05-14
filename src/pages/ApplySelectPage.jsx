@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PageShell } from "../components/layout/PageShell";
+import { useLanguage } from "../context/LanguageContext";
 import { buildApiUrl } from "../lib/applicationApi";
 
 const commonItems = [
@@ -9,25 +10,27 @@ const commonItems = [
   { key: "register/common_3.png", title: "Danim Korea" },
 ];
 
-const disciplineGroups = {
-  man: {
-    label: "MAN",
-    items: [
-      { key: "register/man_1.png", title: "Body Building" },
-      { key: "register/man_2.png", title: "Classic" },
-      { key: "register/man_3.png", title: "Physique" },
-      ...commonItems,
-    ],
-  },
-  woman: {
-    label: "WOMAN",
-    items: [
-      { key: "register/woman_1.png", title: "Ms. Bikini Korea" },
-      { key: "register/woman_2.png", title: "Figure Korea" },
-      ...commonItems,
-    ],
-  },
-};
+function getDisciplineGroups(t) {
+  return {
+    man: {
+      label: t("applySelect.men"),
+      items: [
+        { key: "register/man_1.png", title: "Body Building" },
+        { key: "register/man_2.png", title: "Classic" },
+        { key: "register/man_3.png", title: "Physique" },
+        ...commonItems,
+      ],
+    },
+    woman: {
+      label: t("applySelect.women"),
+      items: [
+        { key: "register/woman_1.png", title: "Ms. Bikini Korea" },
+        { key: "register/woman_2.png", title: "Figure Korea" },
+        ...commonItems,
+      ],
+    },
+  };
+}
 
 function getRegisterImageUrl(key) {
   return buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(key)}`);
@@ -35,6 +38,8 @@ function getRegisterImageUrl(key) {
 
 export function ApplySelectPage() {
   const navigate = useNavigate();
+  const { t } = useLanguage();
+  const disciplineGroups = getDisciplineGroups(t);
   const trackRef = useRef(null);
   const dragStateRef = useRef({
     isDown: false,
@@ -159,7 +164,7 @@ export function ApplySelectPage() {
       <section className="site-register-select" aria-labelledby="register-select-title">
         {canScrollLeft ? (
           <button
-            aria-label="이전 카드 보기"
+            aria-label={t("applySelect.prevCards")}
             className="site-register-scroll-hint site-register-scroll-hint--left"
             onClick={() => handleArrowClick(-1)}
             type="button"
@@ -169,7 +174,7 @@ export function ApplySelectPage() {
         ) : null}
         {canScrollRight ? (
           <button
-            aria-label="다음 카드 보기"
+            aria-label={t("applySelect.nextCards")}
             className="site-register-scroll-hint site-register-scroll-hint--right"
             onClick={() => handleArrowClick(1)}
             type="button"
@@ -178,8 +183,8 @@ export function ApplySelectPage() {
           </button>
         ) : null}
         <div className="site-register-select__heading">
-          <h1 id="register-select-title">DISCIPLINES</h1>
-          <div className={`site-register-tabs site-register-tabs--${activeGroup}`} role="tablist" aria-label="참가 구분">
+          <h1 id="register-select-title">{t("applySelect.title")}</h1>
+          <div className={`site-register-tabs site-register-tabs--${activeGroup}`} role="tablist" aria-label={t("applySelect.groupAria")}>
             <span className="site-register-tabs__indicator" aria-hidden="true" />
             {Object.entries(disciplineGroups).map(([groupKey, group]) => (
               <button

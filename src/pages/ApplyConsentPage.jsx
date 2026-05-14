@@ -3,7 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "../components/common/Button";
 import { PageShell } from "../components/layout/PageShell";
 import { useApplicationFlow } from "../context/ApplicationFlowContext";
+import { useLanguage } from "../context/LanguageContext";
 import { applicationConsentItems } from "../data/applicationConsentContent";
+import { applicationConsentItemsEn } from "../data/applicationConsentContent.en";
 import { applicationFlowSteps } from "../lib/applicationFlowAccess";
 import { buildApplyDetailPath } from "../lib/applicationFlowRoutes";
 
@@ -193,7 +195,7 @@ function ConsentCopy({ content }) {
   return <div className="site-consent-page__item-copy">{renderConsentContent(content)}</div>;
 }
 
-function ConsentItem({ item, checked, isExpanded, onToggleExpand, onToggleConsent }) {
+function ConsentItem({ item, checked, isExpanded, onToggleExpand, onToggleConsent, t }) {
   return (
     <article className="site-consent-page__item">
       <button
@@ -205,7 +207,7 @@ function ConsentItem({ item, checked, isExpanded, onToggleExpand, onToggleConsen
         <span className="site-consent-page__item-title">
           {item.title}
           <span className="site-consent-page__item-badge">
-            {item.required ? "필수" : "선택"}
+            {item.required ? t("consent.required") : t("consent.optional")}
           </span>
         </span>
         <span className="site-consent-page__item-arrow">{isExpanded ? "−" : "+"}</span>
@@ -220,7 +222,7 @@ function ConsentItem({ item, checked, isExpanded, onToggleExpand, onToggleConsen
               checked={checked}
               onChange={(event) => onToggleConsent(item.key, event.target.checked)}
             />
-            <span>확인했습니다.</span>
+            <span>{t("consent.checked")}</span>
           </label>
         </div>
       ) : null}
@@ -231,18 +233,30 @@ function ConsentItem({ item, checked, isExpanded, onToggleExpand, onToggleConsen
 export function ApplyConsentPage() {
   const navigate = useNavigate();
   const { state, dispatch } = useApplicationFlow();
+  const { locale, t } = useLanguage();
   const detailPath = buildApplyDetailPath(state.selection);
+  const consentItems = locale === "en" ? applicationConsentItemsEn : applicationConsentItems;
   const [expandedKeys, setExpandedKeys] = useState(() =>
-    applicationConsentItems.filter((item) => item.required).map((item) => item.key),
+    consentItems.filter((item) => item.required).map((item) => item.key),
   );
 
   const requiredItems = useMemo(
-    () => applicationConsentItems.filter((item) => item.required),
-    [],
+    () => consentItems.filter((item) => item.required),
+    [consentItems],
   );
 
-  const allChecked = applicationConsentItems.every((item) => state.consents[item.key]);
+  const allChecked = consentItems.every((item) => state.consents[item.key]);
   const requiredChecked = requiredItems.every((item) => state.consents[item.key]);
+
+  useEffect(() => {
+    setExpandedKeys((current) => {
+      if (current.length) {
+        return current;
+      }
+
+      return consentItems.filter((item) => item.required).map((item) => item.key);
+    });
+  }, [consentItems]);
 
   useEffect(() => {
     if (!state.draftId) {
@@ -268,7 +282,7 @@ export function ApplyConsentPage() {
 
   function toggleAll(value) {
     const nextState = Object.fromEntries(
-      applicationConsentItems.map((item) => [item.key, value]),
+      consentItems.map((item) => [item.key, value]),
     );
 
     dispatch({
@@ -294,9 +308,9 @@ export function ApplyConsentPage() {
       <section className="site-page site-page--narrow site-consent-page">
         <div className="site-review-card">
           <div className="site-review-card__header">
-            <p className="site-kicker">Consent</p>
-            <h1>동의 사항 확인</h1>
-            <p>항목 제목을 눌러 내용을 펼치고, 확인한 항목만 체크해 주세요.</p>
+            <p className="site-kicker">{t("common.kickerConsent")}</p>
+            <h1>{t("consent.title")}</h1>
+            <p>{t("consent.description")}</p>
           </div>
 
           <div className="site-consent-page__all">
@@ -306,15 +320,13 @@ export function ApplyConsentPage() {
                 checked={allChecked}
                 onChange={(event) => toggleAll(event.target.checked)}
               />
-              <span>전체 동의</span>
+              <span>{t("consent.agreeAll")}</span>
             </label>
-            <p>
-              마케팅 정보 수신 동의와 사진 동영상 콘텐츠 사용 동의는 선택 항목입니다.
-            </p>
+            <p>{t("consent.optionalNotice")}</p>
           </div>
 
           <div className="site-consent-page__items">
-            {applicationConsentItems.map((item) => (
+            {consentItems.map((item) => (
               <ConsentItem
                 key={item.key}
                 item={item}
@@ -322,6 +334,7 @@ export function ApplyConsentPage() {
                 isExpanded={expandedKeys.includes(item.key)}
                 onToggleExpand={toggleExpand}
                 onToggleConsent={toggleConsent}
+                t={t}
               />
             ))}
           </div>
@@ -331,10 +344,10 @@ export function ApplyConsentPage() {
               variant="ghost"
               onClick={() => navigate(detailPath, { state: { source: "consent" } })}
             >
-              이전으로
+              {t("consent.previous")}
             </Button>
             <Button onClick={handleProceed} disabled={!requiredChecked}>
-              다음 단계로
+              {t("consent.next")}
             </Button>
           </div>
         </div>

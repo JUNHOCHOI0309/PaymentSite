@@ -3,6 +3,7 @@ import { Button } from "../components/common/Button";
 import { Input } from "../components/common/Input";
 import { NoticeBox } from "../components/common/NoticeBox";
 import { PageShell } from "../components/layout/PageShell";
+import { useLanguage } from "../context/LanguageContext";
 import {
   lookupApplication,
   sendLookupVerificationCode,
@@ -25,6 +26,7 @@ function formatRemainingTime(remainingSeconds) {
 }
 
 export function LookupPage() {
+  const { t } = useLanguage();
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -59,7 +61,7 @@ export function LookupPage() {
         setVerificationDeadline(null);
         setVerificationToken("");
         setVerificationMessage("");
-        setActionErrorMessage("인증번호 입력 시간이 만료되었습니다. 다시 전송해 주세요.");
+        setActionErrorMessage(t("lookup.expired"));
       }
     }
 
@@ -67,7 +69,7 @@ export function LookupPage() {
 
     const intervalId = window.setInterval(updateRemainingSeconds, 1000);
     return () => window.clearInterval(intervalId);
-  }, [verificationDeadline]);
+  }, [verificationDeadline, t]);
 
   const setField = (field) => (event) => {
     const nextValue =
@@ -98,15 +100,15 @@ export function LookupPage() {
 
   function validateNameAndEmail() {
     if (!form.name.trim()) {
-      return "성함을 입력해 주세요.";
+      return t("lookup.nameRequired");
     }
 
     if (!form.email.trim()) {
-      return "이메일을 입력해 주세요.";
+      return t("lookup.emailRequired");
     }
 
     if (!hasValidEmail(form.email)) {
-      return "유효한 이메일 주소를 입력해 주세요.";
+      return t("lookup.emailInvalid");
     }
 
     return "";
@@ -138,12 +140,12 @@ export function LookupPage() {
         ...current,
         verificationCode: "",
       }));
-      setVerificationMessage(json.message || "이메일 인증번호를 전송했습니다.");
+      setVerificationMessage(json.message || t("lookup.sent"));
       setDevVerificationCode(json.devVerificationCode || "");
       setVerificationDeadline(Date.now() + (json.expiresInSeconds || 300) * 1000);
     } catch (error) {
       setVerificationMessage("");
-      setActionErrorMessage(error.message || "이메일 인증번호를 전송하지 못했습니다.");
+      setActionErrorMessage(error.message || t("lookup.sendFailed"));
     } finally {
       setIsSendingCode(false);
     }
@@ -158,17 +160,17 @@ export function LookupPage() {
     }
 
     if (!form.verificationCode.trim()) {
-      setActionErrorMessage("이메일로 받은 인증번호를 입력해 주세요.");
+      setActionErrorMessage(t("lookup.codeRequired"));
       return;
     }
 
     if (form.verificationCode.length !== 6) {
-      setActionErrorMessage("인증번호는 6자리 숫자여야 합니다.");
+      setActionErrorMessage(t("lookup.codeLength"));
       return;
     }
 
     if (!remainingSeconds) {
-      setActionErrorMessage("인증번호 입력 시간이 만료되었습니다. 다시 전송해 주세요.");
+      setActionErrorMessage(t("lookup.expired"));
       return;
     }
 
@@ -184,12 +186,12 @@ export function LookupPage() {
       });
 
       setVerificationToken(json.verificationToken || "");
-      setVerificationMessage(json.message || "이메일 인증이 완료되었습니다.");
+      setVerificationMessage(json.message || t("lookup.verified"));
       setVerificationDeadline(null);
     } catch (error) {
       setVerificationToken("");
       setVerificationMessage("");
-      setActionErrorMessage(error.message || "인증번호 확인에 실패했습니다.");
+      setActionErrorMessage(error.message || t("lookup.verifyFailed"));
     } finally {
       setIsVerifyingCode(false);
     }
@@ -204,7 +206,7 @@ export function LookupPage() {
     }
 
     if (!verificationToken) {
-      setActionErrorMessage("이메일 인증을 먼저 완료해 주세요.");
+      setActionErrorMessage(t("lookup.verifyFirst"));
       return;
     }
 
@@ -226,10 +228,10 @@ export function LookupPage() {
             ? [json.application]
             : []
       );
-      setVerificationMessage("신청 내역을 조회했습니다.");
+      setVerificationMessage(t("lookup.lookupDone"));
     } catch (error) {
       setResults([]);
-      setActionErrorMessage(error.message || "입력한 정보와 일치하는 신청 내역을 찾을 수 없습니다.");
+      setActionErrorMessage(error.message || t("lookup.lookupFailed"));
     } finally {
       setIsSubmitting(false);
     }
@@ -242,22 +244,22 @@ export function LookupPage() {
       <section className="site-page site-page--narrow">
         <div className="site-review-card site-lookup-card">
           <div className="site-review-card__header">
-            <p className="site-kicker">Lookup</p>
-            <h1>신청 조회</h1>
-            <p>성함과 이메일을 확인한 뒤 이메일 인증을 완료하면 접수 상태를 조회할 수 있습니다.</p>
+            <p className="site-kicker">{t("common.kickerLookup")}</p>
+            <h1>{t("lookup.title")}</h1>
+            <p>{t("lookup.description")}</p>
           </div>
 
           <div className="site-form-grid">
             <Input
-              label="성함"
+              label={t("lookup.name")}
               value={form.name}
               onChange={setField("name")}
-              placeholder="홍길동"
+              placeholder={t("lookup.namePlaceholder")}
             />
             <div className="site-lookup-field-action">
               <Input
                 className="site-lookup-field-action__input"
-                label="이메일"
+                label={t("lookup.email")}
                 value={form.email}
                 onChange={setField("email")}
                 placeholder="name@example.com"
@@ -269,7 +271,7 @@ export function LookupPage() {
                 onClick={handleSendVerificationCode}
                 disabled={isSendingCode}
               >
-                {isSendingCode ? "전송 중..." : "인증번호 전송"}
+                {isSendingCode ? t("lookup.sendingCode") : t("lookup.sendCode")}
               </Button>
             </div>
           </div>
@@ -278,14 +280,14 @@ export function LookupPage() {
             <div className="site-lookup-field-action">
               <label className="site-field site-lookup-field-action__input">
                 <span className="site-lookup-field__label-row">
-                  <span className="site-field__label">인증번호</span>
+                  <span className="site-field__label">{t("lookup.verificationCode")}</span>
                 </span>
                 <span className="site-lookup-code-input-wrap">
                   <input
                     className="site-input site-lookup-code-input"
                     value={form.verificationCode}
                     onChange={setField("verificationCode")}
-                    placeholder="6자리 숫자"
+                    placeholder={t("lookup.verificationPlaceholder")}
                     type="tel"
                     inputMode="numeric"
                   />
@@ -294,7 +296,7 @@ export function LookupPage() {
                   ) : null}
                 </span>
                 <span className="site-field__hint">
-                  입력한 이메일 주소로 전송된 6자리 인증번호를 입력해 주세요.
+                  {t("lookup.verificationHint")}
                 </span>
               </label>
               <Button
@@ -302,7 +304,7 @@ export function LookupPage() {
                 onClick={handleVerifyCode}
                 disabled={isVerifyingCode}
               >
-                {isVerifyingCode ? "확인 중..." : "인증 확인"}
+                {isVerifyingCode ? t("lookup.verifyingCode") : t("lookup.verifyCode")}
               </Button>
             </div>
 
@@ -314,13 +316,13 @@ export function LookupPage() {
                   }`.trim()}
                 >
                   <span className="site-lookup-status-box__badge">
-                    {actionErrorMessage ? "안내" : "상태"}
+                    {actionErrorMessage ? t("lookup.info") : t("lookup.status")}
                   </span>
                   {actionErrorMessage ? <p>{actionErrorMessage}</p> : null}
                   {verificationMessage ? <p>{verificationMessage}</p> : null}
                   {devVerificationCode ? (
                     <p className="site-lookup-status-box__meta">
-                      개발 환경 인증번호: <strong>{devVerificationCode}</strong>
+                      {t("lookup.devCode")}: <strong>{devVerificationCode}</strong>
                     </p>
                   ) : null}
                 </div>
@@ -329,31 +331,31 @@ export function LookupPage() {
 
             <div className="site-lookup-actions">
               <Button onClick={handleLookup} disabled={isSubmitting}>
-                {isSubmitting ? "조회 중..." : "조회하기"}
+                {isSubmitting ? t("lookup.lookingUp") : t("lookup.lookup")}
               </Button>
             </div>
           </div>
 
-          <NoticeBox title="조회 안내">
+          <NoticeBox title={t("lookup.noticeTitle")}>
             <ul className="site-list">
-              <li>신청 시 입력한 성함과 이메일이 데이터베이스에 일치해야 인증번호를 받을 수 있습니다.</li>
-              <li>이메일 인증이 완료되어야 신청 조회가 가능합니다.</li>
-              <li>조회 결과에는 개인정보 보호를 위해 일부 정보가 마스킹되어 표시됩니다.</li>
+              <li>{t("lookup.notice1")}</li>
+              <li>{t("lookup.notice2")}</li>
+              <li>{t("lookup.notice3")}</li>
             </ul>
           </NoticeBox>
 
           {results.length > 0 ? (
             <div className="site-result-card">
-              <h3>조회 결과</h3>
+              <h3>{t("lookup.resultTitle")}</h3>
               <div className="site-lookup-results">
                 {results.map((result) => (
                   <div className="site-lookup-result" key={result.applicationNumber}>
-                    <div className="site-review-row"><span>신청 상태</span><strong>{result.status}</strong></div>
-                    <div className="site-review-row"><span>신청 번호</span><strong>{result.applicationNumber}</strong></div>
-                    <div className="site-review-row"><span>결제 상태</span><strong>{result.paymentStatus}</strong></div>
-                    <div className="site-review-row"><span>신청자</span><strong>{result.name}</strong></div>
-                    <div className="site-review-row"><span>연락처</span><strong>{result.phone}</strong></div>
-                    <div className="site-review-row"><span>이메일</span><strong>{result.email}</strong></div>
+                    <div className="site-review-row"><span>{t("lookup.applicationStatus")}</span><strong>{result.status}</strong></div>
+                    <div className="site-review-row"><span>{t("lookup.applicationNumber")}</span><strong>{result.applicationNumber}</strong></div>
+                    <div className="site-review-row"><span>{t("lookup.paymentStatus")}</span><strong>{result.paymentStatus}</strong></div>
+                    <div className="site-review-row"><span>{t("lookup.applicant")}</span><strong>{result.name}</strong></div>
+                    <div className="site-review-row"><span>{t("lookup.phone")}</span><strong>{result.phone}</strong></div>
+                    <div className="site-review-row"><span>{t("lookup.emailLabel")}</span><strong>{result.email}</strong></div>
                   </div>
                 ))}
               </div>

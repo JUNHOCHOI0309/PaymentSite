@@ -5,6 +5,7 @@ import { SiteFavicon } from "./components/layout/SiteFavicon";
 import { ScrollToTop } from "./components/layout/ScrollToTop";
 import { ApplicationFlowRouteGuard } from "./components/routing/ApplicationFlowRouteGuard";
 import { ApplicationFlowProvider } from "./context/ApplicationFlowContext";
+import { LanguageProvider } from "./context/LanguageContext";
 import { applicationFlowSteps } from "./lib/applicationFlowAccess";
 import { ApplyCompletePage } from "./pages/ApplyCompletePage";
 import { ApplyConsentPage } from "./pages/ApplyConsentPage";
@@ -236,7 +237,9 @@ const router = createBrowserRouter([
 ]);
 
 ReactDOM.createRoot(document.getElementById("root")).render(
-  <ApplicationFlowProvider>
-    <RouterProvider router={router} />
-  </ApplicationFlowProvider>,
+  <LanguageProvider>
+    <ApplicationFlowProvider>
+      <RouterProvider router={router} />
+    </ApplicationFlowProvider>
+  </LanguageProvider>,
 );

@@ -1,16 +1,19 @@
 import { Link } from "react-router-dom";
+import { useLanguage } from "../../context/LanguageContext";
 
 export function SiteFooter() {
+  const { t } = useLanguage();
+
   return (
     <footer className="site-footer">
       <div>
         <p className="site-footer__brand">MMKorea</p>
-        <p className="site-footer__meta">Competition Landing + Application Flow Skeleton</p>
+        <p className="site-footer__meta">{t("footer.meta")}</p>
       </div>
       <div className="site-footer__links">
-        <Link to="/privacy">개인정보 처리안내</Link>
-        <Link to="/terms">참가 유의사항</Link>
-        <Link to="/lookup">신청 조회</Link>
+        <Link to="/privacy">{t("footer.privacy")}</Link>
+        <Link to="/terms">{t("footer.terms")}</Link>
+        <Link to="/lookup">{t("footer.lookup")}</Link>
       </div>
     </footer>
   );

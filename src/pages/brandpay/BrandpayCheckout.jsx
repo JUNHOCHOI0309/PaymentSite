@@ -1,7 +1,8 @@
-﻿import { loadTossPayments } from "@tosspayments/tosspayments-sdk";
+import { loadTossPayments } from "@tosspayments/tosspayments-sdk";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApplicationFlow } from "../../context/ApplicationFlowContext";
+import { useLanguage } from "../../context/LanguageContext";
 import { buildApiUrl } from "../../lib/applicationApi";
 
 const clientKey = "test_ck_D5GePWvyJnrK0W0k6q8gLzN97Eoq";
@@ -11,6 +12,7 @@ export function BrandpayCheckoutPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { state } = useApplicationFlow();
+  const { t } = useLanguage();
   const [brandpay, setBrandpay] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -28,16 +30,16 @@ export function BrandpayCheckoutPage() {
 
         setBrandpay(nextBrandpay);
       } catch (error) {
-        setErrorMessage(error.message || "브랜드페이 준비에 실패했습니다.");
+        setErrorMessage(error.message || t("brandpay.prepareError"));
       }
     }
 
     fetchBrandpay();
-  }, []);
+  }, [t]);
 
   async function requestPayment() {
     if (!orderId) {
-      setErrorMessage("주문 정보가 없습니다. review 단계에서 다시 진입해 주세요.");
+      setErrorMessage(t("brandpay.missingOrder"));
       return;
     }
 
@@ -47,11 +49,11 @@ export function BrandpayCheckoutPage() {
         value: 1,
       },
       orderId,
-      orderName: "대회 신청 결제",
+      orderName: t("brandpay.orderName"),
       successUrl: `${window.location.origin}/brandpay/success?customerKey=${customerKey}&draftId=${encodeURIComponent(draftId || "")}`,
       failUrl: window.location.origin + "/fail",
       customerEmail: state.applicantInfo.email || "customer@example.com",
-      customerName: state.applicantInfo.name || "신청자",
+      customerName: state.applicantInfo.name || t("brandpay.applicant"),
     });
   }
 
@@ -60,10 +62,10 @@ export function BrandpayCheckoutPage() {
       <div className="box_section" style={{ padding: "40px 30px 50px 30px", marginTop: "30px", marginBottom: "50px", display: "flex", flexDirection: "column" }}>
         {errorMessage ? <p style={{ color: "#d14343" }}>{errorMessage}</p> : null}
         <button className="button" style={{ marginTop: "30px" }} onClick={requestPayment} disabled={!brandpay}>
-          결제하기
+          {t("brandpay.pay")}
         </button>
         <button className="button" style={{ marginTop: "30px" }} onClick={() => navigate("/apply/review")}>
-          신청 내용 확인으로 돌아가기
+          {t("brandpay.backToReview")}
         </button>
       </div>
     </div>

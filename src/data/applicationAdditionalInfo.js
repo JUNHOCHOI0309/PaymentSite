@@ -1,30 +1,31 @@
-export const defaultAdditionalInfo = {
-  title: "추가 안내",
-  sections: [
-    {
-      title: "안내",
-      body: "선택한 종목의 추가 설명문이 들어갈 영역입니다.",
+const localizedAdditionalInfo = {
+  ko: {
+    default: {
+      title: "추가 안내",
+      sections: [
+        {
+          title: "안내",
+          body: "선택한 종목의 추가 설명문이 들어갈 영역입니다.",
+        },
+      ],
     },
-  ],
-};
-
-export const additionalInfoByImageKey = {
-  "register/man_1.png": {
-    title: "머슬마니아 보디빌딩\n\n(MUSCLEMANIA BODYBUILDING)",
-    sections: [
-      {
-        title: "종목 소개",
-        body: `미국에서 1991년 최초의 월드클래스 수준의 보디빌딩 투어로 시작되었습니다.
+    byImageKey: {
+      "register/man_1.png": {
+        title: "머슬마니아 보디빌딩\n\n(MUSCLEMANIA BODYBUILDING)",
+        sections: [
+          {
+            title: "종목 소개",
+            body: `미국에서 1991년 최초의 월드클래스 수준의 보디빌딩 투어로 시작되었습니다.
 
 현재 머슬마니아는 미국에서 가장 인기있는 보디빌딩 대회입니다.`,
-      },
-      {
-        title: "보디빌딩 출전자격",
-        body: "대회일 기준 만 16세 이상의 남성",
-      },
-      {
-        title: "보디빌딩 출전체급",
-        body: `남자 주니어 (단일체급, 만22세 이하)
+          },
+          {
+            title: "보디빌딩 출전자격",
+            body: "대회일 기준 만 16세 이상의 남성",
+          },
+          {
+            title: "보디빌딩 출전체급",
+            body: `남자 주니어 (단일체급, 만22세 이하)
 
 남자 클래식 (단일체급, 만40세 이상)
 
@@ -35,10 +36,10 @@ export const additionalInfoByImageKey = {
 주니어 클래식 오픈 2라운드, 노비스 1라운드
 
 주니어 클래식 오픈 1라운드 2라운드 동시진행`,
-      },
-      {
-        title: "심사항목",
-        body: `▷ 1라운드 규정포즈심사
+          },
+          {
+            title: "심사항목",
+            body: `▷ 1라운드 규정포즈심사
 1. 대칭미 2. 포즈 및 표현력 3. 근육크기 4. 컨디션 및 데피니션
 
 ▷ 2라운드 자유포즈심사
@@ -49,10 +50,10 @@ export const additionalInfoByImageKey = {
 보디빌딩 노비스는 규정포즈심사만 진행됩니다. (90점 만점)
 
 자유포즈 심사 시 출전선수가 MP3 음원을 제출하지 않거나 파일에 이상이 있는 경우 대체음악이 재생됩니다.`,
-      },
-      {
-        title: "보디빌딩 무대진행순서",
-        body: `▷ 1라운드 (노비스 & 오픈 O)
+          },
+          {
+            title: "보디빌딩 무대진행순서",
+            body: `▷ 1라운드 (노비스 & 오픈 O)
 단체선수라인업 입장 > 쿼터턴심사 > 규정포즈심사 > 퇴장
 
 - 보디빌딩 노비스는 1라운드만 진행하며, 자유포즈심사 없음.
@@ -61,98 +62,98 @@ export const additionalInfoByImageKey = {
 개인선수입장 > 보디빌딩 오픈 자유포즈 심사 (60초) > 개인선수퇴장
 
 - 보디빌딩 오픈 1라운드, 2라운드 동시진행`,
-      },
-      {
-        title: "보디빌딩 규정포즈",
-        body: `1. 프론트 더블 바이셉스 2. 프론트 랫스프레드 3. 사이드 체스트
+          },
+          {
+            title: "보디빌딩 규정포즈",
+            body: `1. 프론트 더블 바이셉스 2. 프론트 랫스프레드 3. 사이드 체스트
 4. 리어 더블 바이셉스 5. 리어 랫스프레드 6. 트라이셉스
 7. 업도미널 앤 타이 8. 모스트머스큘라`,
-      },
-      {
-        title: "보디빌딩 복장규정",
-        body: `규정복장 : 대회용 보디빌딩 트렁크
+          },
+          {
+            title: "보디빌딩 복장규정",
+            body: `규정복장 : 대회용 보디빌딩 트렁크
 
 액세서리 및 신발 착용 금지
 
 의상 규정에 어긋나는 복장 착용 시 감점
 
 컬러크림 또는 과도한 오일 사용 시 감점`,
-        tone: "danger",
+            tone: "danger",
+          },
+        ],
       },
-    ],
-  },
-  "register/man_2.png": {
-    title: "머슬마니아 클래식\n\n(MUSCLEMANIA CLASSIC)",
-    sections: [
-      {
-        title: "종목 소개",
-        body: `2016년부터 시작된 부문으로 고전적이고 대칭적이며 해변과 어울리는 완벽한 신체를
+      "register/man_2.png": {
+        title: "머슬마니아 클래식\n\n(MUSCLEMANIA CLASSIC)",
+        sections: [
+          {
+            title: "종목 소개",
+            body: `2016년부터 시작된 부문으로 고전적이고 대칭적이며 해변과 어울리는 완벽한 신체를
 보여주고자 하는 남성들을 위한 새로운 종목으로서 단일라운드로 치뤄집니다.`,
-      },
-      {
-        title: "클래식 출전자격",
-        body: "대회일 기준 만 20세 이상의 남성",
-      },
-      {
-        title: "클래식 출전체급",
-        body: `남자 주니어 (단일체급, 만22세 이하)
+          },
+          {
+            title: "클래식 출전자격",
+            body: "대회일 기준 만 20세 이상의 남성",
+          },
+          {
+            title: "클래식 출전체급",
+            body: `남자 주니어 (단일체급, 만22세 이하)
 
 남자 노비스 & 오픈
 
 - 체급 신장 계측 후 균등 분배
 - 클래식 종목은 클래식보디빌딩 또는 클래식피지크 개념의 종목입니다.`,
-      },
-      {
-        title: "클래식 심사규정",
-        body: "1. 근육대칭미 2. 포즈와 표현력 3. 근육 크기 4. 컨디션 및 데피니션",
-      },
-      {
-        title: "클래식 무대진행순서",
-        body: `개인선수입장 > 무대중앙 자유포즈 > 개인선수퇴장 > 단체라인업재입장
+          },
+          {
+            title: "클래식 심사규정",
+            body: "1. 근육대칭미 2. 포즈와 표현력 3. 근육 크기 4. 컨디션 및 데피니션",
+          },
+          {
+            title: "클래식 무대진행순서",
+            body: `개인선수입장 > 무대중앙 자유포즈 > 개인선수퇴장 > 단체라인업재입장
 > 단체쿼터턴심사 > 규정포즈심사 > 퇴장
 
 - 무대 중앙 워킹 & 자유포즈 시간 약 30~40초`,
-      },
-      {
-        title: "클래식 규정포즈",
-        body: `1. 프론트 더블 바이셉스 2. 사이드 체스트 3. 트라이셉스
+          },
+          {
+            title: "클래식 규정포즈",
+            body: `1. 프론트 더블 바이셉스 2. 사이드 체스트 3. 트라이셉스
 4. 리어 더블 바이셉스 5. 업도미널 앤 타이
 
 클래식보디빌딩 규정포즈`,
-      },
-      {
-        title: "클래식 규정포즈 이미지",
-        type: "image",
-        imageKey: "register/man_2_1.png",
-      },
-      {
-        title: "클래식 복장규정",
-        body: `규정복장 : 남성 브리프
+          },
+          {
+            title: "클래식 규정포즈 이미지",
+            type: "image",
+            imageKey: "register/man_2_1.png",
+          },
+          {
+            title: "클래식 복장규정",
+            body: `규정복장 : 남성 브리프
 
 액세서리 및 신발 착용 금지
 
 의상 규정에 어긋나는 복장 착용 시 감점
 
 컬러크림 또는 과도한 오일 사용 시 감점`,
-        tone: "danger",
+            tone: "danger",
+          },
+        ],
       },
-    ],
-  },
-  "register/man_3.png": {
-    title: "피지크\n\n(PHYSIQUE)",
-    sections: [
-      {
-        title: "종목 소개",
-        body: `2013년부터 시작된 부문으로 보디빌딩과 모델 수영복 라운드의 중간적인 개념이며,
+      "register/man_3.png": {
+        title: "피지크\n\n(PHYSIQUE)",
+        sections: [
+          {
+            title: "종목 소개",
+            body: `2013년부터 시작된 부문으로 보디빌딩과 모델 수영복 라운드의 중간적인 개념이며,
 단일라운드로 진행됩니다. 남자 선수의 상체를 주로 심사합니다.`,
-      },
-      {
-        title: "피지크 출전자격",
-        body: "대회일 기준 만 20세 이상의 남성",
-      },
-      {
-        title: "피지크 출전체급",
-        body: `남자 주니어 (단일체급, 만22세 이하)
+          },
+          {
+            title: "피지크 출전자격",
+            body: "대회일 기준 만 20세 이상의 남성",
+          },
+          {
+            title: "피지크 출전체급",
+            body: `남자 주니어 (단일체급, 만22세 이하)
 
 남자 클래식 (단일체급, 만40세 이상)
 
@@ -161,63 +162,63 @@ export const additionalInfoByImageKey = {
 남자 오픈
 
 체급 신장 계측 후 균등 분배`,
-      },
-      {
-        title: "피지크 심사규정",
-        body: "1. 근육 대칭미 2. 포즈와 표현력 3. 근육 크기 4. 컨디션 및 데피니션",
-      },
-      {
-        title: "피지크 무대진행순서",
-        body: `개인선수입장 > 무대중앙 자유포즈 > 개인선수퇴장 > 단체라인업재입장
+          },
+          {
+            title: "피지크 심사규정",
+            body: "1. 근육 대칭미 2. 포즈와 표현력 3. 근육 크기 4. 컨디션 및 데피니션",
+          },
+          {
+            title: "피지크 무대진행순서",
+            body: `개인선수입장 > 무대중앙 자유포즈 > 개인선수퇴장 > 단체라인업재입장
 > 단체 쿼터턴 심사 후 퇴장
 
 - 무대 중앙 워킹 & 자유포즈 약 30초`,
-      },
-      {
-        title: "피지크 복장규정",
-        body: `규정복장 : 보드 반바지 혹은 보드 쇼트
+          },
+          {
+            title: "피지크 복장규정",
+            body: `규정복장 : 보드 반바지 혹은 보드 쇼트
 
 액세서리 및 신발 착용 금지
 
 의상 규정에 어긋나는 복장 착용 시 감점
 
 컬러크림 또는 과도한 오일 사용 시 감점`,
-        tone: "danger",
+            tone: "danger",
+          },
+        ],
       },
-    ],
-  },
-  "register/common_1.png": {
-    title: "모델\n\n(MODEL)",
-    sections: [
-      {
-        title: "종목 소개",
-        body: `모델 부문은 선수분들의 패션센스와 우월한 신체를 뽐낼 수 있는 최고의 무대입니다.
+      "register/common_1.png": {
+        title: "모델\n\n(MODEL)",
+        sections: [
+          {
+            title: "종목 소개",
+            body: `모델 부문은 선수분들의 패션센스와 우월한 신체를 뽐낼 수 있는 최고의 무대입니다.
 
 스포츠모델 / 커머셜모델 부문으로 나눠져 있으며, 오픈 3라운드, 노비스 1라운드로 진행됩니다.
 
 스포츠모델 오픈과 커머셜모델 오픈의 중복출전은 불가하며, 이 외의 경우는 노비스를 포함하여 모두 중복출전이 가능합니다.`,
-      },
-      {
-        title: "모델 출전자격",
-        body: "대회일 기준 만 16세 이상의 남녀",
-      },
-      {
-        title: "모델 출전체급",
-        body: `스포츠모델 오픈 & 노비스 (쇼트, 미디움, 톨)
+          },
+          {
+            title: "모델 출전자격",
+            body: "대회일 기준 만 16세 이상의 남녀",
+          },
+          {
+            title: "모델 출전체급",
+            body: `스포츠모델 오픈 & 노비스 (쇼트, 미디움, 톨)
 
 커머셜모델 오픈 & 노비스 (쇼트, 미디움, 톨)
 
 - 체급 신장 계측 후 균등 분배`,
-      },
-      {
-        title: "모델 심사규정",
-        body: `1. 포토제닉(사진) 2. 신체적 외관 및 외모 3. 복장선택 및 조화 4. 포징 및 표현력
+          },
+          {
+            title: "모델 심사규정",
+            body: `1. 포토제닉(사진) 2. 신체적 외관 및 외모 3. 복장선택 및 조화 4. 포징 및 표현력
 
 * 모든 라운드(1R~3R)의 심사규정은 동일합니다.`,
-      },
-      {
-        title: "모델 무대진행순서",
-        body: `오픈 3라운드
+          },
+          {
+            title: "모델 무대진행순서",
+            body: `오픈 3라운드
 
 ▷ 1라운드 클럽웨어
 개인선수입장 > 무대중앙포즈 & 하프턴 > 개인선수퇴장 > 단체라인업재입장
@@ -240,10 +241,10 @@ export const additionalInfoByImageKey = {
 > 단체 하프턴(180도) 심사 후 퇴장
 
 - 무대 중앙 워킹 & 자유포즈 약 30초`,
-      },
-      {
-        title: "모델 복장규정",
-        body: `클럽웨어 : 소셜 문화생활 및 밤문화 생활에 어울리는 복장
+          },
+          {
+            title: "모델 복장규정",
+            body: `클럽웨어 : 소셜 문화생활 및 밤문화 생활에 어울리는 복장
 
 스포츠웨어 : 활동적인 스포츠웨어, 스포츠테마 선택 가능
 
@@ -256,33 +257,33 @@ export const additionalInfoByImageKey = {
 라운드에 맞지 않는 의상 착용 시 감점
 
 지나치게 성적이거나 문란하거나 도발적인 자세, 행위, 태도를 취하는 선수는 즉각적으로 실격처리 될 수 있습니다.`,
-        tone: "danger",
+            tone: "danger",
+          },
+        ],
       },
-    ],
-  },
-  "register/common_2.png": {
-    title: "피트니스\n\n(FITNESS)",
-    sections: [
-      {
-        title: "종목 소개",
-        body: `피트니스 종목은 피트니스모델 개념의 종목입니다.
+      "register/common_2.png": {
+        title: "피트니스\n\n(FITNESS)",
+        sections: [
+          {
+            title: "종목 소개",
+            body: `피트니스 종목은 피트니스모델 개념의 종목입니다.
 
 선수 개인의 역량이 빛나는 다양한 자유포징을 볼 수 있으며,
 수영복 라운드를 통해 아름다운 신체를 추구하는 종목입니다.
 
 피트니스 오픈 부문은 2라운드, 노비스 부문은 1라운드로 진행됩니다.`,
-      },
-      {
-        title: "피트니스 출전자격",
-        body: `남자 노비스 & 오픈
+          },
+          {
+            title: "피트니스 출전자격",
+            body: `남자 노비스 & 오픈
 
 여자 노비스 & 오픈
 
 - 자격제한없음 / 체급 신장 계측 후 균등 분배`,
-      },
-      {
-        title: "피트니스 심사규정",
-        body: `▷ 1라운드 심사항목 (90초 이내의 자유포징 / 피트니스 퍼포먼스)
+          },
+          {
+            title: "피트니스 심사규정",
+            body: `▷ 1라운드 심사항목 (90초 이내의 자유포징 / 피트니스 퍼포먼스)
 1. 퍼포먼스 루틴의 실행 2. 창의성 3. 전반적인 외관 및 용모 4. 난이도
 
 ▷ 2라운드 심사항목 (수영복 심사)
@@ -291,10 +292,10 @@ export const additionalInfoByImageKey = {
 오픈 피트니스 퍼포먼스 + 수영복심사 100점 만점
 
 노비스 수영복심사 50점 만점`,
-      },
-      {
-        title: "피트니스 무대진행순서",
-        body: `오픈 2라운드
+          },
+          {
+            title: "피트니스 무대진행순서",
+            body: `오픈 2라운드
 
 ▷ 1라운드 (노비스 X 오픈 O)
 개인선수입장 > 음악에 맞춰 90초 이내의 자유포징 퍼포먼스 진행 > 개인선수퇴장
@@ -313,62 +314,62 @@ export const additionalInfoByImageKey = {
 > 단체 쿼터턴 심사 후 퇴장
 
 피트니스 노비스는 1라운드 30초 개인포징 후 단체 쿼터턴 심사`,
-      },
-      {
-        title: "피트니스 복장규정",
-        body: `남자 수영복 : 패턴이나 추가 로고가 없는 단색 수영복
+          },
+          {
+            title: "피트니스 복장규정",
+            body: `남자 수영복 : 패턴이나 추가 로고가 없는 단색 수영복
 
 여자 수영복 : 스탠다드 투피스 비키니와 하이힐 착용
 
 액세서리 착용 가능`,
-        tone: "danger",
+            tone: "danger",
+          },
+        ],
       },
-    ],
-  },
-  "register/common_3.png": {
-    title: "Danim Korea",
-    sections: [
-      {
-        title: "준비중",
-        body: "상세 안내 자료를 준비 중입니다.",
+      "register/common_3.png": {
+        title: "Danim Korea",
+        sections: [
+          {
+            title: "준비중",
+            body: "상세 안내 자료를 준비 중입니다.",
+          },
+        ],
       },
-    ],
-  },
-  "register/woman_1.png": {
-    title: "미즈비키니\n\n(MS.BIKINI)",
-    sections: [
-      {
-        title: "종목 소개",
-        body: `미즈비키니 부문은 선수분들의 신체라인, 컨디션과
+      "register/woman_1.png": {
+        title: "미즈비키니\n\n(MS.BIKINI)",
+        sections: [
+          {
+            title: "종목 소개",
+            body: `미즈비키니 부문은 선수분들의 신체라인, 컨디션과
 전체적인 매력에 초점을 맞춘 대회입니다.
 
 클래식 & 오픈은 2라운드 / 노비스는 1라운드로 진행됩니다.`,
-      },
-      {
-        title: "미즈 비키니 출전자격",
-        body: "대회일 기준 만 18세 이상의 여성",
-      },
-      {
-        title: "미즈 비키니 출전체급",
-        body: `클래식 (만35세 이상 출전가능, 단일체급)
+          },
+          {
+            title: "미즈 비키니 출전자격",
+            body: "대회일 기준 만 18세 이상의 여성",
+          },
+          {
+            title: "미즈 비키니 출전체급",
+            body: `클래식 (만35세 이상 출전가능, 단일체급)
 
 오픈 & 노비스 (쇼트, 미디움, 톨)
 
 - 체급 신장 계측 후 균등 분배`,
-      },
-      {
-        title: "미즈 비키니 심사규정",
-        body: `▷ 1라운드 심사항목 (테마웨어)
+          },
+          {
+            title: "미즈 비키니 심사규정",
+            body: `▷ 1라운드 심사항목 (테마웨어)
 1. 스포츠웨어 의상선택 2. 개성 3. 포즈 및 표현력 4. 전반적 외관 및 외모
 
 ▷ 2라운드 심사항목 (비키니)
 1. 신체 컨디션 2. 전반적 외관 및 외모 3. 미적 점수 4. 포징 및 표현력
 
 - 미즈비키니 노비스는 비키니심사만 진행됩니다.`,
-      },
-      {
-        title: "미즈 비키니 무대진행순서",
-        body: `▷ 1라운드 테마웨어
+          },
+          {
+            title: "미즈 비키니 무대진행순서",
+            body: `▷ 1라운드 테마웨어
 개인선수입장 > 무대중앙포즈 & 하프턴 > 개인선수퇴장 > 단체라인업재입장
 > 단체 하프턴(180도) 심사 후 퇴장
 
@@ -377,10 +378,10 @@ export const additionalInfoByImageKey = {
 > 단체 하프턴(180도) 심사 후 퇴장
 
 - 무대 중앙 워킹 & 자유포즈 약 30초`,
-      },
-      {
-        title: "미즈비키니 복장규정",
-        body: `1라운드 테마웨어
+          },
+          {
+            title: "미즈비키니 복장규정",
+            body: `1라운드 테마웨어
 참가자의 성격, 즐기는 운동을 대변하는 의상
 가장 편하게 느끼는 의상을 자유롭게 선택
 
@@ -392,52 +393,500 @@ export const additionalInfoByImageKey = {
 단, 라운드에 맞지 않는 과도한 (큐빅) 액세서리 감점
 라운드에 맞지 않는 의상 착용 시 감점
 지나치게 성적이거나 문란하거나 도발적인 자세, 행위, 태도를 취하는 선수는 즉각적으로 실격처리 될 수 있습니다. (G스트링 X, 끈팬티 X)`,
-        tone: "danger",
+            tone: "danger",
+          },
+        ],
       },
-    ],
-  },
-  "register/woman_2.png": {
-    title: "피규어\n\n(FIGURE)",
-    sections: [
-      {
-        title: "종목 소개",
-        body: `2005년부터 시작된 부문으로 머슬마니아 여성부문과 미즈비키니의 중간적인 개념이며,
+      "register/woman_2.png": {
+        title: "피규어\n\n(FIGURE)",
+        sections: [
+          {
+            title: "종목 소개",
+            body: `2005년부터 시작된 부문으로 머슬마니아 여성부문과 미즈비키니의 중간적인 개념이며,
 단일라운드로 진행됩니다.
 
 미즈비키니보다 높은 근육량과 선명도, 머슬마니아 여성부문과 다르게 여성성과 여성의 신체라인이 잘 드러나는 몸매를 높게 평가합니다.`,
-      },
-      {
-        title: "피규어 출전자격",
-        body: "대회일 기준 만 18세 이상의 여성",
-      },
-      {
-        title: "피규어 출전체급",
-        body: `여자 클래식 (단일체급, 만35세 이상)
+          },
+          {
+            title: "피규어 출전자격",
+            body: "대회일 기준 만 18세 이상의 여성",
+          },
+          {
+            title: "피규어 출전체급",
+            body: `여자 클래식 (단일체급, 만35세 이상)
 
 여자 노비스
 
 여자 오픈
 
 체급 신장 계측 후 균등 분배`,
-      },
-      {
-        title: "피규어 심사규정",
-        body: "1. 근육 대칭미 2. 전반적 외관 및 용모 3. 신체 컨디션 4. 포즈 및 표현력",
-      },
-      {
-        title: "피규어 무대진행순서",
-        body: `개인선수입장 > 무대중앙 개인 쿼터턴 포즈 > 개인선수퇴장 > 단체라인업재입장
+          },
+          {
+            title: "피규어 심사규정",
+            body: "1. 근육 대칭미 2. 전반적 외관 및 용모 3. 신체 컨디션 4. 포즈 및 표현력",
+          },
+          {
+            title: "피규어 무대진행순서",
+            body: `개인선수입장 > 무대중앙 개인 쿼터턴 포즈 > 개인선수퇴장 > 단체라인업재입장
 > 단체 쿼터턴 심사 후 퇴장
 
 - 무대 중앙 워킹 & 개인 쿼터턴 포즈 약 30초`,
-      },
-      {
-        title: "피규어 복장규정",
-        body: `규정복장 : 하이컷 투피스 스타일의 수영복
+          },
+          {
+            title: "피규어 복장규정",
+            body: `규정복장 : 하이컷 투피스 스타일의 수영복
 
 액세서리 착용 가능`,
-        tone: "danger",
+            tone: "danger",
+          },
+        ],
       },
-    ],
+    },
+  },
+  en: {
+    default: {
+      title: "Additional Information",
+      sections: [
+        {
+          title: "Notice",
+          body: "This area is reserved for additional guidance about the selected discipline.",
+        },
+      ],
+    },
+    byImageKey: {
+      "register/man_1.png": {
+        title: "Musclemania Bodybuilding",
+        sections: [
+          {
+            title: "Overview",
+            body: `This category began in the United States in 1991 as a world-class bodybuilding tour.
+
+Today, Musclemania remains one of the most popular bodybuilding competitions in the U.S.`,
+          },
+          {
+            title: "Eligibility",
+            body: "Men aged 16 or older as of the event date",
+          },
+          {
+            title: "Classes",
+            body: `Men Junior (single class, age 22 or under)
+
+Men Classic (single class, age 40 or older)
+
+Men Novice -65kg / -75kg / -85kg / +85kg
+
+Men Open -65kg / -75kg / -85kg / +85kg
+
+Junior, Classic, and Open have two rounds. Novice has one round.
+
+For Junior, Classic, and Open, rounds 1 and 2 may proceed consecutively.`,
+          },
+          {
+            title: "Judging",
+            body: `Round 1 Mandatory Poses
+1. Symmetry 2. Posing and presentation 3. Muscle size 4. Condition and definition
+
+Round 2 Free Posing
+Presentation: 10 points
+
+Total: 100 points = Round 1 (90) + Round 2 (10)
+
+Bodybuilding Novice is judged only on mandatory poses. (90-point scale)
+
+If a competitor does not submit an MP3 file for free posing, or if the file is unusable, replacement music will be played.`,
+          },
+          {
+            title: "Stage Flow",
+            body: `Round 1 (Novice and Open)
+Group lineup entrance > quarter turns > mandatory poses > exit
+
+Bodybuilding Novice runs only Round 1 and does not include free posing.
+
+Round 2 (Open only)
+Individual entrance > open free posing (60 sec) > individual exit
+
+For Bodybuilding Open, rounds 1 and 2 proceed together.`,
+          },
+          {
+            title: "Mandatory Poses",
+            body: `1. Front Double Biceps 2. Front Lat Spread 3. Side Chest
+4. Rear Double Biceps 5. Rear Lat Spread 6. Triceps
+7. Abdominals and Thigh 8. Most Muscular`,
+          },
+          {
+            title: "Attire Rules",
+            body: `Required attire: competition bodybuilding trunks
+
+Accessories and shoes are not allowed.
+
+Improper attire may result in point deductions.
+
+Excessive color cream or oil may result in point deductions.`,
+            tone: "danger",
+          },
+        ],
+      },
+      "register/man_2.png": {
+        title: "Musclemania Classic",
+        sections: [
+          {
+            title: "Overview",
+            body: `This division began in 2016 as a new category for men who aim to present a classic, symmetrical, beach-ready physique in a single-round format.`,
+          },
+          {
+            title: "Eligibility",
+            body: "Men aged 20 or older as of the event date",
+          },
+          {
+            title: "Classes",
+            body: `Men Junior (single class, age 22 or under)
+
+Men Novice and Open
+
+- Height and class distribution are balanced after measurement.
+- This division follows a classic bodybuilding or classic physique concept.`,
+          },
+          {
+            title: "Judging",
+            body: "1. Muscular symmetry 2. Posing and presentation 3. Muscle size 4. Condition and definition",
+          },
+          {
+            title: "Stage Flow",
+            body: `Individual entrance > center-stage free pose > individual exit > group lineup re-entry
+> group quarter turns > mandatory poses > exit
+
+- Center-stage walk and free posing time is about 30 to 40 seconds.`,
+          },
+          {
+            title: "Mandatory Poses",
+            body: `1. Front Double Biceps 2. Side Chest 3. Triceps
+4. Rear Double Biceps 5. Abdominals and Thigh
+
+Classic Bodybuilding mandatory poses`,
+          },
+          {
+            title: "Mandatory Pose Image",
+            type: "image",
+            imageKey: "register/man_2_1.png",
+          },
+          {
+            title: "Attire Rules",
+            body: `Required attire: men's brief
+
+Accessories and shoes are not allowed.
+
+Improper attire may result in point deductions.
+
+Excessive color cream or oil may result in point deductions.`,
+            tone: "danger",
+          },
+        ],
+      },
+      "register/man_3.png": {
+        title: "Physique",
+        sections: [
+          {
+            title: "Overview",
+            body: `This division started in 2013 and sits between bodybuilding and the model swimwear round in concept.
+It is conducted as a single round and primarily judges the men's upper body.`,
+          },
+          {
+            title: "Eligibility",
+            body: "Men aged 20 or older as of the event date",
+          },
+          {
+            title: "Classes",
+            body: `Men Junior (single class, age 22 or under)
+
+Men Classic (single class, age 40 or older)
+
+Men Novice
+
+Men Open
+
+Class distribution is balanced after height measurement.`,
+          },
+          {
+            title: "Judging",
+            body: "1. Muscular symmetry 2. Posing and presentation 3. Muscle size 4. Condition and definition",
+          },
+          {
+            title: "Stage Flow",
+            body: `Individual entrance > center-stage free pose > individual exit > group lineup re-entry
+> group quarter turns > exit
+
+- Center-stage walk and free posing time is about 30 seconds.`,
+          },
+          {
+            title: "Attire Rules",
+            body: `Required attire: board shorts
+
+Accessories and shoes are not allowed.
+
+Improper attire may result in point deductions.
+
+Excessive color cream or oil may result in point deductions.`,
+            tone: "danger",
+          },
+        ],
+      },
+      "register/common_1.png": {
+        title: "Model",
+        sections: [
+          {
+            title: "Overview",
+            body: `The Model division is a standout stage where competitors can show fashion sense and an outstanding physique.
+
+It is divided into Sports Model and Commercial Model, with Open running 3 rounds and Novice 1 round.
+
+Sports Model Open and Commercial Model Open cannot be entered together, but other combinations including Novice may be allowed.`,
+          },
+          {
+            title: "Eligibility",
+            body: "Men and women aged 16 or older as of the event date",
+          },
+          {
+            title: "Classes",
+            body: `Sports Model Open & Novice (Short, Medium, Tall)
+
+Commercial Model Open & Novice (Short, Medium, Tall)
+
+- Class distribution is balanced after height measurement.`,
+          },
+          {
+            title: "Judging",
+            body: `1. Photogenic appeal 2. Physical appearance 3. Outfit selection and harmony 4. Posing and presentation
+
+* The judging standards are the same in every round (1R to 3R).`,
+          },
+          {
+            title: "Stage Flow",
+            body: `Open - 3 Rounds
+
+Round 1 Clubwear
+Individual entrance > center-stage pose & half turn > individual exit > group lineup re-entry
+> group half-turn judging > exit
+
+Round 2 Sportswear
+Individual entrance > center-stage pose & half turn > individual exit > group lineup re-entry
+> group half-turn judging > exit
+
+Round 3 Swimwear
+Individual entrance > center-stage pose & half turn > individual exit > group lineup re-entry
+> group half-turn judging > exit
+
+- Center-stage walk and free posing time is about 30 seconds.
+
+Novice - 1 Round
+
+Round 1 Commercial Model Clubwear / Sports Model Sportswear
+Individual entrance > center-stage pose & half turn > individual exit > group lineup re-entry
+> group half-turn judging > exit
+
+- Center-stage walk and free posing time is about 30 seconds.`,
+          },
+          {
+            title: "Attire Rules",
+            body: `Clubwear: attire suitable for social and nightlife culture
+
+Sportswear: active sportswear, sports-themed styling allowed
+
+Men's swimwear: solid-color swimwear with no patterns or extra logos
+
+Women's swimwear: two-piece swimwear with high heels
+
+Accessories are allowed.
+
+Improper round attire may result in point deductions.
+
+Excessively sexual, disorderly, or provocative poses, behavior, or attitude may result in immediate disqualification.`,
+            tone: "danger",
+          },
+        ],
+      },
+      "register/common_2.png": {
+        title: "Fitness",
+        sections: [
+          {
+            title: "Overview",
+            body: `The Fitness division follows a fitness-model concept.
+
+It showcases a variety of free-posing routines that highlight each competitor's strengths, along with a swimwear round that emphasizes an attractive physique.
+
+Fitness Open has 2 rounds, while Novice has 1 round.`,
+          },
+          {
+            title: "Eligibility",
+            body: `Men Novice & Open
+
+Women Novice & Open
+
+- No qualification restrictions / class distribution is balanced after height measurement.`,
+          },
+          {
+            title: "Judging",
+            body: `Round 1 (Fitness Performance / free posing within 90 seconds)
+1. Routine execution 2. Creativity 3. Overall appearance 4. Difficulty
+
+Round 2 (Swimwear)
+1. Posing and presentation 2. Physical condition 3. Femininity/Masculinity 4. Overall appearance
+
+Open Fitness performance + swimwear: 100-point scale
+
+Novice swimwear only: 50-point scale`,
+          },
+          {
+            title: "Stage Flow",
+            body: `Open - 2 Rounds
+
+Round 1 (Open only)
+Individual entrance > up to 90 seconds of free posing performance to music > individual exit
+
+If no music file is submitted for Round 1 free posing, random music will play for 60 seconds.
+
+Round 2
+Group lineup entrance > quarter turns > exit
+
+Fitness Open runs rounds 1 and 2 together.
+
+If free-pose music stops, quarter turns may proceed under the judges' instruction.
+
+Novice - 1 Round
+Individual entrance > 30-second individual pose > individual exit > group lineup re-entry
+> group quarter turns > exit
+
+Fitness Novice consists of a 30-second individual pose followed by group quarter-turn judging.`,
+          },
+          {
+            title: "Attire Rules",
+            body: `Men's swimwear: solid-color swimwear with no patterns or extra logos
+
+Women's swimwear: standard two-piece bikini with high heels
+
+Accessories are allowed.`,
+            tone: "danger",
+          },
+        ],
+      },
+      "register/common_3.png": {
+        title: "Danim Korea",
+        sections: [
+          {
+            title: "Coming Soon",
+            body: "Detailed guidance materials are being prepared.",
+          },
+        ],
+      },
+      "register/woman_1.png": {
+        title: "Ms. Bikini",
+        sections: [
+          {
+            title: "Overview",
+            body: `The Ms. Bikini division focuses on body lines, condition, and overall appeal.
+
+Classic and Open run 2 rounds, while Novice runs 1 round.`,
+          },
+          {
+            title: "Eligibility",
+            body: "Women aged 18 or older as of the event date",
+          },
+          {
+            title: "Classes",
+            body: `Classic (age 35 or older, single class)
+
+Open & Novice (Short, Medium, Tall)
+
+- Class distribution is balanced after height measurement.`,
+          },
+          {
+            title: "Judging",
+            body: `Round 1 Theme Wear
+1. Sportswear selection 2. Personality 3. Posing and presentation 4. Overall appearance
+
+Round 2 Bikini
+1. Physical condition 2. Overall appearance 3. Aesthetic score 4. Posing and presentation
+
+- Ms. Bikini Novice is judged on the bikini round only.`,
+          },
+          {
+            title: "Stage Flow",
+            body: `Round 1 Theme Wear
+Individual entrance > center-stage pose & half turn > individual exit > group lineup re-entry
+> group half-turn judging > exit
+
+Round 2 Bikini
+Individual entrance > center-stage pose & half turn > individual exit > group lineup re-entry
+> group half-turn judging > exit
+
+- Center-stage walk and free posing time is about 30 seconds.`,
+          },
+          {
+            title: "Attire Rules",
+            body: `Round 1 Theme Wear
+Attire that represents the competitor's personality and preferred activity
+Competitors may choose the outfit they feel most comfortable in
+
+Round 2 Bikini
+Standard two-piece bikini with high heels
+
+Accessories are allowed.
+
+However, excessive accessories that do not fit the round may result in deductions.
+Improper attire may result in deductions.
+Excessively sexual, disorderly, or provocative poses, behavior, or attitude may result in immediate disqualification. (No G-strings, no string panties)`,
+            tone: "danger",
+          },
+        ],
+      },
+      "register/woman_2.png": {
+        title: "Figure",
+        sections: [
+          {
+            title: "Overview",
+            body: `This division began in 2005 and sits between the Musclemania women's division and Ms. Bikini in concept.
+It is conducted in a single-round format.
+
+Compared with Ms. Bikini, it favors higher muscle mass and sharper condition, while still emphasizing femininity and a well-defined feminine body line.`,
+          },
+          {
+            title: "Eligibility",
+            body: "Women aged 18 or older as of the event date",
+          },
+          {
+            title: "Classes",
+            body: `Women Classic (single class, age 35 or older)
+
+Women Novice
+
+Women Open
+
+Class distribution is balanced after height measurement.`,
+          },
+          {
+            title: "Judging",
+            body: "1. Muscular symmetry 2. Overall appearance 3. Physical condition 4. Posing and presentation",
+          },
+          {
+            title: "Stage Flow",
+            body: `Individual entrance > center-stage individual quarter-turn pose > individual exit > group lineup re-entry
+> group quarter-turn judging > exit
+
+- Center-stage walk and individual quarter-turn pose time is about 30 seconds.`,
+          },
+          {
+            title: "Attire Rules",
+            body: `Required attire: high-cut two-piece style swimwear
+
+Accessories are allowed.`,
+            tone: "danger",
+          },
+        ],
+      },
+    },
   },
 };
+
+export function getApplicationAdditionalInfo(locale, imageKey) {
+  const localized = localizedAdditionalInfo[locale] || localizedAdditionalInfo.ko;
+  return localized.byImageKey[imageKey] || localized.default;
+}
