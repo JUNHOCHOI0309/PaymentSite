@@ -4,6 +4,7 @@ import { Button } from "../components/common/Button";
 import { NoticeBox } from "../components/common/NoticeBox";
 import { PageShell } from "../components/layout/PageShell";
 import { useApplicationFlow } from "../context/ApplicationFlowContext";
+import { applicationFlowSteps } from "../lib/applicationFlowAccess";
 import { buildApplyDetailPath } from "../lib/applicationFlowRoutes";
 import { createOrder, getDraft } from "../lib/applicationApi";
 
@@ -93,6 +94,10 @@ export function ApplyReviewPage() {
         orderId,
       });
 
+      dispatch({
+        type: "SET_FLOW_STEP",
+        value: applicationFlowSteps.CHECKOUT,
+      });
       navigate(`${paymentPathMap[state.paymentMethod]}?${params.toString()}`);
     } catch (error) {
       setErrorMessage(error.message || "결제 준비에 실패했습니다.");

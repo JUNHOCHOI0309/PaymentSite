@@ -15,6 +15,7 @@ import {
   updateDraft,
   uploadFile,
 } from "../lib/applicationApi";
+import { applicationFlowSteps } from "../lib/applicationFlowAccess";
 
 const maxUploadBytes = 10 * 1024 * 1024;
 const allowedUploadExtensions = new Set([
@@ -336,6 +337,10 @@ export function ApplyPage() {
         });
       }
 
+      dispatch({
+        type: "SET_FLOW_STEP",
+        value: applicationFlowSteps.CONSENT,
+      });
       navigate("/apply/consent");
     } catch (error) {
       setErrorMessage(error.message || "신청 초안 저장에 실패했습니다.");

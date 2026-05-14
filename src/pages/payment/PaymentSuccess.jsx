@@ -1,10 +1,13 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useApplicationFlow } from "../../context/ApplicationFlowContext";
+import { applicationFlowSteps } from "../../lib/applicationFlowAccess";
 import { apiFetch, completeApplication } from "../../lib/applicationApi";
 
 export function PaymentSuccessPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { dispatch } = useApplicationFlow();
   const [responseData, setResponseData] = useState(null);
 
   useEffect(() => {
@@ -32,6 +35,10 @@ export function PaymentSuccessPage() {
         orderId: searchParams.get("orderId"),
       });
 
+      dispatch({
+        type: "SET_FLOW_STEP",
+        value: applicationFlowSteps.COMPLETE,
+      });
       navigate(`/apply/complete?applicationNumber=${encodeURIComponent(completeResult.application.applicationNumber)}`);
       return json;
     }
@@ -41,7 +48,7 @@ export function PaymentSuccessPage() {
       .catch((error) => {
         navigate(`/fail?code=${error.code || "APPLICATION"}&message=${encodeURIComponent(error.message || "결제 확인에 실패했습니다.")}`);
       });
-  }, [navigate, searchParams]);
+  }, [dispatch, navigate, searchParams]);
 
   return (
     <>

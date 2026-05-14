@@ -1,10 +1,13 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, useState } from "react";
+import { applicationFlowSteps } from "../lib/applicationFlowAccess";
 
 const STORAGE_KEY = "application-flow-state";
+const requiredConsentKeys = ["privacy", "terms", "refund"];
 
 const initialState = {
   draftId: null,
   orderId: null,
+  flowStep: null,
   paymentMethod: "payment",
   selection: {
     division: "",
@@ -32,6 +35,28 @@ const initialState = {
     photoVideo: false,
   },
 };
+
+function deriveFlowStep(nextState) {
+  if (nextState?.flowStep) {
+    return nextState.flowStep;
+  }
+
+  if (nextState?.orderId) {
+    return applicationFlowSteps.CHECKOUT;
+  }
+
+  if (!nextState?.draftId) {
+    return null;
+  }
+
+  const hasRequiredConsents = requiredConsentKeys.every(
+    (key) => nextState?.consents?.[key],
+  );
+
+  return hasRequiredConsents
+    ? applicationFlowSteps.REVIEW
+    : applicationFlowSteps.CONSENT;
+}
 
 function applicationFlowReducer(state, action) {
   switch (action.type) {
@@ -84,8 +109,13 @@ function applicationFlowReducer(state, action) {
         ...state,
         orderId: action.payload.orderId,
       };
-    case "HYDRATE_APPLICATION_FLOW":
+    case "SET_FLOW_STEP":
       return {
+        ...state,
+        flowStep: action.value,
+      };
+    case "HYDRATE_APPLICATION_FLOW": {
+      const nextState = {
         ...state,
         ...action.payload,
         consents: {
@@ -93,6 +123,11 @@ function applicationFlowReducer(state, action) {
           ...(action.payload?.consents || {}),
         },
       };
+      return {
+        ...nextState,
+        flowStep: deriveFlowStep(nextState),
+      };
+    }
     case "RESET_APPLICATION_FLOW":
       return initialState;
     default:

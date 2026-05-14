@@ -1,10 +1,13 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useApplicationFlow } from "../../context/ApplicationFlowContext";
+import { applicationFlowSteps } from "../../lib/applicationFlowAccess";
 import { apiFetch, completeApplication } from "../../lib/applicationApi";
 
 export function WidgetSuccessPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { dispatch } = useApplicationFlow();
   const [message, setMessage] = useState("결제 승인 결과를 확인하고 신청서를 확정하는 중입니다.");
 
   useEffect(() => {
@@ -34,13 +37,17 @@ export function WidgetSuccessPage() {
         orderId: searchParams.get("orderId"),
       });
 
+      dispatch({
+        type: "SET_FLOW_STEP",
+        value: applicationFlowSteps.COMPLETE,
+      });
       navigate(`/apply/complete?applicationNumber=${encodeURIComponent(completeResult.application.applicationNumber)}`);
     }
 
     confirmAndComplete().catch((error) => {
       navigate(`/fail?code=${error.code || "APPLICATION"}&message=${encodeURIComponent(error.message || "신청 확정에 실패했습니다.")}`);
     });
-  }, [navigate, searchParams]);
+  }, [dispatch, navigate, searchParams]);
 
   return (
     <div className="box_section" style={{ width: "600px" }}>

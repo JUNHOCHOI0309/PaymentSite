@@ -4,6 +4,7 @@ import { Button } from "../components/common/Button";
 import { PageShell } from "../components/layout/PageShell";
 import { useApplicationFlow } from "../context/ApplicationFlowContext";
 import { applicationConsentItems } from "../data/applicationConsentContent";
+import { applicationFlowSteps } from "../lib/applicationFlowAccess";
 import { buildApplyDetailPath } from "../lib/applicationFlowRoutes";
 
 function renderInlineMarkup(text) {
@@ -281,6 +282,10 @@ export function ApplyConsentPage() {
       return;
     }
 
+    dispatch({
+      type: "SET_FLOW_STEP",
+      value: applicationFlowSteps.REVIEW,
+    });
     navigate("/apply/review");
   }
 

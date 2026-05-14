@@ -3,7 +3,9 @@ import { createBrowserRouter, Outlet, RouterProvider } from "react-router-dom";
 import "./App.css";
 import { SiteFavicon } from "./components/layout/SiteFavicon";
 import { ScrollToTop } from "./components/layout/ScrollToTop";
+import { ApplicationFlowRouteGuard } from "./components/routing/ApplicationFlowRouteGuard";
 import { ApplicationFlowProvider } from "./context/ApplicationFlowContext";
+import { applicationFlowSteps } from "./lib/applicationFlowAccess";
 import { ApplyCompletePage } from "./pages/ApplyCompletePage";
 import { ApplyConsentPage } from "./pages/ApplyConsentPage";
 import { ApplyPage } from "./pages/ApplyPage";
@@ -52,15 +54,37 @@ const router = createBrowserRouter([
       },
       {
         path: "apply/consent",
-        element: <ApplyConsentPage />,
+        element: (
+          <ApplicationFlowRouteGuard
+            minStep={applicationFlowSteps.CONSENT}
+            requireDraftId
+          >
+            <ApplyConsentPage />
+          </ApplicationFlowRouteGuard>
+        ),
       },
       {
         path: "apply/review",
-        element: <ApplyReviewPage />,
+        element: (
+          <ApplicationFlowRouteGuard
+            minStep={applicationFlowSteps.REVIEW}
+            requireDraftId
+          >
+            <ApplyReviewPage />
+          </ApplicationFlowRouteGuard>
+        ),
       },
       {
         path: "apply/complete",
-        element: <ApplyCompletePage />,
+        element: (
+          <ApplicationFlowRouteGuard
+            minStep={applicationFlowSteps.COMPLETE}
+            requireDraftId
+            requireOrderId
+          >
+            <ApplyCompletePage />
+          </ApplicationFlowRouteGuard>
+        ),
       },
       {
         path: "competition-intro",
@@ -87,28 +111,75 @@ const router = createBrowserRouter([
         children: [
           {
             path: "checkout",
-            element: <WidgetCheckoutPage />,
+            element: (
+              <ApplicationFlowRouteGuard
+                minStep={applicationFlowSteps.CHECKOUT}
+                requireDraftId
+                requireOrderId
+                requirePaymentMethod="widget"
+              >
+                <WidgetCheckoutPage />
+              </ApplicationFlowRouteGuard>
+            ),
           },
           {
             path: "success",
-            element: <WidgetSuccessPage />,
+            element: (
+              <ApplicationFlowRouteGuard
+                minStep={applicationFlowSteps.CHECKOUT}
+                requireDraftId
+                requireOrderId
+                requirePaymentMethod="widget"
+                requireSearchParams={["orderId", "amount", "paymentKey"]}
+              >
+                <WidgetSuccessPage />
+              </ApplicationFlowRouteGuard>
+            ),
           },
         ],
       },
       {
         path: "checkout",
-        element: <WidgetCheckoutPage />,
+        element: (
+          <ApplicationFlowRouteGuard
+            minStep={applicationFlowSteps.CHECKOUT}
+            requireDraftId
+            requireOrderId
+            requirePaymentMethod="widget"
+          >
+            <WidgetCheckoutPage />
+          </ApplicationFlowRouteGuard>
+        ),
       },
       {
         path: "brandpay",
         children: [
           {
             path: "checkout",
-            element: <BrandpayCheckoutPage />,
+            element: (
+              <ApplicationFlowRouteGuard
+                minStep={applicationFlowSteps.CHECKOUT}
+                requireDraftId
+                requireOrderId
+                requirePaymentMethod="brandpay"
+              >
+                <BrandpayCheckoutPage />
+              </ApplicationFlowRouteGuard>
+            ),
           },
           {
             path: "success",
-            element: <BrandpaySuccessPage />,
+            element: (
+              <ApplicationFlowRouteGuard
+                minStep={applicationFlowSteps.CHECKOUT}
+                requireDraftId
+                requireOrderId
+                requirePaymentMethod="brandpay"
+                requireSearchParams={["orderId", "amount", "paymentKey", "customerKey"]}
+              >
+                <BrandpaySuccessPage />
+              </ApplicationFlowRouteGuard>
+            ),
           },
         ],
       },
@@ -117,7 +188,16 @@ const router = createBrowserRouter([
         children: [
           {
             path: "checkout",
-            element: <PaymentCheckoutPage />,
+            element: (
+              <ApplicationFlowRouteGuard
+                minStep={applicationFlowSteps.CHECKOUT}
+                requireDraftId
+                requireOrderId
+                requirePaymentMethod="payment"
+              >
+                <PaymentCheckoutPage />
+              </ApplicationFlowRouteGuard>
+            ),
           },
           {
             path: "billing",
@@ -125,13 +205,31 @@ const router = createBrowserRouter([
           },
           {
             path: "success",
-            element: <PaymentSuccessPage />,
+            element: (
+              <ApplicationFlowRouteGuard
+                minStep={applicationFlowSteps.CHECKOUT}
+                requireDraftId
+                requireOrderId
+                requirePaymentMethod="payment"
+                requireSearchParams={["orderId", "amount", "paymentKey"]}
+              >
+                <PaymentSuccessPage />
+              </ApplicationFlowRouteGuard>
+            ),
           },
         ],
       },
       {
         path: "fail",
-        element: <FailPage />,
+        element: (
+          <ApplicationFlowRouteGuard
+            minStep={applicationFlowSteps.CHECKOUT}
+            requireDraftId
+            requireOrderId
+          >
+            <FailPage />
+          </ApplicationFlowRouteGuard>
+        ),
       },
     ],
   },
