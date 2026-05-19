@@ -12,6 +12,7 @@ import { ApplyConsentPage } from "./pages/ApplyConsentPage";
 import { ApplyPage } from "./pages/ApplyPage";
 import { ApplyReviewPage } from "./pages/ApplyReviewPage";
 import { ApplySelectPage } from "./pages/ApplySelectPage";
+import { StageServiceSelectPage } from "./pages/StageServiceSelectPage";
 import { BrandpayCheckoutPage } from "./pages/brandpay/BrandpayCheckout";
 import { CompetitionIntroPage, MmkIntroPage } from "./pages/CompetitionIntroPage";
 import { FailPage } from "./pages/Fail";
@@ -48,6 +49,10 @@ const router = createBrowserRouter([
       {
         path: "apply",
         element: <ApplySelectPage />,
+      },
+      {
+        path: "apply/stage-services",
+        element: <StageServiceSelectPage />,
       },
       {
         path: "apply/detail",

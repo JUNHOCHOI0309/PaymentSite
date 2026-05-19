@@ -3,6 +3,8 @@ export const translations = {
     header: {
       home: "HOME",
       apply: "대회신청",
+      applyDiscipline: "종목 선택",
+      applyStageService: "무대 서비스 선택",
       lookup: "신청조회",
       competitionIntro: "대회소개",
       mmkIntro: "MMK 소개",
@@ -54,6 +56,13 @@ export const translations = {
       women: "여성",
       prevCards: "이전 카드 보기",
       nextCards: "다음 카드 보기",
+    },
+    stageServiceSelect: {
+      title: "무대 서비스 선택",
+      photo: "무대 사진 촬영",
+      video: "무대 영상 촬영",
+      hairMakeup: "헤어&메이크업",
+      placeholder: "이미지 영역",
     },
     apply: {
       fallbackCompetition: "대회명",
@@ -282,6 +291,8 @@ export const translations = {
     header: {
       home: "HOME",
       apply: "Apply",
+      applyDiscipline: "Disciplines",
+      applyStageService: "Stage Services",
       lookup: "Lookup",
       competitionIntro: "Competition",
       mmkIntro: "About MMK",
@@ -333,6 +344,13 @@ export const translations = {
       women: "WOMEN",
       prevCards: "View previous cards",
       nextCards: "View next cards",
+    },
+    stageServiceSelect: {
+      title: "Stage Service Selection",
+      photo: "Stage Photo Shoot",
+      video: "Stage Video Shoot",
+      hairMakeup: "Hair & Makeup",
+      placeholder: "Image Placeholder",
     },
     apply: {
       fallbackCompetition: "Competition",

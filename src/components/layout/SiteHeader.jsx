@@ -25,7 +25,15 @@ export function SiteHeader() {
         </Link>
         <nav className="site-header__nav">
           <Link to="/">{t("header.home")}</Link>
-          <Link to="/apply">{t("header.apply")}</Link>
+          <div className="site-header__dropdown">
+            <button className="site-header__dropdown-trigger" type="button">
+              {t("header.apply")}
+            </button>
+            <div className="site-header__dropdown-menu">
+              <Link to="/apply">{t("header.applyDiscipline")}</Link>
+              <Link to="/apply/stage-services">{t("header.applyStageService")}</Link>
+            </div>
+          </div>
           <Link to="/lookup">{t("header.lookup")}</Link>
           <div className="site-header__dropdown">
             <button className="site-header__dropdown-trigger" type="button">
