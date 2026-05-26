@@ -13,6 +13,8 @@ import { ApplyPage } from "./pages/ApplyPage";
 import { ApplyReviewPage } from "./pages/ApplyReviewPage";
 import { ApplySelectPage } from "./pages/ApplySelectPage";
 import { StageServiceSelectPage } from "./pages/StageServiceSelectPage";
+import { AdminDashboardPage } from "./pages/admin/AdminDashboardPage";
+import { AdminLoginPage } from "./pages/admin/AdminLoginPage";
 import { BrandpayCheckoutPage } from "./pages/brandpay/BrandpayCheckout";
 import { CompetitionIntroPage, MmkIntroPage } from "./pages/CompetitionIntroPage";
 import { FailPage } from "./pages/Fail";
@@ -95,6 +97,14 @@ const router = createBrowserRouter([
       {
         path: "competition-intro",
         element: <CompetitionIntroPage />,
+      },
+      {
+        path: "admin/login",
+        element: <AdminLoginPage />,
+      },
+      {
+        path: "admin",
+        element: <AdminDashboardPage />,
       },
       {
         path: "mmk-intro",

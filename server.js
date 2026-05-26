@@ -3,6 +3,7 @@ require("dotenv").config();
 const crypto = require("crypto");
 const nodemailer = require("nodemailer");
 const path = require("path");
+const { promisify } = require("util");
 const express = require("express");
 const multer = require("multer");
 const { Pool } = require("pg");
@@ -18,6 +19,20 @@ const corsAllowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || "")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
+const adminAllowedOrigins = (process.env.ADMIN_ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const adminSessionCookieName = normalizeText(process.env.ADMIN_COOKIE_NAME) || "mmk_admin_session";
+const adminSessionTtlHours = Math.max(
+  1,
+  Number(process.env.ADMIN_SESSION_TTL_HOURS || 12)
+);
+const adminBootstrapEmail = normalizeEmail(process.env.ADMIN_BOOTSTRAP_EMAIL);
+const adminBootstrapPassword = normalizeText(process.env.ADMIN_BOOTSTRAP_PASSWORD);
+const adminBootstrapDisplayName = normalizeText(process.env.ADMIN_BOOTSTRAP_DISPLAY_NAME) || "MMK Admin";
+const adminCookieSecure = process.env.NODE_ENV === "production";
+const scryptAsync = promisify(crypto.scrypt);
 
 const maxUploadBytes = 10 * 1024 * 1024;
 const allowedUploadMimeTypes = new Set([
@@ -111,10 +126,11 @@ app.use(function (req, res, next) {
   const isAllowedOrigin = origin && corsAllowedOrigins.includes(origin);
 
   if (origin && (allowAnyOrigin || isAllowedOrigin)) {
-    res.setHeader("Access-Control-Allow-Origin", allowAnyOrigin ? "*" : origin);
+    res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
   }
 
   if (req.method === "OPTIONS") {
@@ -195,6 +211,319 @@ function formatPhoneNumber(value) {
   }
 
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
+function parseCookies(headerValue) {
+  return String(headerValue || "")
+    .split(";")
+    .map((chunk) => chunk.trim())
+    .filter(Boolean)
+    .reduce((accumulator, pair) => {
+      const separatorIndex = pair.indexOf("=");
+
+      if (separatorIndex <= 0) {
+        return accumulator;
+      }
+
+      const key = pair.slice(0, separatorIndex).trim();
+      const value = decodeURIComponent(pair.slice(separatorIndex + 1).trim());
+      accumulator[key] = value;
+      return accumulator;
+    }, {});
+}
+
+function serializeCookie(name, value, options = {}) {
+  const segments = [`${name}=${encodeURIComponent(value)}`];
+
+  if (options.maxAge != null) {
+    segments.push(`Max-Age=${options.maxAge}`);
+  }
+
+  segments.push(`Path=${options.path || "/"}`);
+
+  if (options.httpOnly !== false) {
+    segments.push("HttpOnly");
+  }
+
+  if (options.sameSite) {
+    segments.push(`SameSite=${options.sameSite}`);
+  }
+
+  if (options.secure) {
+    segments.push("Secure");
+  }
+
+  return segments.join("; ");
+}
+
+function clearCookie(name) {
+  return serializeCookie(name, "", {
+    maxAge: 0,
+    path: "/",
+    sameSite: "Lax",
+    secure: adminCookieSecure,
+  });
+}
+
+function createAdminSessionCookie(token) {
+  return serializeCookie(adminSessionCookieName, token, {
+    maxAge: adminSessionTtlHours * 60 * 60,
+    path: "/",
+    sameSite: "Lax",
+    secure: adminCookieSecure,
+  });
+}
+
+function generateAdminSessionToken() {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+function hashAdminSessionToken(token) {
+  return crypto.createHash("sha256").update(String(token)).digest("hex");
+}
+
+async function hashAdminPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const derivedKey = await scryptAsync(String(password), salt, 64);
+  return `scrypt:${salt}:${Buffer.from(derivedKey).toString("hex")}`;
+}
+
+async function verifyAdminPassword(password, passwordHash) {
+  const parts = String(passwordHash || "").split(":");
+
+  if (parts.length !== 3 || parts[0] !== "scrypt") {
+    return false;
+  }
+
+  const [, salt, expectedHash] = parts;
+  const derivedKey = await scryptAsync(String(password), salt, 64);
+  const expectedBuffer = Buffer.from(expectedHash, "hex");
+  const actualBuffer = Buffer.from(derivedKey);
+
+  if (expectedBuffer.length !== actualBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(expectedBuffer, actualBuffer);
+}
+
+function getRequestIp(req) {
+  const forwardedFor = normalizeText(req.headers["x-forwarded-for"]);
+
+  if (forwardedFor) {
+    return forwardedFor.split(",")[0].trim();
+  }
+
+  return (
+    normalizeText(req.ip) ||
+    normalizeText(req.socket?.remoteAddress) ||
+    null
+  );
+}
+
+function getRequestUserAgent(req) {
+  return normalizeText(req.headers["user-agent"]);
+}
+
+function hasTrustedAdminOrigin(req) {
+  const origin = normalizeText(req.headers.origin);
+
+  if (!origin || adminAllowedOrigins.length === 0) {
+    return true;
+  }
+
+  return adminAllowedOrigins.includes(origin);
+}
+
+function normalizeAdminUser(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    email: row.email,
+    displayName: row.display_name,
+    role: row.role,
+    isActive: row.is_active,
+    lastLoginAt: row.last_login_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+async function writeAdminAuditLog({
+  adminUserId = null,
+  action,
+  targetType = null,
+  targetId = null,
+  ipAddress = null,
+  userAgent = null,
+  metadata = null,
+}) {
+  try {
+    await pool.query(
+      `
+        INSERT INTO admin_audit_logs (
+          admin_user_id,
+          action,
+          target_type,
+          target_id,
+          ip_address,
+          user_agent,
+          metadata_json
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+      `,
+      [
+        adminUserId,
+        action,
+        targetType,
+        targetId,
+        ipAddress,
+        userAgent,
+        metadata ? JSON.stringify(metadata) : null,
+      ]
+    );
+  } catch (error) {
+    console.error("Failed to write admin audit log:", error);
+  }
+}
+
+async function cleanupExpiredAdminSessions() {
+  await pool.query(
+    `
+      DELETE FROM admin_sessions
+      WHERE expires_at <= NOW()
+    `
+  );
+}
+
+async function ensureAdminBootstrapReady() {
+  if (!adminBootstrapEmail || !adminBootstrapPassword) {
+    return;
+  }
+
+  try {
+    const existingAdminResult = await pool.query(
+      `
+        SELECT id
+        FROM admin_users
+        WHERE email = $1
+        LIMIT 1
+      `,
+      [adminBootstrapEmail]
+    );
+
+    if (existingAdminResult.rowCount > 0) {
+      return;
+    }
+
+    const passwordHash = await hashAdminPassword(adminBootstrapPassword);
+
+    await pool.query(
+      `
+        INSERT INTO admin_users (
+          email,
+          password_hash,
+          display_name,
+          role,
+          is_active
+        )
+        VALUES ($1, $2, $3, 'superadmin', TRUE)
+      `,
+      [adminBootstrapEmail, passwordHash, adminBootstrapDisplayName]
+    );
+
+    console.log(`Bootstrapped admin user: ${adminBootstrapEmail}`);
+  } catch (error) {
+    if (error && error.code === "42P01") {
+      console.warn("Admin tables are not ready yet. Apply admin SQL migration first.");
+      return;
+    }
+
+    throw error;
+  }
+}
+
+async function resolveAdminSession(req) {
+  const cookies = parseCookies(req.headers.cookie);
+  const rawToken = normalizeText(cookies[adminSessionCookieName]);
+
+  if (!rawToken) {
+    return null;
+  }
+
+  const sessionTokenHash = hashAdminSessionToken(rawToken);
+  const sessionResult = await pool.query(
+    `
+      SELECT
+        sessions.id AS session_id,
+        sessions.admin_user_id,
+        sessions.expires_at,
+        users.id,
+        users.email,
+        users.display_name,
+        users.role,
+        users.is_active,
+        users.last_login_at,
+        users.created_at,
+        users.updated_at
+      FROM admin_sessions AS sessions
+      INNER JOIN admin_users AS users
+        ON users.id = sessions.admin_user_id
+      WHERE sessions.session_token_hash = $1
+        AND sessions.expires_at > NOW()
+        AND users.is_active = TRUE
+      LIMIT 1
+    `,
+    [sessionTokenHash]
+  );
+
+  if (sessionResult.rowCount === 0) {
+    return null;
+  }
+
+  const row = sessionResult.rows[0];
+
+  await pool.query(
+    `
+      UPDATE admin_sessions
+      SET last_seen_at = NOW()
+      WHERE id = $1
+    `,
+    [row.session_id]
+  );
+
+  return {
+    sessionId: row.session_id,
+    adminUserId: row.admin_user_id,
+    adminUser: normalizeAdminUser(row),
+  };
+}
+
+async function requireAdminAuth(req, res, next) {
+  try {
+    const session = await resolveAdminSession(req);
+
+    if (!session) {
+      return res.status(401).json({
+        ok: false,
+        code: "ADMIN_AUTH_REQUIRED",
+        message: "Admin authentication is required",
+      });
+    }
+
+    req.adminSession = session;
+    req.adminUser = session.adminUser;
+    next();
+  } catch (error) {
+    console.error("Failed to validate admin session:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to validate admin session",
+    });
+  }
 }
 
 function hasValidEmail(value) {
@@ -1394,10 +1723,351 @@ app.get("/home/gallery-image", async function (req, res) {
   }
 });
 
+function formatFileSizeLabel(size) {
+  const numericSize = Number(size || 0);
+
+  if (numericSize >= 1024 * 1024) {
+    return `${(numericSize / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  if (numericSize >= 1024) {
+    return `${Math.round(numericSize / 1024)} KB`;
+  }
+
+  return `${numericSize} B`;
+}
+
+app.post("/admin/login", async function (req, res) {
+  if (!hasTrustedAdminOrigin(req)) {
+    return res.status(403).json({
+      ok: false,
+      message: "Untrusted admin origin",
+    });
+  }
+
+  const email = normalizeEmail(req.body.email);
+  const password = normalizeText(req.body.password);
+  const ipAddress = getRequestIp(req);
+  const userAgent = getRequestUserAgent(req);
+
+  if (!email || !password) {
+    return res.status(400).json({
+      ok: false,
+      message: "Missing admin email or password",
+    });
+  }
+
+  try {
+    await cleanupExpiredAdminSessions();
+
+    const adminUserResult = await pool.query(
+      `
+        SELECT
+          id,
+          email,
+          password_hash,
+          display_name,
+          role,
+          is_active,
+          last_login_at,
+          created_at,
+          updated_at
+        FROM admin_users
+        WHERE email = $1
+        LIMIT 1
+      `,
+      [email]
+    );
+
+    if (adminUserResult.rowCount === 0) {
+      await writeAdminAuditLog({
+        action: "ADMIN_LOGIN_FAILED",
+        targetType: "admin_user",
+        targetId: email,
+        ipAddress,
+        userAgent,
+        metadata: { reason: "USER_NOT_FOUND" },
+      });
+
+      return res.status(401).json({
+        ok: false,
+        code: "ADMIN_AUTH_FAILED",
+        message: "Invalid admin credentials",
+      });
+    }
+
+    const adminUser = adminUserResult.rows[0];
+    const isPasswordValid = await verifyAdminPassword(password, adminUser.password_hash);
+
+    if (!adminUser.is_active || !isPasswordValid) {
+      await writeAdminAuditLog({
+        adminUserId: adminUser.id,
+        action: "ADMIN_LOGIN_FAILED",
+        targetType: "admin_user",
+        targetId: String(adminUser.id),
+        ipAddress,
+        userAgent,
+        metadata: { reason: adminUser.is_active ? "INVALID_PASSWORD" : "INACTIVE_USER" },
+      });
+
+      return res.status(401).json({
+        ok: false,
+        code: "ADMIN_AUTH_FAILED",
+        message: "Invalid admin credentials",
+      });
+    }
+
+    const sessionToken = generateAdminSessionToken();
+    const sessionTokenHash = hashAdminSessionToken(sessionToken);
+
+    await pool.query(
+      `
+        INSERT INTO admin_sessions (
+          admin_user_id,
+          session_token_hash,
+          ip_address,
+          user_agent,
+          expires_at
+        )
+        VALUES ($1, $2, $3, $4, NOW() + ($5 || ' hours')::interval)
+      `,
+      [adminUser.id, sessionTokenHash, ipAddress, userAgent, adminSessionTtlHours]
+    );
+
+    await pool.query(
+      `
+        UPDATE admin_users
+        SET
+          last_login_at = NOW(),
+          updated_at = NOW()
+        WHERE id = $1
+      `,
+      [adminUser.id]
+    );
+
+    await writeAdminAuditLog({
+      adminUserId: adminUser.id,
+      action: "ADMIN_LOGIN_SUCCEEDED",
+      targetType: "admin_user",
+      targetId: String(adminUser.id),
+      ipAddress,
+      userAgent,
+    });
+
+    res.setHeader("Set-Cookie", createAdminSessionCookie(sessionToken));
+
+    return res.status(200).json({
+      ok: true,
+      adminUser: normalizeAdminUser(adminUser),
+    });
+  } catch (error) {
+    console.error("Failed to log in admin user:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to log in admin user",
+    });
+  }
+});
+
+app.post("/admin/logout", async function (req, res) {
+  if (!hasTrustedAdminOrigin(req)) {
+    return res.status(403).json({
+      ok: false,
+      message: "Untrusted admin origin",
+    });
+  }
+
+  try {
+    const session = await resolveAdminSession(req);
+
+    if (session) {
+      await pool.query(
+        `
+          DELETE FROM admin_sessions
+          WHERE id = $1
+        `,
+        [session.sessionId]
+      );
+
+      await writeAdminAuditLog({
+        adminUserId: session.adminUserId,
+        action: "ADMIN_LOGOUT",
+        targetType: "admin_user",
+        targetId: String(session.adminUserId),
+        ipAddress: getRequestIp(req),
+        userAgent: getRequestUserAgent(req),
+      });
+    }
+
+    res.setHeader("Set-Cookie", clearCookie(adminSessionCookieName));
+
+    return res.status(200).json({
+      ok: true,
+    });
+  } catch (error) {
+    console.error("Failed to log out admin user:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to log out admin user",
+    });
+  }
+});
+
+app.get("/admin/me", requireAdminAuth, async function (req, res) {
+  return res.status(200).json({
+    ok: true,
+    adminUser: req.adminUser,
+  });
+});
+
+app.get("/admin/applications", requireAdminAuth, async function (req, res) {
+  try {
+    const result = await pool.query(
+      `
+        SELECT
+          application_number,
+          name,
+          division,
+          discipline,
+          payment_status,
+          submitted_at
+        FROM applications
+        ORDER BY submitted_at DESC
+        LIMIT 200
+      `
+    );
+
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_VIEW_APPLICATIONS",
+      targetType: "applications",
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+      metadata: { count: result.rowCount },
+    });
+
+    return res.status(200).json({
+      ok: true,
+      applications: result.rows.map((row) => ({
+        applicationNumber: row.application_number,
+        name: row.name,
+        division: row.division,
+        discipline: row.discipline,
+        paymentStatus: row.payment_status,
+        submittedAt: row.submitted_at,
+      })),
+    });
+  } catch (error) {
+    console.error("Failed to fetch admin applications:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to fetch admin applications",
+    });
+  }
+});
+
+app.get("/admin/refunds", requireAdminAuth, async function (req, res) {
+  try {
+    const result = await pool.query(
+      `
+        SELECT
+          payments.order_id,
+          payments.status,
+          payments.total_amount,
+          payments.updated_at,
+          applications.application_number,
+          applications.name
+        FROM payments
+        LEFT JOIN applications
+          ON applications.order_id = payments.order_id
+        WHERE payments.status IN ('CANCELED', 'PARTIAL_CANCELED')
+        ORDER BY payments.updated_at DESC
+        LIMIT 200
+      `
+    );
+
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_VIEW_REFUNDS",
+      targetType: "payments",
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+      metadata: { count: result.rowCount },
+    });
+
+    return res.status(200).json({
+      ok: true,
+      refunds: result.rows.map((row) => ({
+        orderId: row.order_id,
+        applicationNumber: row.application_number,
+        name: row.name,
+        paymentStatus: row.status,
+        totalAmount: row.total_amount,
+        updatedAt: row.updated_at,
+      })),
+    });
+  } catch (error) {
+    console.error("Failed to fetch admin refunds:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to fetch admin refunds",
+    });
+  }
+});
+
+app.get("/admin/assets/register", requireAdminAuth, async function (req, res) {
+  try {
+    if (!ensureR2ReadReady()) {
+      return res.status(500).json({
+        ok: false,
+        message: "R2 read is not configured",
+      });
+    }
+
+    const listResponse = await r2Client.send(
+      new ListObjectsV2Command({
+        Bucket: r2BucketName,
+        Prefix: "register/",
+      })
+    );
+
+    const assets = (listResponse.Contents || [])
+      .filter((item) => /\.(png|jpe?g)$/i.test(item.Key || ""))
+      .map((item) => ({
+        key: item.Key,
+        filename: path.basename(item.Key || ""),
+        sizeBytes: item.Size || 0,
+        sizeLabel: formatFileSizeLabel(item.Size || 0),
+        lastModified: item.LastModified || null,
+      }));
+
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_VIEW_REGISTER_ASSETS",
+      targetType: "r2_assets",
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+      metadata: { count: assets.length },
+    });
+
+    return res.status(200).json({
+      ok: true,
+      assets,
+    });
+  } catch (error) {
+    console.error("Failed to fetch admin register assets:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to fetch admin register assets",
+    });
+  }
+});
+
 async function startServer() {
   try {
     await pool.query("SELECT 1");
     await ensureLookupVerificationStoreReady();
+    await ensureAdminBootstrapReady();
     console.log("PostgreSQL connected");
     app.listen(port, () =>
       console.log(`http://localhost:${port} 으로 샘플 앱이 실행되었습니다.`),

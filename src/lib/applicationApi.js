@@ -21,6 +21,15 @@ export async function apiFetch(path, options) {
   return fetch(buildApiUrl(path), options);
 }
 
+export async function adminApiFetch(path, options = {}) {
+  const nextOptions = {
+    credentials: "include",
+    ...options,
+  };
+
+  return fetch(buildApiUrl(path), nextOptions);
+}
+
 async function readJson(response) {
   const json = await response.json();
 
@@ -142,6 +151,46 @@ export async function getApplicationByNumber(applicationNumber) {
 
 export async function getApplicationByOrder(orderId) {
   const response = await apiFetch(`/api/applications/by-order/${orderId}`);
+  return readJson(response);
+}
+
+export async function adminLogin(payload) {
+  const response = await adminApiFetch("/api/admin/login", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
+export async function adminLogout() {
+  const response = await adminApiFetch("/api/admin/logout", {
+    method: "POST",
+  });
+
+  return readJson(response);
+}
+
+export async function getAdminMe() {
+  const response = await adminApiFetch("/api/admin/me");
+  return readJson(response);
+}
+
+export async function getAdminApplications() {
+  const response = await adminApiFetch("/api/admin/applications");
+  return readJson(response);
+}
+
+export async function getAdminRefunds() {
+  const response = await adminApiFetch("/api/admin/refunds");
+  return readJson(response);
+}
+
+export async function getAdminRegisterAssets() {
+  const response = await adminApiFetch("/api/admin/assets/register");
   return readJson(response);
 }
 
