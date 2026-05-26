@@ -1,5 +1,5 @@
 import ReactDOM from "react-dom/client";
-import { createBrowserRouter, Outlet, RouterProvider } from "react-router-dom";
+import { Navigate, createBrowserRouter, Outlet, RouterProvider, useLocation } from "react-router-dom";
 import "./App.css";
 import { SiteFavicon } from "./components/layout/SiteFavicon";
 import { ScrollToTop } from "./components/layout/ScrollToTop";
@@ -29,7 +29,18 @@ import { TermsPage } from "./pages/TermsPage";
 import { WidgetCheckoutPage } from "./pages/widget/WidgetCheckout";
 import { WidgetSuccessPage } from "./pages/widget/WidgetSuccess";
 
+const adminHosts = new Set(["admin.mmkorea.com", "mmkorea-admin.pages.dev"]);
+
 function RootLayout() {
+  const location = useLocation();
+  const currentHost = window.location.hostname;
+  const isAdminHost = adminHosts.has(currentHost);
+  const isAdminPath = location.pathname === "/admin" || location.pathname.startsWith("/admin/");
+
+  if (isAdminHost && !isAdminPath) {
+    return <Navigate to="/admin/login" replace />;
+  }
+
   return (
     <>
       <SiteFavicon />
