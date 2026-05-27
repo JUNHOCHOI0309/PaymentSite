@@ -194,6 +194,11 @@ export async function getAdminRegisterAssets() {
   return readJson(response);
 }
 
+export async function getAdminAuditLogs() {
+  const response = await adminApiFetch("/api/admin/audit-logs");
+  return readJson(response);
+}
+
 export async function getHomeGalleryImages() {
   const response = await apiFetch("/api/home/gallery-images");
   const json = await readJson(response);

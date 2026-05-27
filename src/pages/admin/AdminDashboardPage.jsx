@@ -5,6 +5,7 @@ import {
   adminLogout,
   buildApiUrl,
   getAdminApplications,
+  getAdminAuditLogs,
   getAdminMe,
   getAdminRefunds,
   getAdminRegisterAssets,
@@ -102,9 +103,11 @@ function TableSection({ title, columns, rows, emptyText }) {
 export function AdminDashboardPage() {
   const navigate = useNavigate();
   const [adminUser, setAdminUser] = useState(null);
+  const [sessionExpiresAt, setSessionExpiresAt] = useState(null);
   const [applications, setApplications] = useState([]);
   const [refunds, setRefunds] = useState([]);
   const [assets, setAssets] = useState([]);
+  const [auditLogs, setAuditLogs] = useState([]);
   const [errorMessage, setErrorMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
 
@@ -116,12 +119,13 @@ export function AdminDashboardPage() {
       setErrorMessage("");
 
       try {
-        const [meResponse, applicationsResponse, refundsResponse, assetsResponse] =
+        const [meResponse, applicationsResponse, refundsResponse, assetsResponse, auditLogsResponse] =
           await Promise.all([
             getAdminMe(),
             getAdminApplications(),
             getAdminRefunds(),
             getAdminRegisterAssets(),
+            getAdminAuditLogs(),
           ]);
 
         if (cancelled) {
@@ -129,15 +133,17 @@ export function AdminDashboardPage() {
         }
 
         setAdminUser(meResponse.adminUser);
+        setSessionExpiresAt(meResponse.session?.expiresAt || null);
         setApplications(applicationsResponse.applications || []);
         setRefunds(refundsResponse.refunds || []);
         setAssets(assetsResponse.assets || []);
+        setAuditLogs(auditLogsResponse.auditLogs || []);
       } catch (error) {
         if (cancelled) {
           return;
         }
 
-        if (error.code === "ADMIN_AUTH_REQUIRED") {
+        if (error.code === "ADMIN_AUTH_REQUIRED" || error.code === "ADMIN_SESSION_EXPIRED") {
           navigate("/admin/login", { replace: true });
           return;
         }
@@ -181,6 +187,9 @@ export function AdminDashboardPage() {
               ? `${adminUser.displayName || adminUser.email} / ${adminUser.role}`
               : "관리자 세션 확인 중"}
           </p>
+          {sessionExpiresAt ? (
+            <p>세션 만료 예정: {formatDateTime(sessionExpiresAt)}</p>
+          ) : null}
         </div>
         <Button variant="ghost" onClick={handleLogout}>
           로그아웃
@@ -194,6 +203,7 @@ export function AdminDashboardPage() {
         <SummaryCard label="결제 완료" value={paidApplicationCount} />
         <SummaryCard label="환불/취소 상태" value={refunds.length} />
         <SummaryCard label="R2 등록 이미지" value={assets.length} />
+        <SummaryCard label="최근 감사 로그" value={auditLogs.length} />
       </div>
 
       {isLoading ? (
@@ -305,6 +315,58 @@ export function AdminDashboardPage() {
               <div className="site-admin-loading">register/ 경로에 등록된 이미지가 없습니다.</div>
             )}
           </section>
+
+          <TableSection
+            title="감사 로그"
+            columns={[
+              {
+                key: "adminUserDisplayName",
+                label: "관리자",
+                render: (row) => (
+                  <MetaCell
+                    primary={row.adminUserDisplayName || row.adminUserEmail || "-"}
+                    secondary={`${row.adminUserRole || "-"} / ${row.adminUserEmail || "-"}`}
+                  />
+                ),
+              },
+              {
+                key: "action",
+                label: "행동 / 대상",
+                render: (row) => (
+                  <MetaCell
+                    primary={row.action}
+                    secondary={`${row.targetType || "-"} / ${row.targetId || "-"}`}
+                  />
+                ),
+              },
+              {
+                key: "ipAddress",
+                label: "접속 정보",
+                render: (row) => (
+                  <MetaCell
+                    primary={row.ipAddress || "-"}
+                    secondary={row.userAgent || "-"}
+                  />
+                ),
+              },
+              {
+                key: "metadata",
+                label: "메타데이터",
+                render: (row) => (
+                  <div className="site-admin-table__json">
+                    {row.metadata ? JSON.stringify(row.metadata) : "-"}
+                  </div>
+                ),
+              },
+              {
+                key: "createdAt",
+                label: "발생 시각",
+                render: (row) => formatDateTime(row.createdAt),
+              },
+            ]}
+            rows={auditLogs}
+            emptyText="감사 로그가 없습니다."
+          />
         </>
       )}
     </section>

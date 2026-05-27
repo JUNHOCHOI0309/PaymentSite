@@ -33,6 +33,24 @@ const adminBootstrapPassword = normalizeText(process.env.ADMIN_BOOTSTRAP_PASSWOR
 const adminBootstrapDisplayName = normalizeText(process.env.ADMIN_BOOTSTRAP_DISPLAY_NAME) || "MMK Admin";
 const adminCookieSecure = process.env.NODE_ENV === "production";
 const scryptAsync = promisify(crypto.scrypt);
+const adminLoginRateWindowMs = Math.max(
+  60 * 1000,
+  Number(process.env.ADMIN_LOGIN_RATE_WINDOW_MS || 10 * 60 * 1000)
+);
+const adminLoginRateLimit = Math.max(
+  1,
+  Number(process.env.ADMIN_LOGIN_RATE_LIMIT || 20)
+);
+const adminLoginFailureThreshold = Math.max(
+  1,
+  Number(process.env.ADMIN_LOGIN_FAILURE_THRESHOLD || 5)
+);
+const adminLoginLockDurationMs = Math.max(
+  60 * 1000,
+  Number(process.env.ADMIN_LOGIN_LOCK_DURATION_MS || 15 * 60 * 1000)
+);
+const adminLoginRateStore = new Map();
+const adminLoginFailureStore = new Map();
 
 const maxUploadBytes = 10 * 1024 * 1024;
 const allowedUploadMimeTypes = new Set([
@@ -390,6 +408,117 @@ async function writeAdminAuditLog({
   }
 }
 
+function cleanupAdminLoginProtectionStore() {
+  const now = Date.now();
+
+  for (const [key, entry] of adminLoginRateStore.entries()) {
+    if (!entry || now - entry.windowStartedAt >= adminLoginRateWindowMs) {
+      adminLoginRateStore.delete(key);
+    }
+  }
+
+  for (const [key, entry] of adminLoginFailureStore.entries()) {
+    if (!entry) {
+      adminLoginFailureStore.delete(key);
+      continue;
+    }
+
+    if (entry.lockedUntil && entry.lockedUntil <= now) {
+      adminLoginFailureStore.delete(key);
+      continue;
+    }
+
+    if (!entry.lockedUntil && entry.lastFailedAt && now - entry.lastFailedAt >= adminLoginLockDurationMs) {
+      adminLoginFailureStore.delete(key);
+    }
+  }
+}
+
+function consumeAdminLoginRateLimit(ipAddress) {
+  const key = ipAddress || "unknown";
+  const now = Date.now();
+  const existing = adminLoginRateStore.get(key);
+
+  if (!existing || now - existing.windowStartedAt >= adminLoginRateWindowMs) {
+    adminLoginRateStore.set(key, {
+      count: 1,
+      windowStartedAt: now,
+    });
+
+    return {
+      ok: true,
+    };
+  }
+
+  if (existing.count >= adminLoginRateLimit) {
+    return {
+      ok: false,
+      retryAfterMs: Math.max(1, adminLoginRateWindowMs - (now - existing.windowStartedAt)),
+    };
+  }
+
+  existing.count += 1;
+
+  return {
+    ok: true,
+  };
+}
+
+function getAdminLoginFailureKey(email, ipAddress) {
+  return `${email || "unknown"}::${ipAddress || "unknown"}`;
+}
+
+function getAdminLoginLockStatus(key) {
+  const entry = adminLoginFailureStore.get(key);
+
+  if (!entry || !entry.lockedUntil) {
+    return {
+      locked: false,
+    };
+  }
+
+  const remainingMs = entry.lockedUntil - Date.now();
+
+  if (remainingMs <= 0) {
+    adminLoginFailureStore.delete(key);
+    return {
+      locked: false,
+    };
+  }
+
+  return {
+    locked: true,
+    remainingMs,
+  };
+}
+
+function recordAdminLoginFailure(key) {
+  const now = Date.now();
+  const entry = adminLoginFailureStore.get(key) || {
+    count: 0,
+    lockedUntil: null,
+    lastFailedAt: null,
+  };
+
+  entry.count += 1;
+  entry.lastFailedAt = now;
+
+  if (entry.count >= adminLoginFailureThreshold) {
+    entry.lockedUntil = now + adminLoginLockDurationMs;
+  }
+
+  adminLoginFailureStore.set(key, entry);
+
+  return {
+    count: entry.count,
+    lockedUntil: entry.lockedUntil,
+  };
+}
+
+function clearAdminLoginFailures(key) {
+  adminLoginFailureStore.delete(key);
+}
+
 async function cleanupExpiredAdminSessions() {
   await pool.query(
     `
@@ -451,7 +580,9 @@ async function resolveAdminSession(req) {
   const rawToken = normalizeText(cookies[adminSessionCookieName]);
 
   if (!rawToken) {
-    return null;
+    return {
+      status: "missing",
+    };
   }
 
   const sessionTokenHash = hashAdminSessionToken(rawToken);
@@ -473,18 +604,48 @@ async function resolveAdminSession(req) {
       INNER JOIN admin_users AS users
         ON users.id = sessions.admin_user_id
       WHERE sessions.session_token_hash = $1
-        AND sessions.expires_at > NOW()
-        AND users.is_active = TRUE
       LIMIT 1
     `,
     [sessionTokenHash]
   );
 
   if (sessionResult.rowCount === 0) {
-    return null;
+    return {
+      status: "missing",
+    };
   }
 
   const row = sessionResult.rows[0];
+  const expiresAt = row.expires_at ? new Date(row.expires_at) : null;
+
+  if (!row.is_active) {
+    await pool.query(
+      `
+        DELETE FROM admin_sessions
+        WHERE id = $1
+      `,
+      [row.session_id]
+    );
+
+    return {
+      status: "inactive",
+    };
+  }
+
+  if (!expiresAt || expiresAt.getTime() <= Date.now()) {
+    await pool.query(
+      `
+        DELETE FROM admin_sessions
+        WHERE id = $1
+      `,
+      [row.session_id]
+    );
+
+    return {
+      status: "expired",
+      expiresAt,
+    };
+  }
 
   await pool.query(
     `
@@ -496,9 +657,11 @@ async function resolveAdminSession(req) {
   );
 
   return {
+    status: "active",
     sessionId: row.session_id,
     adminUserId: row.admin_user_id,
     adminUser: normalizeAdminUser(row),
+    expiresAt,
   };
 }
 
@@ -506,11 +669,27 @@ async function requireAdminAuth(req, res, next) {
   try {
     const session = await resolveAdminSession(req);
 
-    if (!session) {
+    if (session.status !== "active") {
+      if (session.status === "expired") {
+        await writeAdminAuditLog({
+          action: "ADMIN_SESSION_EXPIRED",
+          targetType: "admin_session",
+          ipAddress: getRequestIp(req),
+          userAgent: getRequestUserAgent(req),
+        });
+      }
+
+      if (session.status === "expired" || session.status === "inactive") {
+        res.setHeader("Set-Cookie", clearCookie(adminSessionCookieName));
+      }
+
       return res.status(401).json({
         ok: false,
-        code: "ADMIN_AUTH_REQUIRED",
-        message: "Admin authentication is required",
+        code: session.status === "expired" ? "ADMIN_SESSION_EXPIRED" : "ADMIN_AUTH_REQUIRED",
+        message:
+          session.status === "expired"
+            ? "Admin session has expired"
+            : "Admin authentication is required",
       });
     }
 
@@ -1749,6 +1928,7 @@ app.post("/admin/login", async function (req, res) {
   const password = normalizeText(req.body.password);
   const ipAddress = getRequestIp(req);
   const userAgent = getRequestUserAgent(req);
+  const failureKey = getAdminLoginFailureKey(email, ipAddress);
 
   if (!email || !password) {
     return res.status(400).json({
@@ -1758,7 +1938,50 @@ app.post("/admin/login", async function (req, res) {
   }
 
   try {
+    cleanupAdminLoginProtectionStore();
     await cleanupExpiredAdminSessions();
+
+    const rateLimitResult = consumeAdminLoginRateLimit(ipAddress);
+
+    if (!rateLimitResult.ok) {
+      await writeAdminAuditLog({
+        action: "ADMIN_LOGIN_RATE_LIMITED",
+        targetType: "admin_auth",
+        targetId: email || ipAddress,
+        ipAddress,
+        userAgent,
+        metadata: {
+          retryAfterMs: rateLimitResult.retryAfterMs,
+        },
+      });
+
+      return res.status(429).json({
+        ok: false,
+        code: "ADMIN_LOGIN_RATE_LIMITED",
+        message: "Too many login attempts. Try again later.",
+      });
+    }
+
+    const lockStatus = getAdminLoginLockStatus(failureKey);
+
+    if (lockStatus.locked) {
+      await writeAdminAuditLog({
+        action: "ADMIN_LOGIN_LOCKED",
+        targetType: "admin_auth",
+        targetId: email,
+        ipAddress,
+        userAgent,
+        metadata: {
+          remainingMs: lockStatus.remainingMs,
+        },
+      });
+
+      return res.status(429).json({
+        ok: false,
+        code: "ADMIN_LOGIN_LOCKED",
+        message: "Too many failed login attempts. Try again later.",
+      });
+    }
 
     const adminUserResult = await pool.query(
       `
@@ -1780,13 +2003,19 @@ app.post("/admin/login", async function (req, res) {
     );
 
     if (adminUserResult.rowCount === 0) {
+      const failureState = recordAdminLoginFailure(failureKey);
+
       await writeAdminAuditLog({
         action: "ADMIN_LOGIN_FAILED",
         targetType: "admin_user",
         targetId: email,
         ipAddress,
         userAgent,
-        metadata: { reason: "USER_NOT_FOUND" },
+        metadata: {
+          reason: "USER_NOT_FOUND",
+          failureCount: failureState.count,
+          lockedUntil: failureState.lockedUntil,
+        },
       });
 
       return res.status(401).json({
@@ -1800,6 +2029,8 @@ app.post("/admin/login", async function (req, res) {
     const isPasswordValid = await verifyAdminPassword(password, adminUser.password_hash);
 
     if (!adminUser.is_active || !isPasswordValid) {
+      const failureState = recordAdminLoginFailure(failureKey);
+
       await writeAdminAuditLog({
         adminUserId: adminUser.id,
         action: "ADMIN_LOGIN_FAILED",
@@ -1807,7 +2038,11 @@ app.post("/admin/login", async function (req, res) {
         targetId: String(adminUser.id),
         ipAddress,
         userAgent,
-        metadata: { reason: adminUser.is_active ? "INVALID_PASSWORD" : "INACTIVE_USER" },
+        metadata: {
+          reason: adminUser.is_active ? "INVALID_PASSWORD" : "INACTIVE_USER",
+          failureCount: failureState.count,
+          lockedUntil: failureState.lockedUntil,
+        },
       });
 
       return res.status(401).json({
@@ -1816,6 +2051,8 @@ app.post("/admin/login", async function (req, res) {
         message: "Invalid admin credentials",
       });
     }
+
+    clearAdminLoginFailures(failureKey);
 
     const sessionToken = generateAdminSessionToken();
     const sessionTokenHash = hashAdminSessionToken(sessionToken);
@@ -1880,7 +2117,7 @@ app.post("/admin/logout", async function (req, res) {
   try {
     const session = await resolveAdminSession(req);
 
-    if (session) {
+    if (session.status === "active") {
       await pool.query(
         `
           DELETE FROM admin_sessions
@@ -1917,6 +2154,9 @@ app.get("/admin/me", requireAdminAuth, async function (req, res) {
   return res.status(200).json({
     ok: true,
     adminUser: req.adminUser,
+    session: {
+      expiresAt: req.adminSession.expiresAt,
+    },
   });
 });
 
@@ -2091,6 +2331,64 @@ app.get("/admin/assets/register", requireAdminAuth, async function (req, res) {
     return res.status(500).json({
       ok: false,
       message: "Failed to fetch admin register assets",
+    });
+  }
+});
+
+app.get("/admin/audit-logs", requireAdminAuth, async function (req, res) {
+  try {
+    const result = await pool.query(
+      `
+        SELECT
+          logs.id,
+          logs.action,
+          logs.target_type,
+          logs.target_id,
+          logs.ip_address,
+          logs.user_agent,
+          logs.metadata_json,
+          logs.created_at,
+          users.email,
+          users.display_name,
+          users.role
+        FROM admin_audit_logs AS logs
+        LEFT JOIN admin_users AS users
+          ON users.id = logs.admin_user_id
+        ORDER BY logs.created_at DESC
+        LIMIT 200
+      `
+    );
+
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_VIEW_AUDIT_LOGS",
+      targetType: "admin_audit_logs",
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+      metadata: { count: result.rowCount },
+    });
+
+    return res.status(200).json({
+      ok: true,
+      auditLogs: result.rows.map((row) => ({
+        id: row.id,
+        action: row.action,
+        targetType: row.target_type,
+        targetId: row.target_id,
+        ipAddress: row.ip_address,
+        userAgent: row.user_agent,
+        metadata: row.metadata_json,
+        createdAt: row.created_at,
+        adminUserEmail: row.email,
+        adminUserDisplayName: row.display_name,
+        adminUserRole: row.role,
+      })),
+    });
+  } catch (error) {
+    console.error("Failed to fetch admin audit logs:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to fetch admin audit logs",
     });
   }
 });
