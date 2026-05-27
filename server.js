@@ -1926,7 +1926,11 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
       `
         SELECT
           application_number,
+          order_id,
           name,
+          phone,
+          email,
+          organization,
           division,
           discipline,
           payment_status,
@@ -1950,7 +1954,11 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
       ok: true,
       applications: result.rows.map((row) => ({
         applicationNumber: row.application_number,
+        orderId: row.order_id,
         name: row.name,
+        phone: row.phone,
+        email: row.email,
+        organization: row.organization,
         division: row.division,
         discipline: row.discipline,
         paymentStatus: row.payment_status,
@@ -1972,14 +1980,26 @@ app.get("/admin/refunds", requireAdminAuth, async function (req, res) {
       `
         SELECT
           payments.order_id,
+          payments.payment_key,
           payments.status,
           payments.total_amount,
+          payments.approved_at,
           payments.updated_at,
           applications.application_number,
           applications.name
+          ,
+          applications.phone,
+          applications.email,
+          applications.division,
+          applications.discipline,
+          orders.customer_name,
+          orders.customer_email,
+          orders.status AS order_status
         FROM payments
         LEFT JOIN applications
           ON applications.order_id = payments.order_id
+        LEFT JOIN orders
+          ON orders.order_id = payments.order_id
         WHERE payments.status IN ('CANCELED', 'PARTIAL_CANCELED')
         ORDER BY payments.updated_at DESC
         LIMIT 200
@@ -1999,10 +2019,17 @@ app.get("/admin/refunds", requireAdminAuth, async function (req, res) {
       ok: true,
       refunds: result.rows.map((row) => ({
         orderId: row.order_id,
+        paymentKey: row.payment_key,
         applicationNumber: row.application_number,
-        name: row.name,
+        name: row.name || row.customer_name,
+        phone: row.phone,
+        email: row.email || row.customer_email,
+        division: row.division,
+        discipline: row.discipline,
         paymentStatus: row.status,
         totalAmount: row.total_amount,
+        approvedAt: row.approved_at,
+        orderStatus: row.order_status,
         updatedAt: row.updated_at,
       })),
     });
@@ -2039,7 +2066,12 @@ app.get("/admin/assets/register", requireAdminAuth, async function (req, res) {
         sizeBytes: item.Size || 0,
         sizeLabel: formatFileSizeLabel(item.Size || 0),
         lastModified: item.LastModified || null,
-      }));
+      }))
+      .sort((a, b) => {
+        const left = a.lastModified ? new Date(a.lastModified).getTime() : 0;
+        const right = b.lastModified ? new Date(b.lastModified).getTime() : 0;
+        return right - left;
+      });
 
     await writeAdminAuditLog({
       adminUserId: req.adminUser.id,

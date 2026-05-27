@@ -10,6 +10,46 @@ import {
   getAdminRegisterAssets,
 } from "../../lib/applicationApi";
 
+function formatDateTime(value) {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  return new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function formatAmount(value) {
+  const amount = Number(value);
+
+  if (!Number.isFinite(amount)) {
+    return "-";
+  }
+
+  return `${amount.toLocaleString("ko-KR")}원`;
+}
+
+function MetaCell({ primary, secondary }) {
+  return (
+    <div className="site-admin-table__meta">
+      <strong>{primary || "-"}</strong>
+      {secondary ? <span>{secondary}</span> : null}
+    </div>
+  );
+}
+
 function SummaryCard({ label, value }) {
   return (
     <article className="site-admin-summary-card">
@@ -163,12 +203,33 @@ export function AdminDashboardPage() {
           <TableSection
             title="등록 현황"
             columns={[
-              { key: "applicationNumber", label: "신청 번호" },
-              { key: "name", label: "성함" },
-              { key: "division", label: "부문" },
-              { key: "discipline", label: "종목" },
+              {
+                key: "applicationNumber",
+                label: "신청 / 주문",
+                render: (row) => (
+                  <MetaCell primary={row.applicationNumber} secondary={row.orderId} />
+                ),
+              },
+              {
+                key: "name",
+                label: "신청자",
+                render: (row) => (
+                  <MetaCell primary={row.name} secondary={`${row.phone || "-"} / ${row.email || "-"}`} />
+                ),
+              },
+              {
+                key: "discipline",
+                label: "부문 / 종목",
+                render: (row) => (
+                  <MetaCell primary={row.discipline} secondary={`${row.division || "-"} / ${row.organization || "-"}`} />
+                ),
+              },
               { key: "paymentStatus", label: "결제 상태" },
-              { key: "submittedAt", label: "접수 일시" },
+              {
+                key: "submittedAt",
+                label: "접수 일시",
+                render: (row) => formatDateTime(row.submittedAt),
+              },
             ]}
             rows={applications}
             emptyText="등록된 신청 내역이 없습니다."
@@ -177,12 +238,43 @@ export function AdminDashboardPage() {
           <TableSection
             title="환불 / 취소 현황"
             columns={[
-              { key: "orderId", label: "주문 번호" },
-              { key: "applicationNumber", label: "신청 번호" },
-              { key: "name", label: "성함" },
+              {
+                key: "orderId",
+                label: "주문 / 결제",
+                render: (row) => (
+                  <MetaCell primary={row.orderId} secondary={row.paymentKey} />
+                ),
+              },
+              {
+                key: "applicationNumber",
+                label: "신청 정보",
+                render: (row) => (
+                  <MetaCell primary={row.applicationNumber || "-"} secondary={`${row.division || "-"} / ${row.discipline || "-"}`} />
+                ),
+              },
+              {
+                key: "name",
+                label: "신청자",
+                render: (row) => (
+                  <MetaCell primary={row.name} secondary={`${row.phone || "-"} / ${row.email || "-"}`} />
+                ),
+              },
               { key: "paymentStatus", label: "결제 상태" },
-              { key: "totalAmount", label: "금액" },
-              { key: "updatedAt", label: "최근 변경" },
+              {
+                key: "totalAmount",
+                label: "금액",
+                render: (row) => formatAmount(row.totalAmount),
+              },
+              {
+                key: "updatedAt",
+                label: "승인 / 변경 시각",
+                render: (row) => (
+                  <MetaCell
+                    primary={`승인 ${formatDateTime(row.approvedAt)}`}
+                    secondary={`변경 ${formatDateTime(row.updatedAt)}`}
+                  />
+                ),
+              },
             ]}
             rows={refunds}
             emptyText="환불 또는 취소 상태의 결제 내역이 없습니다."
@@ -204,6 +296,7 @@ export function AdminDashboardPage() {
                       <strong>{asset.filename}</strong>
                       <span>{asset.key}</span>
                       <span>{asset.sizeLabel}</span>
+                      <span>{formatDateTime(asset.lastModified)}</span>
                     </div>
                   </article>
                 ))}

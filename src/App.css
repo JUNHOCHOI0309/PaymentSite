@@ -1674,6 +1674,24 @@ body {
   font-size: 0.94rem;
 }
 
+.site-admin-table__meta {
+  display: grid;
+  gap: 4px;
+}
+
+.site-admin-table__meta strong {
+  font-size: 0.94rem;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.site-admin-table__meta span {
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .site-admin-table__empty,
 .site-admin-loading {
   color: rgba(255, 255, 255, 0.68);
