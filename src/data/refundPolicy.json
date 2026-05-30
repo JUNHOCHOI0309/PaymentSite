@@ -1,0 +1,33 @@
+{
+  "version": "2026-05-27",
+  "name": "2026 Korea Natural Championships Refund Policy",
+  "timeZone": "Asia/Seoul",
+  "eventDate": "2026-10-25",
+  "eventDateTime": "2026-10-25T00:00:00+09:00",
+  "personalCancellationRules": [
+    {
+      "id": "full_within_7_days_and_before_event_minus_7",
+      "label": "결제 완료 후 7일 이내 및 행사 시작 7일 전까지",
+      "minDaysBeforeEvent": 7,
+      "maxDaysBeforeEvent": null,
+      "paymentCompletedWithinDays": 7,
+      "refundPercent": 100
+    },
+    {
+      "id": "half_between_event_minus_6_and_minus_3",
+      "label": "행사 시작 6일 전부터 3일 전까지",
+      "minDaysBeforeEvent": 3,
+      "maxDaysBeforeEvent": 6,
+      "paymentCompletedWithinDays": null,
+      "refundPercent": 50
+    },
+    {
+      "id": "none_between_event_minus_2_and_event_day",
+      "label": "행사 시작 2일 전부터 행사 당일까지",
+      "minDaysBeforeEvent": 0,
+      "maxDaysBeforeEvent": 2,
+      "paymentCompletedWithinDays": null,
+      "refundPercent": 0
+    }
+  ]
+}

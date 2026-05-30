@@ -1261,6 +1261,48 @@ body {
   background: rgba(24, 63, 107, 0.05);
 }
 
+.site-lookup-refund {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(45, 49, 64, 0.08);
+}
+
+.site-lookup-refund h4 {
+  margin: 0 0 10px;
+  color: #243049;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.site-lookup-refund__rows {
+  display: grid;
+}
+
+.site-lookup-refund__pending,
+.site-lookup-refund__error,
+.site-lookup-refund__success {
+  margin: 0;
+  line-height: 1.65;
+}
+
+.site-lookup-refund__pending {
+  color: #6b7684;
+}
+
+.site-lookup-refund__error {
+  color: #c0362c;
+}
+
+.site-lookup-refund__success {
+  color: #1d6b42;
+}
+
+.site-lookup-refund__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
 .site-button {
   border: 0;
   border-radius: 999px;

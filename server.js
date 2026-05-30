@@ -13,6 +13,7 @@ const {
   PutObjectCommand,
   S3Client,
 } = require("@aws-sdk/client-s3");
+const refundPolicy = require("./src/data/refundPolicy.json");
 const app = express();
 const port = Number(process.env.PORT || 4000);
 const corsAllowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || "")
@@ -128,6 +129,17 @@ const emailBrandName = normalizeText(process.env.EMAIL_BRAND_NAME) || "신청 �
 const allowEmailConsoleFallback =
   process.env.NODE_ENV !== "production" ||
   process.env.ALLOW_EMAIL_CONSOLE_FALLBACK === "true";
+const refundPolicyTimeZone = normalizeText(refundPolicy.timeZone) || "Asia/Seoul";
+const refundPolicyEventDateTime =
+  normalizeText(refundPolicy.eventDateTime) ||
+  normalizeText(refundPolicy.eventDate)
+    ? new Date(normalizeText(refundPolicy.eventDateTime) || `${refundPolicy.eventDate}T00:00:00+09:00`)
+    : null;
+const refundPolicyPersonalCancellationRules = Array.isArray(
+  refundPolicy.personalCancellationRules
+)
+  ? refundPolicy.personalCancellationRules
+  : [];
 
 app.set("trust proxy", true);
 
@@ -709,6 +721,292 @@ function hasValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
 }
 
+function isVirtualAccountPaymentMethod(value) {
+  return ["VIRTUAL_ACCOUNT", "가상계좌"].includes(String(value || "").trim());
+}
+
+function getDatePartsInTimeZone(date, timeZone) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const partMap = formatter
+    .formatToParts(date)
+    .reduce((accumulator, part) => {
+      accumulator[part.type] = part.value;
+      return accumulator;
+    }, {});
+
+  return {
+    year: partMap.year,
+    month: partMap.month,
+    day: partMap.day,
+    isoDate: `${partMap.year}-${partMap.month}-${partMap.day}`,
+  };
+}
+
+function parseIsoDateToUtcMidnight(isoDate) {
+  return new Date(`${isoDate}T00:00:00Z`);
+}
+
+function diffCalendarDaysInTimeZone(fromDate, toDate, timeZone) {
+  const fromIsoDate = getDatePartsInTimeZone(fromDate, timeZone).isoDate;
+  const toIsoDate = getDatePartsInTimeZone(toDate, timeZone).isoDate;
+  const differenceMs =
+    parseIsoDateToUtcMidnight(toIsoDate).getTime() -
+    parseIsoDateToUtcMidnight(fromIsoDate).getTime();
+
+  return Math.round(differenceMs / (24 * 60 * 60 * 1000));
+}
+
+function calculateRefundQuote({
+  applicationStatus,
+  paymentStatus,
+  amount,
+  paymentCompletedAt,
+  paymentMethod,
+  requestedAt = new Date(),
+}) {
+  const safeAmount = Number(amount || 0);
+
+  if (!refundPolicyEventDateTime || Number.isNaN(refundPolicyEventDateTime.getTime())) {
+    return {
+      policyVersion: refundPolicy.version,
+      policyName: refundPolicy.name,
+      eventDate: refundPolicy.eventDate,
+      requestedAt: requestedAt.toISOString(),
+      timeZone: refundPolicyTimeZone,
+      canAutoRefund: false,
+      isRefundable: false,
+      requiresManualReview: true,
+      reasonCode: "POLICY_CONFIGURATION_INVALID",
+      message: "환불 정책 기준일이 설정되지 않았습니다.",
+      refundPercent: null,
+      refundAmount: null,
+      nonRefundableAmount: null,
+    };
+  }
+
+  if (!Number.isFinite(safeAmount) || safeAmount <= 0) {
+    return {
+      policyVersion: refundPolicy.version,
+      policyName: refundPolicy.name,
+      eventDate: refundPolicy.eventDate,
+      requestedAt: requestedAt.toISOString(),
+      timeZone: refundPolicyTimeZone,
+      canAutoRefund: false,
+      isRefundable: false,
+      requiresManualReview: true,
+      reasonCode: "PAYMENT_AMOUNT_INVALID",
+      message: "환불 계산에 필요한 결제 금액을 확인할 수 없습니다.",
+      refundPercent: null,
+      refundAmount: null,
+      nonRefundableAmount: null,
+    };
+  }
+
+  const normalizedPaymentStatus = normalizeText(paymentStatus);
+  const normalizedApplicationStatus = normalizeText(applicationStatus);
+
+  if (normalizedPaymentStatus === "CANCELED" || normalizedPaymentStatus === "PARTIAL_CANCELED") {
+    return {
+      policyVersion: refundPolicy.version,
+      policyName: refundPolicy.name,
+      eventDate: refundPolicy.eventDate,
+      requestedAt: requestedAt.toISOString(),
+      timeZone: refundPolicyTimeZone,
+      canAutoRefund: false,
+      isRefundable: false,
+      requiresManualReview: false,
+      reasonCode: "ALREADY_REFUNDED",
+      message: "이미 취소 또는 환불 처리된 결제입니다.",
+      refundPercent: 0,
+      refundAmount: 0,
+      nonRefundableAmount: safeAmount,
+    };
+  }
+
+  if (normalizedPaymentStatus !== "DONE" && normalizedPaymentStatus !== "PAID") {
+    return {
+      policyVersion: refundPolicy.version,
+      policyName: refundPolicy.name,
+      eventDate: refundPolicy.eventDate,
+      requestedAt: requestedAt.toISOString(),
+      timeZone: refundPolicyTimeZone,
+      canAutoRefund: false,
+      isRefundable: false,
+      requiresManualReview: true,
+      reasonCode: "PAYMENT_NOT_COMPLETED",
+      message: "결제가 완료된 신청 건만 환불 계산이 가능합니다.",
+      refundPercent: null,
+      refundAmount: null,
+      nonRefundableAmount: safeAmount,
+    };
+  }
+
+  if (normalizedApplicationStatus && normalizedApplicationStatus !== "SUBMITTED") {
+    return {
+      policyVersion: refundPolicy.version,
+      policyName: refundPolicy.name,
+      eventDate: refundPolicy.eventDate,
+      requestedAt: requestedAt.toISOString(),
+      timeZone: refundPolicyTimeZone,
+      canAutoRefund: false,
+      isRefundable: false,
+      requiresManualReview: true,
+      reasonCode: "APPLICATION_STATUS_NOT_REFUNDABLE",
+      message: "현재 신청 상태에서는 자동 환불을 처리할 수 없습니다.",
+      refundPercent: null,
+      refundAmount: null,
+      nonRefundableAmount: safeAmount,
+    };
+  }
+
+  const eventDate = new Date(refundPolicyEventDateTime);
+  const daysBeforeEvent = diffCalendarDaysInTimeZone(
+    requestedAt,
+    eventDate,
+    refundPolicyTimeZone
+  );
+
+  if (daysBeforeEvent < 0) {
+    return {
+      policyVersion: refundPolicy.version,
+      policyName: refundPolicy.name,
+      eventDate: refundPolicy.eventDate,
+      requestedAt: requestedAt.toISOString(),
+      timeZone: refundPolicyTimeZone,
+      daysBeforeEvent,
+      canAutoRefund: false,
+      isRefundable: false,
+      requiresManualReview: false,
+      reasonCode: "EVENT_ALREADY_STARTED",
+      message: "행사 시작 이후에는 자동 환불이 불가합니다.",
+      refundPercent: 0,
+      refundAmount: 0,
+      nonRefundableAmount: safeAmount,
+    };
+  }
+
+  const effectivePaymentCompletedAt = paymentCompletedAt ? new Date(paymentCompletedAt) : null;
+  const paymentCompletedWithinDays = effectivePaymentCompletedAt
+    ? (requestedAt.getTime() - effectivePaymentCompletedAt.getTime()) /
+      (24 * 60 * 60 * 1000)
+    : null;
+
+  const matchedRule = refundPolicyPersonalCancellationRules.find((rule) => {
+    if (
+      typeof rule.minDaysBeforeEvent === "number" &&
+      daysBeforeEvent < rule.minDaysBeforeEvent
+    ) {
+      return false;
+    }
+
+    if (
+      typeof rule.maxDaysBeforeEvent === "number" &&
+      daysBeforeEvent > rule.maxDaysBeforeEvent
+    ) {
+      return false;
+    }
+
+    if (typeof rule.paymentCompletedWithinDays === "number") {
+      if (paymentCompletedWithinDays == null) {
+        return false;
+      }
+
+      if (paymentCompletedWithinDays > rule.paymentCompletedWithinDays) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  if (!matchedRule) {
+    return {
+      policyVersion: refundPolicy.version,
+      policyName: refundPolicy.name,
+      eventDate: refundPolicy.eventDate,
+      requestedAt: requestedAt.toISOString(),
+      timeZone: refundPolicyTimeZone,
+      daysBeforeEvent,
+      paymentCompletedAt: effectivePaymentCompletedAt?.toISOString() || null,
+      paymentCompletedWithinDays:
+        paymentCompletedWithinDays == null
+          ? null
+          : Number(paymentCompletedWithinDays.toFixed(2)),
+      canAutoRefund: false,
+      isRefundable: false,
+      requiresManualReview: true,
+      reasonCode: "POLICY_GAP",
+      message:
+        "현재 환불 규정으로는 이 신청 건의 자동 환불 구간을 확정할 수 없습니다.",
+      refundPercent: null,
+      refundAmount: null,
+      nonRefundableAmount: safeAmount,
+    };
+  }
+
+  const refundPercent = Number(matchedRule.refundPercent || 0);
+  const refundAmount = Math.floor((safeAmount * refundPercent) / 100);
+
+  if (refundPercent > 0 && isVirtualAccountPaymentMethod(paymentMethod)) {
+    return {
+      policyVersion: refundPolicy.version,
+      policyName: refundPolicy.name,
+      eventDate: refundPolicy.eventDate,
+      requestedAt: requestedAt.toISOString(),
+      timeZone: refundPolicyTimeZone,
+      daysBeforeEvent,
+      paymentCompletedAt: effectivePaymentCompletedAt?.toISOString() || null,
+      paymentCompletedWithinDays:
+        paymentCompletedWithinDays == null
+          ? null
+          : Number(paymentCompletedWithinDays.toFixed(2)),
+      matchedRuleId: matchedRule.id,
+      matchedRuleLabel: matchedRule.label,
+      canAutoRefund: false,
+      isRefundable: true,
+      requiresManualReview: true,
+      reasonCode: "REFUND_ACCOUNT_REQUIRED",
+      message:
+        "가상계좌 결제는 환불 계좌 정보가 필요해 현재 자동 환불 요청을 지원하지 않습니다.",
+      refundPercent,
+      refundAmount,
+      nonRefundableAmount: Math.max(0, safeAmount - refundAmount),
+    };
+  }
+
+  return {
+    policyVersion: refundPolicy.version,
+    policyName: refundPolicy.name,
+    eventDate: refundPolicy.eventDate,
+    requestedAt: requestedAt.toISOString(),
+    timeZone: refundPolicyTimeZone,
+    daysBeforeEvent,
+    paymentCompletedAt: effectivePaymentCompletedAt?.toISOString() || null,
+    paymentCompletedWithinDays:
+      paymentCompletedWithinDays == null
+        ? null
+        : Number(paymentCompletedWithinDays.toFixed(2)),
+    matchedRuleId: matchedRule.id,
+    matchedRuleLabel: matchedRule.label,
+    canAutoRefund: refundPercent > 0,
+    isRefundable: refundPercent > 0,
+    requiresManualReview: false,
+    reasonCode: refundPercent > 0 ? "REFUNDABLE" : "NON_REFUNDABLE_PERIOD",
+    message:
+      refundPercent > 0
+        ? `${matchedRule.label} 기준이 적용됩니다.`
+        : "현재 환불 불가 구간입니다.",
+    refundPercent,
+    refundAmount,
+    nonRefundableAmount: Math.max(0, safeAmount - refundAmount),
+  };
+}
+
 function isValidLookupVerificationCode(value) {
   return /^\d{6}$/.test(String(value || "").trim());
 }
@@ -792,6 +1090,111 @@ async function purgeExpiredLookupVerifications() {
     DELETE FROM application_lookup_email_verifications
     WHERE created_at < NOW() - INTERVAL '3 days'
   `);
+}
+
+async function hasVerifiedLookupSession({ name, email, verificationToken }) {
+  const verificationResult = await pool.query(
+    `
+      SELECT id
+      FROM application_lookup_email_verifications
+      WHERE name = $1
+        AND email = $2
+        AND verification_token = $3
+        AND status = 'VERIFIED'
+        AND verified_at >= NOW() - ($4::text || ' minutes')::interval
+      LIMIT 1
+    `,
+    [name, email, verificationToken, String(lookupVerificationSessionTtlMinutes)]
+  );
+
+  return verificationResult.rowCount > 0;
+}
+
+async function findLookupOwnedApplication({ name, email, applicationNumber }) {
+  const result = await pool.query(
+    `
+      SELECT
+        applications.application_number,
+        applications.draft_id,
+        applications.order_id,
+        applications.payment_key,
+        applications.status,
+        applications.payment_status,
+        applications.name,
+        applications.phone,
+        applications.email,
+        applications.birth_date,
+        applications.organization,
+        applications.division,
+        applications.discipline,
+        applications.image_key,
+        applications.submitted_at,
+        applications.updated_at,
+        orders.amount AS order_amount,
+        latest_payment.status AS latest_payment_status,
+        latest_payment.method AS latest_payment_method,
+        latest_payment.total_amount,
+        latest_payment.approved_at,
+        latest_payment.created_at AS payment_created_at
+      FROM applications
+      LEFT JOIN orders
+        ON orders.order_id = applications.order_id
+      LEFT JOIN LATERAL (
+        SELECT
+          status,
+          method,
+          total_amount,
+          approved_at,
+          created_at
+        FROM payments
+        WHERE order_id = applications.order_id
+        ORDER BY updated_at DESC NULLS LAST, created_at DESC
+        LIMIT 1
+      ) AS latest_payment ON TRUE
+      WHERE applications.application_number = $1
+        AND applications.name = $2
+        AND LOWER(applications.email) = $3
+      LIMIT 1
+    `,
+    [applicationNumber, name, email]
+  );
+
+  return result.rows[0] || null;
+}
+
+function mapRefundRequestRow(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    applicationNumber: row.application_number,
+    draftId: row.draft_id,
+    orderId: row.order_id,
+    paymentKey: row.payment_key,
+    requestReason: row.request_reason,
+    requestStatus: row.request_status,
+    refundPercent: row.refund_percent,
+    refundAmount: row.refund_amount,
+    originalAmount: row.original_amount,
+    policyVersion: row.policy_version,
+    policyRuleId: row.policy_rule_id,
+    policyRuleLabel: row.policy_rule_label,
+    requestedByName: row.requested_by_name,
+    requestedByEmail: row.requested_by_email,
+    providerIdempotencyKey: row.provider_idempotency_key,
+    providerStatusCode: row.provider_status_code,
+    providerErrorCode: row.provider_error_code,
+    providerErrorMessage: row.provider_error_message,
+    processedAt: row.processed_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function generateRefundIdempotencyKey() {
+  return crypto.randomUUID();
 }
 
 async function sendLookupVerificationEmail({ email, name, code }) {
@@ -2995,21 +3398,13 @@ app.post("/applications/lookup", async function (req, res) {
       });
     }
 
-    const verificationResult = await pool.query(
-      `
-        SELECT id
-        FROM application_lookup_email_verifications
-        WHERE name = $1
-          AND email = $2
-          AND verification_token = $3
-          AND status = 'VERIFIED'
-          AND verified_at >= NOW() - ($4::text || ' minutes')::interval
-        LIMIT 1
-      `,
-      [name, email, verificationToken, String(lookupVerificationSessionTtlMinutes)]
-    );
+    const hasVerifiedSession = await hasVerifiedLookupSession({
+      name,
+      email,
+      verificationToken,
+    });
 
-    if (verificationResult.rowCount === 0) {
+    if (!hasVerifiedSession) {
       return res.status(403).json({
         ok: false,
         message: "이메일 인증이 만료되었거나 유효하지 않습니다. 다시 인증해 주세요.",
@@ -3062,6 +3457,455 @@ app.post("/applications/lookup", async function (req, res) {
       ok: false,
       message: "Failed to lookup application",
     });
+  }
+});
+
+app.post("/applications/refund/quote", async function (req, res) {
+  try {
+    await ensureLookupVerificationStoreReady();
+    await purgeExpiredLookupVerifications();
+
+    const name = normalizeText(req.body.name);
+    const email = normalizeEmail(req.body.email);
+    const verificationToken = normalizeText(req.body.verificationToken);
+    const applicationNumber = normalizeText(req.body.applicationNumber);
+
+    if (!name || !email || !verificationToken || !applicationNumber) {
+      return res.status(400).json({
+        ok: false,
+        message: "Missing name, email, verificationToken, or applicationNumber",
+      });
+    }
+
+    if (!hasValidEmail(email)) {
+      return res.status(400).json({
+        ok: false,
+        message: "유효한 이메일 주소를 입력해 주세요.",
+      });
+    }
+
+    const hasVerifiedSession = await hasVerifiedLookupSession({
+      name,
+      email,
+      verificationToken,
+    });
+
+    if (!hasVerifiedSession) {
+      return res.status(403).json({
+        ok: false,
+        message: "이메일 인증이 만료되었거나 유효하지 않습니다. 다시 인증해 주세요.",
+      });
+    }
+
+    const row = await findLookupOwnedApplication({
+      name,
+      email,
+      applicationNumber,
+    });
+
+    if (!row) {
+      return res.status(404).json({
+        ok: false,
+        message: "입력한 정보와 일치하는 신청 내역을 찾을 수 없습니다.",
+      });
+    }
+
+    const refundQuote = calculateRefundQuote({
+      applicationStatus: row.status,
+      paymentStatus: row.latest_payment_status || row.payment_status,
+      amount: row.total_amount ?? row.order_amount,
+      paymentCompletedAt: row.approved_at || row.payment_created_at,
+      paymentMethod: row.latest_payment_method,
+      requestedAt: new Date(),
+    });
+
+    return res.status(200).json({
+      ok: true,
+      application: mapApplicationRow(row),
+      refundQuote,
+    });
+  } catch (error) {
+    console.error("Failed to calculate refund quote:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to calculate refund quote",
+    });
+  }
+});
+
+app.post("/applications/refund/request", async function (req, res) {
+  let client = null;
+  let refundRequestId = null;
+  let tossCancelResult = null;
+  let tossCancelStatusCode = null;
+
+  try {
+    await ensureLookupVerificationStoreReady();
+    await purgeExpiredLookupVerifications();
+
+    const name = normalizeText(req.body.name);
+    const email = normalizeEmail(req.body.email);
+    const verificationToken = normalizeText(req.body.verificationToken);
+    const applicationNumber = normalizeText(req.body.applicationNumber);
+    const requestReason =
+      normalizeText(req.body.requestReason) || "사용자 요청 자동 환불";
+
+    if (!name || !email || !verificationToken || !applicationNumber) {
+      return res.status(400).json({
+        ok: false,
+        message: "Missing name, email, verificationToken, or applicationNumber",
+      });
+    }
+
+    if (!hasValidEmail(email)) {
+      return res.status(400).json({
+        ok: false,
+        message: "유효한 이메일 주소를 입력해 주세요.",
+      });
+    }
+
+    const hasVerifiedSession = await hasVerifiedLookupSession({
+      name,
+      email,
+      verificationToken,
+    });
+
+    if (!hasVerifiedSession) {
+      return res.status(403).json({
+        ok: false,
+        message: "이메일 인증이 만료되었거나 유효하지 않습니다. 다시 인증해 주세요.",
+      });
+    }
+
+    const application = await findLookupOwnedApplication({
+      name,
+      email,
+      applicationNumber,
+    });
+
+    if (!application) {
+      return res.status(404).json({
+        ok: false,
+        message: "입력한 정보와 일치하는 신청 내역을 찾을 수 없습니다.",
+      });
+    }
+
+    const refundQuote = calculateRefundQuote({
+      applicationStatus: application.status,
+      paymentStatus: application.latest_payment_status || application.payment_status,
+      amount: application.total_amount ?? application.order_amount,
+      paymentCompletedAt: application.approved_at || application.payment_created_at,
+      paymentMethod: application.latest_payment_method,
+      requestedAt: new Date(),
+    });
+
+    if (!refundQuote.canAutoRefund || !refundQuote.isRefundable || refundQuote.requiresManualReview) {
+      return res.status(409).json({
+        ok: false,
+        code: refundQuote.reasonCode,
+        message: refundQuote.message,
+        refundQuote,
+      });
+    }
+
+    if (!application.payment_key) {
+      return res.status(409).json({
+        ok: false,
+        code: "PAYMENT_KEY_MISSING",
+        message: "환불 처리에 필요한 결제 키를 찾을 수 없습니다.",
+      });
+    }
+
+    const providerIdempotencyKey = generateRefundIdempotencyKey();
+    client = await pool.connect();
+    await client.query("BEGIN");
+
+    const activeRequestResult = await client.query(
+      `
+        SELECT *
+        FROM application_refund_requests
+        WHERE application_number = $1
+          AND request_status IN ('REQUESTED', 'PROCESSING', 'COMPLETED', 'SYNC_FAILED')
+        ORDER BY created_at DESC
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [applicationNumber]
+    );
+
+    if (activeRequestResult.rowCount > 0) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        code: "REFUND_ALREADY_REQUESTED",
+        message: "이미 환불 요청이 접수되었거나 처리된 신청 건입니다.",
+        refundRequest: mapRefundRequestRow(activeRequestResult.rows[0]),
+      });
+    }
+
+    const insertResult = await client.query(
+      `
+        INSERT INTO application_refund_requests (
+          application_number,
+          draft_id,
+          order_id,
+          payment_key,
+          request_reason,
+          request_status,
+          refund_percent,
+          refund_amount,
+          original_amount,
+          policy_version,
+          policy_rule_id,
+          policy_rule_label,
+          policy_snapshot_json,
+          requested_by_name,
+          requested_by_email,
+          provider_idempotency_key
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, 'PROCESSING', $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14, $15
+        )
+        RETURNING *
+      `,
+      [
+        application.application_number,
+        application.draft_id,
+        application.order_id,
+        application.payment_key,
+        requestReason,
+        refundQuote.refundPercent,
+        refundQuote.refundAmount,
+        application.total_amount ?? application.order_amount,
+        refundQuote.policyVersion,
+        refundQuote.matchedRuleId,
+        refundQuote.matchedRuleLabel,
+        JSON.stringify(refundQuote),
+        name,
+        email,
+        providerIdempotencyKey,
+      ]
+    );
+
+    refundRequestId = insertResult.rows[0].id;
+    await client.query("COMMIT");
+    client.release();
+    client = null;
+
+    const cancelBody = {
+      cancelReason: requestReason,
+      cancelAmount: refundQuote.refundAmount,
+    };
+
+    const tossResponse = await fetch(
+      `https://api.tosspayments.com/v1/payments/${encodeURIComponent(application.payment_key)}/cancel`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: encryptedApiSecretKey,
+          "Content-Type": "application/json",
+          "Idempotency-Key": providerIdempotencyKey,
+        },
+        body: JSON.stringify(cancelBody),
+      }
+    );
+
+    const tossResult = await tossResponse.json();
+    tossCancelResult = tossResult;
+    tossCancelStatusCode = tossResponse.status;
+
+    client = await pool.connect();
+    await client.query("BEGIN");
+
+    if (!tossResponse.ok) {
+      const failedRequestResult = await client.query(
+        `
+          UPDATE application_refund_requests
+          SET
+            request_status = 'FAILED',
+            provider_status_code = $2,
+            provider_error_code = $3,
+            provider_error_message = $4,
+            provider_response_json = $5::jsonb,
+            processed_at = NOW(),
+            updated_at = NOW()
+          WHERE id = $1
+          RETURNING *
+        `,
+        [
+          refundRequestId,
+          tossResponse.status,
+          tossResult.code || null,
+          tossResult.message || "환불 처리에 실패했습니다.",
+          JSON.stringify(tossResult),
+        ]
+      );
+
+      await client.query("COMMIT");
+
+      return res.status(tossResponse.status).json({
+        ok: false,
+        code: tossResult.code || "REFUND_REQUEST_FAILED",
+        message: tossResult.message || "환불 처리에 실패했습니다.",
+        refundRequest: mapRefundRequestRow(failedRequestResult.rows[0]),
+      });
+    }
+
+    const nextPaymentStatus = tossResult.status || "CANCELED";
+    const nextApplicationStatus =
+      nextPaymentStatus === "PARTIAL_CANCELED" ? "PARTIAL_REFUNDED" : "REFUNDED";
+
+    await client.query(
+      `
+        UPDATE payments
+        SET
+          method = COALESCE($3, method),
+          payment_type = COALESCE($4, payment_type),
+          status = $5,
+          approved_at = COALESCE($6, approved_at),
+          total_amount = COALESCE($7, total_amount),
+          raw_response_json = $8::jsonb,
+          updated_at = NOW()
+        WHERE payment_key = $1
+           OR order_id = $2
+      `,
+      [
+        application.payment_key,
+        application.order_id,
+        tossResult.method || null,
+        tossResult.type || null,
+        nextPaymentStatus,
+        tossResult.approvedAt || null,
+        tossResult.totalAmount ?? application.total_amount ?? application.order_amount,
+        JSON.stringify(tossResult),
+      ]
+    );
+
+    await client.query(
+      `
+        UPDATE orders
+        SET status = $2, updated_at = NOW()
+        WHERE order_id = $1
+      `,
+      [application.order_id, mapPaymentStatusToOrderStatus(nextPaymentStatus) || "CANCELED"]
+    );
+
+    const updatedApplicationResult = await client.query(
+      `
+        UPDATE applications
+        SET
+          status = $2,
+          payment_status = $3,
+          updated_at = NOW()
+        WHERE application_number = $1
+        RETURNING
+          application_number,
+          draft_id,
+          order_id,
+          payment_key,
+          status,
+          payment_status,
+          name,
+          phone,
+          email,
+          birth_date,
+          organization,
+          division,
+          discipline,
+          image_key,
+          submitted_at,
+          updated_at
+      `,
+      [application.application_number, nextApplicationStatus, nextPaymentStatus]
+    );
+
+    const completedRequestResult = await client.query(
+      `
+        UPDATE application_refund_requests
+        SET
+          request_status = 'COMPLETED',
+          provider_status_code = $2,
+          provider_response_json = $3::jsonb,
+          processed_at = NOW(),
+          updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `,
+      [refundRequestId, tossResponse.status, JSON.stringify(tossResult)]
+    );
+
+    await client.query("COMMIT");
+
+    return res.status(200).json({
+      ok: true,
+      application: mapApplicationRow(updatedApplicationResult.rows[0]),
+      refundRequest: mapRefundRequestRow(completedRequestResult.rows[0]),
+      refundQuote: {
+        ...refundQuote,
+        canAutoRefund: false,
+        isRefundable: false,
+        requiresManualReview: false,
+        message: "환불 요청이 정상적으로 처리되었습니다.",
+      },
+    });
+  } catch (error) {
+    if (client) {
+      await client.query("ROLLBACK").catch(() => {});
+    }
+
+    if (refundRequestId) {
+      await pool
+        .query(
+          `
+            UPDATE application_refund_requests
+            SET
+              request_status = CASE
+                WHEN request_status = 'COMPLETED' THEN request_status
+                WHEN $3::boolean = TRUE THEN 'SYNC_FAILED'
+                ELSE 'FAILED'
+              END,
+              provider_status_code = COALESCE(provider_status_code, $4),
+              provider_response_json = COALESCE(provider_response_json, $5::jsonb),
+              provider_error_message = COALESCE(provider_error_message, $2),
+              updated_at = NOW()
+            WHERE id = $1
+          `,
+          [
+            refundRequestId,
+            error.message || "Failed to process refund request",
+            Boolean(tossCancelResult),
+            tossCancelStatusCode,
+            tossCancelResult ? JSON.stringify(tossCancelResult) : null,
+          ]
+        )
+        .catch(() => {});
+    }
+
+    console.error("Failed to process refund request:", error);
+
+    if (error.code === "42P01") {
+      return res.status(500).json({
+        ok: false,
+        message: "Refund request table is not ready. Apply the SQL migration first.",
+      });
+    }
+
+    if (error.code === "23505") {
+      return res.status(409).json({
+        ok: false,
+        code: "REFUND_ALREADY_REQUESTED",
+        message: "이미 환불 요청이 접수되었거나 처리된 신청 건입니다.",
+      });
+    }
+
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to process refund request",
+    });
+  } finally {
+    if (client) {
+      client.release();
+    }
   }
 });
 

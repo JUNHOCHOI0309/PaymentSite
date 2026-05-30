@@ -144,6 +144,30 @@ export async function verifyLookupVerificationCode(payload) {
   return readJson(response);
 }
 
+export async function getApplicationRefundQuote(payload) {
+  const response = await apiFetch("/api/applications/refund/quote", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
+export async function requestApplicationRefund(payload) {
+  const response = await apiFetch("/api/applications/refund/request", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
 export async function getApplicationByNumber(applicationNumber) {
   const response = await apiFetch(`/api/applications/${applicationNumber}`);
   return readJson(response);

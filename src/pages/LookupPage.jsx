@@ -5,7 +5,9 @@ import { NoticeBox } from "../components/common/NoticeBox";
 import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
 import {
+  getApplicationRefundQuote,
   lookupApplication,
+  requestApplicationRefund,
   sendLookupVerificationCode,
   verifyLookupVerificationCode,
 } from "../lib/applicationApi";
@@ -25,8 +27,20 @@ function formatRemainingTime(remainingSeconds) {
   return `${minutes}:${seconds}`;
 }
 
+function formatAmount(value, locale) {
+  if (!Number.isFinite(Number(value))) {
+    return "-";
+  }
+
+  return new Intl.NumberFormat(locale === "ko" ? "ko-KR" : "en-US", {
+    style: "currency",
+    currency: "KRW",
+    maximumFractionDigits: 0,
+  }).format(Number(value));
+}
+
 export function LookupPage() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -42,6 +56,8 @@ export function LookupPage() {
   const [isSendingCode, setIsSendingCode] = useState(false);
   const [isVerifyingCode, setIsVerifyingCode] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [refundProcessingId, setRefundProcessingId] = useState("");
+  const [refundMessages, setRefundMessages] = useState({});
 
   useEffect(() => {
     if (!verificationDeadline) {
@@ -95,8 +111,16 @@ export function LookupPage() {
       setVerificationMessage("");
       setDevVerificationCode("");
       setVerificationDeadline(null);
+      setRefundMessages({});
     }
   };
+
+  function setRefundMessage(applicationNumber, nextMessage) {
+    setRefundMessages((current) => ({
+      ...current,
+      [applicationNumber]: nextMessage,
+    }));
+  }
 
   function validateNameAndEmail() {
     if (!form.name.trim()) {
@@ -221,19 +245,101 @@ export function LookupPage() {
         verificationToken,
       });
 
-      setResults(
-        Array.isArray(json.applications)
-          ? json.applications
-          : json.application
-            ? [json.application]
-            : []
+      const applications = Array.isArray(json.applications)
+        ? json.applications
+        : json.application
+          ? [json.application]
+          : [];
+
+      const applicationsWithRefundQuotes = await Promise.all(
+        applications.map(async (application) => {
+          try {
+            const refundJson = await getApplicationRefundQuote({
+              name: form.name,
+              email: form.email,
+              verificationToken,
+              applicationNumber: application.applicationNumber,
+            });
+
+            return {
+              ...application,
+              refundQuote: refundJson.refundQuote || null,
+              refundQuoteError: "",
+            };
+          } catch (error) {
+            return {
+              ...application,
+              refundQuote: null,
+              refundQuoteError: error.message || t("lookup.refundQuoteFailed"),
+            };
+          }
+        })
       );
+
+      setResults(applicationsWithRefundQuotes);
+      setRefundMessages({});
       setVerificationMessage(t("lookup.lookupDone"));
     } catch (error) {
       setResults([]);
       setActionErrorMessage(error.message || t("lookup.lookupFailed"));
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleRefundRequest(result) {
+    if (!result?.applicationNumber || refundProcessingId) {
+      return;
+    }
+
+    const confirmed = window.confirm(t("lookup.refundRequestConfirm"));
+
+    if (!confirmed) {
+      return;
+    }
+
+    setRefundProcessingId(result.applicationNumber);
+    setRefundMessage(result.applicationNumber, {
+      type: "",
+      text: "",
+    });
+
+    try {
+      const json = await requestApplicationRefund({
+        name: form.name,
+        email: form.email,
+        verificationToken,
+        applicationNumber: result.applicationNumber,
+      });
+
+      setResults((current) =>
+        current.map((item) =>
+          item.applicationNumber === result.applicationNumber
+            ? {
+                ...item,
+                ...(json.application || {}),
+                refundRequest: json.refundRequest || null,
+                refundQuote: json.refundQuote || {
+                  ...item.refundQuote,
+                  canAutoRefund: false,
+                  isRefundable: false,
+                },
+              }
+            : item
+        )
+      );
+
+      setRefundMessage(result.applicationNumber, {
+        type: "success",
+        text: t("lookup.refundRequestDone"),
+      });
+    } catch (error) {
+      setRefundMessage(result.applicationNumber, {
+        type: "error",
+        text: error.message || t("lookup.refundRequestFailed"),
+      });
+    } finally {
+      setRefundProcessingId("");
     }
   }
 
@@ -356,6 +462,77 @@ export function LookupPage() {
                     <div className="site-review-row"><span>{t("lookup.applicant")}</span><strong>{result.name}</strong></div>
                     <div className="site-review-row"><span>{t("lookup.phone")}</span><strong>{result.phone}</strong></div>
                     <div className="site-review-row"><span>{t("lookup.emailLabel")}</span><strong>{result.email}</strong></div>
+                    <div className="site-lookup-refund">
+                      <h4>{t("lookup.refundTitle")}</h4>
+                      {result.refundRequest?.requestStatus === "COMPLETED" ? (
+                        <p className="site-lookup-refund__success">{t("lookup.refundProcessed")}</p>
+                      ) : null}
+                      {result.refundQuote ? (
+                        <div className="site-lookup-refund__rows">
+                          <div className="site-review-row">
+                            <span>{t("lookup.refundStatus")}</span>
+                            <strong>
+                              {result.refundQuote.requiresManualReview
+                                ? t("lookup.refundManualReview")
+                                : result.refundQuote.canAutoRefund
+                                  ? t("lookup.refundAvailable")
+                                  : t("lookup.refundUnavailable")}
+                            </strong>
+                          </div>
+                          <div className="site-review-row">
+                            <span>{t("lookup.refundPercent")}</span>
+                            <strong>
+                              {typeof result.refundQuote.refundPercent === "number"
+                                ? `${result.refundQuote.refundPercent}%`
+                                : "-"}
+                            </strong>
+                          </div>
+                          <div className="site-review-row">
+                            <span>{t("lookup.refundAmount")}</span>
+                            <strong>{formatAmount(result.refundQuote.refundAmount, language)}</strong>
+                          </div>
+                          <div className="site-review-row">
+                            <span>{t("lookup.refundRule")}</span>
+                            <strong>{result.refundQuote.matchedRuleLabel || "-"}</strong>
+                          </div>
+                          <div className="site-review-row">
+                            <span>{t("lookup.refundPolicyVersion")}</span>
+                            <strong>{result.refundQuote.policyVersion || "-"}</strong>
+                          </div>
+                          <div className="site-review-row">
+                            <span>{t("lookup.refundReason")}</span>
+                            <strong>{result.refundQuote.message || "-"}</strong>
+                          </div>
+                        </div>
+                      ) : result.refundQuoteError ? (
+                        <p className="site-lookup-refund__error">{result.refundQuoteError}</p>
+                      ) : (
+                        <p className="site-lookup-refund__pending">{t("lookup.refundPending")}</p>
+                      )}
+                      {result.refundQuote?.canAutoRefund && result.refundRequest?.requestStatus !== "COMPLETED" ? (
+                        <div className="site-lookup-refund__actions">
+                          <Button
+                            onClick={() => handleRefundRequest(result)}
+                            disabled={refundProcessingId === result.applicationNumber}
+                          >
+                            {refundProcessingId === result.applicationNumber
+                              ? t("lookup.refundRequesting")
+                              : t("lookup.refundRequest")}
+                          </Button>
+                        </div>
+                      ) : null}
+                      {refundMessages[result.applicationNumber]?.text ? (
+                        <p
+                          className={
+                            refundMessages[result.applicationNumber]?.type === "success"
+                              ? "site-lookup-refund__success"
+                              : "site-lookup-refund__error"
+                          }
+                        >
+                          {refundMessages[result.applicationNumber].text}
+                        </p>
+                      ) : null}
+                    </div>
                   </div>
                 ))}
               </div>
