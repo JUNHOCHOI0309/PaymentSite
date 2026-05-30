@@ -14,6 +14,7 @@ const {
   S3Client,
 } = require("@aws-sdk/client-s3");
 const refundPolicy = require("./src/data/refundPolicy.json");
+const stageServiceConfig = require("./src/data/stageServiceConfig.json");
 const app = express();
 const port = Number(process.env.PORT || 4000);
 const corsAllowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || "")
@@ -140,6 +141,41 @@ const refundPolicyPersonalCancellationRules = Array.isArray(
 )
   ? refundPolicy.personalCancellationRules
   : [];
+const stageServiceDisciplineOptions = Array.isArray(stageServiceConfig.disciplineOptions)
+  ? stageServiceConfig.disciplineOptions
+  : [];
+const stageServiceDisciplineSet = new Set(stageServiceDisciplineOptions);
+const stageServiceDefinitions = stageServiceConfig.services || {};
+const stageVideoTypeDefinitions = Array.isArray(stageServiceDefinitions["stage-video"]?.videoTypes)
+  ? stageServiceDefinitions["stage-video"].videoTypes
+  : [];
+const stageVideoTypeMap = new Map(
+  stageVideoTypeDefinitions.map((definition) => [definition.value, definition])
+);
+const stageVideoAdditionalDisciplineSeparator = "::";
+const stageVideoAdditionalOptionDefinitions = stageVideoTypeDefinitions.flatMap((definition) =>
+  stageServiceDisciplineOptions.map((discipline) => ({
+    value: `${definition.value}${stageVideoAdditionalDisciplineSeparator}${discipline}`,
+    typeValue: definition.value,
+    discipline,
+    price: Number(definition.price || 0),
+  }))
+);
+const stageVideoAdditionalOptionMap = new Map(
+  stageVideoAdditionalOptionDefinitions.map((definition) => [definition.value, definition])
+);
+const hairOptionDefinitions = Array.isArray(stageServiceDefinitions["hair-makeup"]?.hairOptions)
+  ? stageServiceDefinitions["hair-makeup"].hairOptions
+  : [];
+const hairOptionMap = new Map(
+  hairOptionDefinitions.map((definition) => [definition.value, definition])
+);
+const hairOptionalOptionDefinitions = Array.isArray(stageServiceDefinitions["hair-makeup"]?.optionalOptions)
+  ? stageServiceDefinitions["hair-makeup"].optionalOptions
+  : [];
+const hairOptionalOptionMap = new Map(
+  hairOptionalOptionDefinitions.map((definition) => [definition.value, definition])
+);
 
 app.set("trust proxy", true);
 
@@ -1428,6 +1464,341 @@ function mapConsentRow(row) {
     version: row.consent_version,
     consentedAt: row.consented_at,
   };
+}
+
+function generateStageServiceDraftId() {
+  return `stage_draft_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function generateStageServiceOrderNumber() {
+  return `SS-${new Date().getFullYear()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+}
+
+function normalizeStageServiceType(value) {
+  const normalized = normalizeText(value);
+  return normalized && stageServiceDefinitions[normalized] ? normalized : null;
+}
+
+function normalizeStageServiceDiscipline(value) {
+  const normalized = normalizeText(value);
+  return normalized && stageServiceDisciplineSet.has(normalized) ? normalized : null;
+}
+
+function getStageVideoAdditionalOptionMeta(value, fallbackVideoTypeValue = null) {
+  const normalized = normalizeText(value);
+
+  if (!normalized) {
+    return null;
+  }
+
+  const directMatch = stageVideoAdditionalOptionMap.get(normalized);
+
+  if (directMatch) {
+    return directMatch;
+  }
+
+  // Legacy fallback: older drafts stored only the discipline and reused the main video type price.
+  if (stageServiceDisciplineSet.has(normalized) && stageVideoTypeMap.has(fallbackVideoTypeValue)) {
+    const selectedVideoType = stageVideoTypeMap.get(fallbackVideoTypeValue);
+
+    return {
+      value: normalized,
+      typeValue: selectedVideoType.value,
+      discipline: normalized,
+      price: Number(selectedVideoType.price || 0),
+      isLegacy: true,
+    };
+  }
+
+  return null;
+}
+
+function mapStageServiceDraftRow(row) {
+  return {
+    draftId: row.draft_id,
+    orderId: row.order_id,
+    paymentMethod: row.payment_method,
+    status: row.status,
+    serviceType: row.service_type,
+    name: row.name,
+    phone: row.phone,
+    email: row.email,
+    linkedApplicationNumber: row.linked_application_number,
+    linkedDiscipline: row.linked_discipline,
+    photoHasAdditionalDiscipline: row.photo_has_additional_discipline ? "O" : "X",
+    photoAdditionalDiscipline: row.photo_additional_discipline,
+    videoType: row.video_type,
+    videoAdditionalDiscipline: row.video_additional_discipline,
+    hairParticipantDiscipline: row.hair_participant_discipline,
+    hairOption: row.hair_option,
+    hairAdditionalDiscipline: row.hair_additional_discipline,
+    hairOptionalOption: row.hair_optional_option,
+    totalAmount: row.total_amount,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapStageServiceOrderRow(row) {
+  return {
+    serviceOrderNumber: row.service_order_number,
+    orderId: row.order_id,
+    paymentKey: row.payment_key,
+    serviceType: row.service_type,
+    name: row.name,
+    phone: maskPhone(row.phone),
+    email: maskEmail(row.email),
+    linkedApplicationNumber: row.linked_application_number,
+    linkedDiscipline: row.linked_discipline,
+    photoHasAdditionalDiscipline: row.photo_has_additional_discipline ? "O" : "X",
+    photoAdditionalDiscipline: row.photo_additional_discipline,
+    videoType: row.video_type,
+    videoAdditionalDiscipline: row.video_additional_discipline,
+    hairParticipantDiscipline: row.hair_participant_discipline,
+    hairOption: row.hair_option,
+    hairAdditionalDiscipline: row.hair_additional_discipline,
+    hairOptionalOption: row.hair_optional_option,
+    totalAmount: row.total_amount,
+    paymentStatus: row.payment_status,
+    serviceStatus: row.service_status,
+    purchasedAt: row.purchased_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function calculateStageServiceAmount(payload) {
+  if (payload.serviceType === "stage-photo") {
+    const basePrice = Number(stageServiceDefinitions["stage-photo"]?.basePrice || 0);
+    const additionalPrice = Number(
+      stageServiceDefinitions["stage-photo"]?.additionalDisciplinePrice || 0
+    );
+
+    return basePrice + (payload.photoHasAdditionalDiscipline ? additionalPrice : 0);
+  }
+
+  if (payload.serviceType === "stage-video") {
+    const selectedVideoType = stageVideoTypeMap.get(payload.videoType);
+    const selectedAdditionalVideoOption = getStageVideoAdditionalOptionMeta(
+      payload.videoAdditionalDiscipline,
+      payload.videoType
+    );
+    const basePrice = Number(selectedVideoType?.price || 0);
+    return basePrice + Number(selectedAdditionalVideoOption?.price || 0);
+  }
+
+  if (payload.serviceType === "hair-makeup") {
+    const selectedHairOption = hairOptionMap.get(payload.hairOption);
+    const selectedOptionalOption = hairOptionalOptionMap.get(payload.hairOptionalOption);
+    return Number(selectedHairOption?.price || 0) + Number(selectedOptionalOption?.price || 0);
+  }
+
+  return 0;
+}
+
+function validateStageServiceDraftPayload(body) {
+  const serviceType = normalizeStageServiceType(body.serviceType);
+  const paymentMethod = normalizeText(body.paymentMethod) || "payment";
+  const name = normalizeText(body.name);
+  const phone = normalizeText(formatPhoneNumber(body.phone));
+  const email = normalizeEmail(body.email);
+
+  if (!serviceType) {
+    return {
+      ok: false,
+      message: "Invalid stage service type",
+    };
+  }
+
+  if (!name || !phone || !email) {
+    return {
+      ok: false,
+      message: "Missing required applicant fields",
+    };
+  }
+
+  if (!hasValidEmail(email)) {
+    return {
+      ok: false,
+      message: "유효한 이메일 주소를 입력해 주세요.",
+    };
+  }
+
+  if (String(phone).replace(/\D/g, "").length !== 11) {
+    return {
+      ok: false,
+      message: "연락처를 정확히 입력해 주세요.",
+    };
+  }
+
+  const payload = {
+    serviceType,
+    paymentMethod,
+    name,
+    phone,
+    email,
+    photoHasAdditionalDiscipline: false,
+    photoAdditionalDiscipline: null,
+    videoType: null,
+    videoAdditionalDiscipline: null,
+    hairParticipantDiscipline: null,
+    hairOption: null,
+    hairAdditionalDiscipline: null,
+    hairOptionalOption: null,
+  };
+
+  if (serviceType === "stage-photo") {
+    payload.photoHasAdditionalDiscipline = normalizeText(body.photoHasAdditionalDiscipline) === "O";
+    payload.photoAdditionalDiscipline = normalizeStageServiceDiscipline(body.photoAdditionalDiscipline);
+
+    if (payload.photoHasAdditionalDiscipline && !payload.photoAdditionalDiscipline) {
+      return {
+        ok: false,
+        message: "추가 종목을 선택해 주세요.",
+      };
+    }
+  }
+
+  if (serviceType === "stage-video") {
+    payload.videoType = normalizeText(body.videoType);
+    payload.videoAdditionalDiscipline = normalizeText(body.videoAdditionalDiscipline);
+
+    if (!stageVideoTypeMap.has(payload.videoType)) {
+      return {
+        ok: false,
+        message: "영상 타입을 선택해 주세요.",
+      };
+    }
+
+    if (
+      payload.videoAdditionalDiscipline &&
+      !getStageVideoAdditionalOptionMeta(payload.videoAdditionalDiscipline, payload.videoType)
+    ) {
+      return {
+        ok: false,
+        message: "추가 영상 종목을 다시 선택해 주세요.",
+      };
+    }
+  }
+
+  if (serviceType === "hair-makeup") {
+    payload.hairParticipantDiscipline = normalizeStageServiceDiscipline(body.hairParticipantDiscipline);
+    payload.hairOption = normalizeText(body.hairOption);
+    payload.hairAdditionalDiscipline = normalizeStageServiceDiscipline(body.hairAdditionalDiscipline);
+    payload.hairOptionalOption = normalizeText(body.hairOptionalOption);
+
+    if (!payload.hairParticipantDiscipline) {
+      return {
+        ok: false,
+        message: "참가 종목을 선택해 주세요.",
+      };
+    }
+
+    if (!hairOptionMap.has(payload.hairOption)) {
+      return {
+        ok: false,
+        message: "헤어&메이크업 옵션을 선택해 주세요.",
+      };
+    }
+
+    if (
+      payload.hairAdditionalDiscipline &&
+      payload.hairAdditionalDiscipline === payload.hairParticipantDiscipline
+    ) {
+      return {
+        ok: false,
+        message: "추가 종목은 참가 종목과 다르게 선택해 주세요.",
+      };
+    }
+
+    if (payload.hairOptionalOption) {
+      const optionalDefinition = hairOptionalOptionMap.get(payload.hairOptionalOption);
+
+      if (!optionalDefinition) {
+        return {
+          ok: false,
+          message: "추가 옵션을 다시 선택해 주세요.",
+        };
+      }
+
+      if (optionalDefinition.requiresAdditionalDiscipline && !payload.hairAdditionalDiscipline) {
+        return {
+          ok: false,
+          message: "리터치 옵션은 추가 종목 선택 시에만 가능합니다.",
+        };
+      }
+
+      const hairDefinition = hairOptionMap.get(payload.hairOption);
+      const selectedGender = hairDefinition?.gender || "all";
+
+      if (
+        optionalDefinition.gender !== "all" &&
+        optionalDefinition.gender !== selectedGender
+      ) {
+        return {
+          ok: false,
+          message: "선택한 헤어&메이크업 옵션과 맞지 않는 추가 옵션입니다.",
+        };
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    payload: {
+      ...payload,
+      totalAmount: calculateStageServiceAmount(payload),
+    },
+  };
+}
+
+async function findEligibleCompletedApplicationForStageService({
+  client = pool,
+  name,
+  phone,
+  email,
+}) {
+  const result = await client.query(
+    `
+      SELECT
+        id,
+        application_number,
+        discipline
+      FROM applications
+      WHERE name = $1
+        AND phone = $2
+        AND LOWER(email) = $3
+        AND payment_status = 'DONE'
+      ORDER BY submitted_at DESC NULLS LAST, updated_at DESC
+      LIMIT 1
+    `,
+    [name, phone, email]
+  );
+
+  return result.rows[0] || null;
+}
+
+async function hasPurchasedStageService({
+  client = pool,
+  name,
+  phone,
+  email,
+  serviceType,
+}) {
+  const result = await client.query(
+    `
+      SELECT 1
+      FROM stage_service_orders
+      WHERE name = $1
+        AND phone = $2
+        AND LOWER(email) = $3
+        AND service_type = $4
+        AND payment_status = 'DONE'
+      LIMIT 1
+    `,
+    [name, phone, email, serviceType]
+  );
+
+  return result.rowCount > 0;
 }
 
 // Draft 정규화 작업
@@ -3256,6 +3627,908 @@ app.get("/applications/draft/:draftId", async function (req, res) {
     return res.status(500).json({
       ok: false,
       message: "Failed to fetch application draft",
+    });
+  }
+});
+
+app.post("/stage-services/draft", async function (req, res) {
+  const validation = validateStageServiceDraftPayload(req.body);
+
+  if (!validation.ok) {
+    return res.status(400).json({
+      ok: false,
+      message: validation.message,
+    });
+  }
+
+  const { payload } = validation;
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const linkedApplication = await findEligibleCompletedApplicationForStageService({
+      client,
+      name: payload.name,
+      phone: payload.phone,
+      email: payload.email,
+    });
+
+    if (!linkedApplication) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({
+        ok: false,
+        message: "대회 신청 완료자만 무대 서비스를 구매할 수 있습니다.",
+      });
+    }
+
+    const alreadyPurchased = await hasPurchasedStageService({
+      client,
+      name: payload.name,
+      phone: payload.phone,
+      email: payload.email,
+      serviceType: payload.serviceType,
+    });
+
+    if (alreadyPurchased) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        message: "이미 해당 무대 서비스를 구매한 신청자입니다.",
+      });
+    }
+
+    const draftId = generateStageServiceDraftId();
+    const draftResult = await client.query(
+      `
+        INSERT INTO stage_service_drafts (
+          draft_id,
+          payment_method,
+          status,
+          service_type,
+          name,
+          phone,
+          email,
+          linked_application_id,
+          linked_application_number,
+          linked_discipline,
+          photo_has_additional_discipline,
+          photo_additional_discipline,
+          video_type,
+          video_additional_discipline,
+          hair_participant_discipline,
+          hair_option,
+          hair_additional_discipline,
+          hair_optional_option,
+          total_amount,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          $1, $2, 'DRAFT', $3, $4, $5, $6, $7, $8, $9,
+          $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), NOW()
+        )
+        RETURNING
+          draft_id,
+          order_id,
+          payment_method,
+          status,
+          service_type,
+          name,
+          phone,
+          email,
+          linked_application_number,
+          linked_discipline,
+          photo_has_additional_discipline,
+          photo_additional_discipline,
+          video_type,
+          video_additional_discipline,
+          hair_participant_discipline,
+          hair_option,
+          hair_additional_discipline,
+          hair_optional_option,
+          total_amount,
+          created_at,
+          updated_at
+      `,
+      [
+        draftId,
+        payload.paymentMethod,
+        payload.serviceType,
+        payload.name,
+        payload.phone,
+        payload.email,
+        linkedApplication.id,
+        linkedApplication.application_number,
+        linkedApplication.discipline,
+        payload.photoHasAdditionalDiscipline,
+        payload.photoAdditionalDiscipline,
+        payload.videoType,
+        payload.videoAdditionalDiscipline,
+        payload.hairParticipantDiscipline,
+        payload.hairOption,
+        payload.hairAdditionalDiscipline,
+        payload.hairOptionalOption,
+        payload.totalAmount,
+      ]
+    );
+
+    await client.query("COMMIT");
+
+    return res.status(201).json({
+      ok: true,
+      draft: mapStageServiceDraftRow(draftResult.rows[0]),
+      linkedApplication: {
+        applicationNumber: linkedApplication.application_number,
+        discipline: linkedApplication.discipline,
+      },
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Failed to create stage service draft:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to create stage service draft",
+    });
+  } finally {
+    client.release();
+  }
+});
+
+app.patch("/stage-services/draft/:draftId", async function (req, res) {
+  const validation = validateStageServiceDraftPayload(req.body);
+
+  if (!validation.ok) {
+    return res.status(400).json({
+      ok: false,
+      message: validation.message,
+    });
+  }
+
+  const { payload } = validation;
+  const { draftId } = req.params;
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const linkedApplication = await findEligibleCompletedApplicationForStageService({
+      client,
+      name: payload.name,
+      phone: payload.phone,
+      email: payload.email,
+    });
+
+    if (!linkedApplication) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({
+        ok: false,
+        message: "대회 신청 완료자만 무대 서비스를 구매할 수 있습니다.",
+      });
+    }
+
+    const existingPurchasedResult = await client.query(
+      `
+        SELECT 1
+        FROM stage_service_orders
+        WHERE name = $1
+          AND phone = $2
+          AND LOWER(email) = $3
+          AND service_type = $4
+          AND payment_status = 'DONE'
+        LIMIT 1
+      `,
+      [payload.name, payload.phone, payload.email, payload.serviceType]
+    );
+
+    if (existingPurchasedResult.rowCount > 0) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        message: "이미 해당 무대 서비스를 구매한 신청자입니다.",
+      });
+    }
+
+    const draftResult = await client.query(
+      `
+        UPDATE stage_service_drafts
+        SET
+          order_id = NULL,
+          status = 'DRAFT',
+          payment_method = $2,
+          service_type = $3,
+          name = $4,
+          phone = $5,
+          email = $6,
+          linked_application_id = $7,
+          linked_application_number = $8,
+          linked_discipline = $9,
+          photo_has_additional_discipline = $10,
+          photo_additional_discipline = $11,
+          video_type = $12,
+          video_additional_discipline = $13,
+          hair_participant_discipline = $14,
+          hair_option = $15,
+          hair_additional_discipline = $16,
+          hair_optional_option = $17,
+          total_amount = $18,
+          updated_at = NOW()
+        WHERE draft_id = $1
+        RETURNING
+          draft_id,
+          order_id,
+          payment_method,
+          status,
+          service_type,
+          name,
+          phone,
+          email,
+          linked_application_number,
+          linked_discipline,
+          photo_has_additional_discipline,
+          photo_additional_discipline,
+          video_type,
+          video_additional_discipline,
+          hair_participant_discipline,
+          hair_option,
+          hair_additional_discipline,
+          hair_optional_option,
+          total_amount,
+          created_at,
+          updated_at
+      `,
+      [
+        draftId,
+        payload.paymentMethod,
+        payload.serviceType,
+        payload.name,
+        payload.phone,
+        payload.email,
+        linkedApplication.id,
+        linkedApplication.application_number,
+        linkedApplication.discipline,
+        payload.photoHasAdditionalDiscipline,
+        payload.photoAdditionalDiscipline,
+        payload.videoType,
+        payload.videoAdditionalDiscipline,
+        payload.hairParticipantDiscipline,
+        payload.hairOption,
+        payload.hairAdditionalDiscipline,
+        payload.hairOptionalOption,
+        payload.totalAmount,
+      ]
+    );
+
+    if (draftResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({
+        ok: false,
+        message: "Stage service draft not found",
+      });
+    }
+
+    await client.query("COMMIT");
+
+    return res.status(200).json({
+      ok: true,
+      draft: mapStageServiceDraftRow(draftResult.rows[0]),
+      linkedApplication: {
+        applicationNumber: linkedApplication.application_number,
+        discipline: linkedApplication.discipline,
+      },
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Failed to update stage service draft:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to update stage service draft",
+    });
+  } finally {
+    client.release();
+  }
+});
+
+app.get("/stage-services/draft/:draftId", async function (req, res) {
+  try {
+    const { draftId } = req.params;
+
+    const result = await pool.query(
+      `
+        SELECT
+          draft_id,
+          order_id,
+          payment_method,
+          status,
+          service_type,
+          name,
+          phone,
+          email,
+          linked_application_number,
+          linked_discipline,
+          photo_has_additional_discipline,
+          photo_additional_discipline,
+          video_type,
+          video_additional_discipline,
+          hair_participant_discipline,
+          hair_option,
+          hair_additional_discipline,
+          hair_optional_option,
+          total_amount,
+          created_at,
+          updated_at
+        FROM stage_service_drafts
+        WHERE draft_id = $1
+      `,
+      [draftId]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        ok: false,
+        message: "Stage service draft not found",
+      });
+    }
+
+    const draft = result.rows[0];
+    return res.status(200).json({
+      ok: true,
+      draft: mapStageServiceDraftRow(draft),
+      linkedApplication: {
+        applicationNumber: draft.linked_application_number,
+        discipline: draft.linked_discipline,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to fetch stage service draft:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to fetch stage service draft",
+    });
+  }
+});
+
+app.post("/stage-services/orders", async function (req, res) {
+  try {
+    const draftId = normalizeText(req.body.draftId);
+
+    if (!draftId) {
+      return res.status(400).json({
+        ok: false,
+        message: "Missing draftId",
+      });
+    }
+
+    const draftResult = await pool.query(
+      `
+        SELECT
+          draft_id,
+          order_id,
+          service_type,
+          name,
+          email,
+          total_amount
+        FROM stage_service_drafts
+        WHERE draft_id = $1
+      `,
+      [draftId]
+    );
+
+    if (draftResult.rowCount === 0) {
+      return res.status(404).json({
+        ok: false,
+        message: "Stage service draft not found",
+      });
+    }
+
+    const draft = draftResult.rows[0];
+
+    if (draft.order_id) {
+      const orderResult = await pool.query(
+        `
+          SELECT
+            order_id,
+            order_name,
+            amount,
+            customer_name,
+            customer_email,
+            status,
+            created_at
+          FROM orders
+          WHERE order_id = $1
+          LIMIT 1
+        `,
+        [draft.order_id]
+      );
+
+      if (orderResult.rowCount > 0) {
+        const order = orderResult.rows[0];
+        return res.status(200).json({
+          ok: true,
+          order: {
+            orderId: order.order_id,
+            orderName: order.order_name,
+            amount: order.amount,
+            customerName: order.customer_name,
+            customerEmail: order.customer_email,
+            status: order.status,
+            createdAt: order.created_at,
+          },
+        });
+      }
+    }
+
+    const orderId = generateOrderId();
+    const orderName = `${stageServiceDefinitions[draft.service_type]?.title || "무대 서비스"} 결제`;
+    const result = await pool.query(
+      `
+        INSERT INTO orders (
+          order_id,
+          order_name,
+          amount,
+          customer_name,
+          customer_email,
+          status
+        )
+        VALUES ($1, $2, $3, $4, $5, 'READY')
+        RETURNING
+          order_id,
+          order_name,
+          amount,
+          customer_name,
+          customer_email,
+          status,
+          created_at
+      `,
+      [
+        orderId,
+        orderName,
+        draft.total_amount,
+        draft.name,
+        draft.email,
+      ]
+    );
+
+    await pool.query(
+      `
+        UPDATE stage_service_drafts
+        SET
+          order_id = $2,
+          updated_at = NOW()
+        WHERE draft_id = $1
+      `,
+      [draftId, orderId]
+    );
+
+    const order = result.rows[0];
+    return res.status(201).json({
+      ok: true,
+      order: {
+        orderId: order.order_id,
+        orderName: order.order_name,
+        amount: order.amount,
+        customerName: order.customer_name,
+        customerEmail: order.customer_email,
+        status: order.status,
+        createdAt: order.created_at,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to create stage service order:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to create stage service order",
+    });
+  }
+});
+
+app.post("/stage-services/complete", async function (req, res) {
+  const draftId = normalizeText(req.body.draftId);
+  const orderId = normalizeText(req.body.orderId);
+
+  if (!draftId || !orderId) {
+    return res.status(400).json({
+      ok: false,
+      message: "Missing draftId or orderId",
+    });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const existingServiceOrderResult = await client.query(
+      `
+        SELECT
+          service_order_number,
+          order_id,
+          payment_key,
+          service_type,
+          name,
+          phone,
+          email,
+          linked_application_number,
+          linked_discipline,
+          photo_has_additional_discipline,
+          photo_additional_discipline,
+          video_type,
+          video_additional_discipline,
+          hair_participant_discipline,
+          hair_option,
+          hair_additional_discipline,
+          hair_optional_option,
+          total_amount,
+          payment_status,
+          service_status,
+          purchased_at,
+          updated_at
+        FROM stage_service_orders
+        WHERE draft_id = $1
+           OR order_id = $2
+        LIMIT 1
+      `,
+      [draftId, orderId]
+    );
+
+    if (existingServiceOrderResult.rowCount > 0) {
+      await client.query("ROLLBACK");
+      return res.status(200).json({
+        ok: true,
+        idempotent: true,
+        serviceOrder: mapStageServiceOrderRow(existingServiceOrderResult.rows[0]),
+      });
+    }
+
+    const draftResult = await client.query(
+      `
+        SELECT
+          draft_id,
+          order_id,
+          payment_method,
+          service_type,
+          name,
+          phone,
+          email,
+          linked_application_number,
+          linked_discipline,
+          photo_has_additional_discipline,
+          photo_additional_discipline,
+          video_type,
+          video_additional_discipline,
+          hair_participant_discipline,
+          hair_option,
+          hair_additional_discipline,
+          hair_optional_option,
+          total_amount
+        FROM stage_service_drafts
+        WHERE draft_id = $1
+        FOR UPDATE
+      `,
+      [draftId]
+    );
+
+    if (draftResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({
+        ok: false,
+        message: "Stage service draft not found",
+      });
+    }
+
+    const paymentResult = await client.query(
+      `
+        SELECT
+          payment_key,
+          status
+        FROM payments
+        WHERE order_id = $1
+        ORDER BY updated_at DESC
+        LIMIT 1
+      `,
+      [orderId]
+    );
+
+    if (paymentResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({
+        ok: false,
+        message: "Payment not found for order",
+      });
+    }
+
+    const draft = draftResult.rows[0];
+    const payment = paymentResult.rows[0];
+    const serviceOrderNumber = generateStageServiceOrderNumber();
+
+    const serviceOrderInsertResult = await client.query(
+      `
+        INSERT INTO stage_service_orders (
+          service_order_number,
+          draft_id,
+          order_id,
+          payment_key,
+          payment_status,
+          service_status,
+          service_type,
+          name,
+          phone,
+          email,
+          linked_application_number,
+          linked_discipline,
+          photo_has_additional_discipline,
+          photo_additional_discipline,
+          video_type,
+          video_additional_discipline,
+          hair_participant_discipline,
+          hair_option,
+          hair_additional_discipline,
+          hair_optional_option,
+          total_amount,
+          purchased_at,
+          updated_at
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, 'PURCHASED', $6, $7, $8, $9, $10, $11, $12, $13,
+          $14, $15, $16, $17, $18, $19, $20, NOW(), NOW()
+        )
+        RETURNING
+          service_order_number,
+          order_id,
+          payment_key,
+          service_type,
+          name,
+          phone,
+          email,
+          linked_application_number,
+          linked_discipline,
+          photo_has_additional_discipline,
+          photo_additional_discipline,
+          video_type,
+          video_additional_discipline,
+          hair_participant_discipline,
+          hair_option,
+          hair_additional_discipline,
+          hair_optional_option,
+          total_amount,
+          payment_status,
+          service_status,
+          purchased_at,
+          updated_at
+      `,
+      [
+        serviceOrderNumber,
+        draft.draft_id,
+        orderId,
+        payment.payment_key,
+        payment.status,
+        draft.service_type,
+        draft.name,
+        draft.phone,
+        draft.email,
+        draft.linked_application_number,
+        draft.linked_discipline,
+        draft.photo_has_additional_discipline,
+        draft.photo_additional_discipline,
+        draft.video_type,
+        draft.video_additional_discipline,
+        draft.hair_participant_discipline,
+        draft.hair_option,
+        draft.hair_additional_discipline,
+        draft.hair_optional_option,
+        draft.total_amount,
+      ]
+    );
+
+    await client.query(
+      `
+        UPDATE stage_service_drafts
+        SET
+          order_id = $2,
+          status = 'COMPLETED',
+          updated_at = NOW()
+        WHERE draft_id = $1
+      `,
+      [draftId, orderId]
+    );
+
+    await client.query("COMMIT");
+
+    return res.status(201).json({
+      ok: true,
+      serviceOrder: mapStageServiceOrderRow(serviceOrderInsertResult.rows[0]),
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Failed to complete stage service order:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to complete stage service order",
+    });
+  } finally {
+    client.release();
+  }
+});
+
+app.get("/stage-services/:serviceOrderNumber", async function (req, res) {
+  try {
+    const { serviceOrderNumber } = req.params;
+
+    const result = await pool.query(
+      `
+        SELECT
+          service_order_number,
+          order_id,
+          payment_key,
+          service_type,
+          name,
+          phone,
+          email,
+          linked_application_number,
+          linked_discipline,
+          photo_has_additional_discipline,
+          photo_additional_discipline,
+          video_type,
+          video_additional_discipline,
+          hair_participant_discipline,
+          hair_option,
+          hair_additional_discipline,
+          hair_optional_option,
+          total_amount,
+          payment_status,
+          service_status,
+          purchased_at,
+          updated_at
+        FROM stage_service_orders
+        WHERE service_order_number = $1
+      `,
+      [serviceOrderNumber]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        ok: false,
+        message: "Stage service order not found",
+      });
+    }
+
+    return res.status(200).json({
+      ok: true,
+      serviceOrder: mapStageServiceOrderRow(result.rows[0]),
+    });
+  } catch (error) {
+    console.error("Failed to fetch stage service order:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to fetch stage service order",
+    });
+  }
+});
+
+app.get("/stage-services/by-order/:orderId", async function (req, res) {
+  try {
+    const { orderId } = req.params;
+
+    const result = await pool.query(
+      `
+        SELECT
+          service_order_number,
+          order_id,
+          payment_key,
+          service_type,
+          name,
+          phone,
+          email,
+          linked_application_number,
+          linked_discipline,
+          photo_has_additional_discipline,
+          photo_additional_discipline,
+          video_type,
+          video_additional_discipline,
+          hair_participant_discipline,
+          hair_option,
+          hair_additional_discipline,
+          hair_optional_option,
+          total_amount,
+          payment_status,
+          service_status,
+          purchased_at,
+          updated_at
+        FROM stage_service_orders
+        WHERE order_id = $1
+      `,
+      [orderId]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({
+        ok: false,
+        message: "Stage service order not found",
+      });
+    }
+
+    return res.status(200).json({
+      ok: true,
+      serviceOrder: mapStageServiceOrderRow(result.rows[0]),
+    });
+  } catch (error) {
+    console.error("Failed to fetch stage service order by order:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to fetch stage service order by order",
+    });
+  }
+});
+
+app.post("/stage-services/summary", async function (req, res) {
+  try {
+    const name = normalizeText(req.body.name);
+    const email = normalizeEmail(req.body.email);
+    const verificationToken = normalizeText(req.body.verificationToken);
+    const applicationNumber = normalizeText(req.body.applicationNumber);
+
+    if (!name || !email || !verificationToken || !applicationNumber) {
+      return res.status(400).json({
+        ok: false,
+        message: "Missing lookup verification fields",
+      });
+    }
+
+    const hasVerifiedSession = await hasVerifiedLookupSession({
+      name,
+      email,
+      verificationToken,
+    });
+
+    if (!hasVerifiedSession) {
+      return res.status(403).json({
+        ok: false,
+        message: "이메일 인증이 만료되었거나 유효하지 않습니다. 다시 인증해 주세요.",
+      });
+    }
+
+    const ownedApplication = await findLookupOwnedApplication({
+      name,
+      email,
+      applicationNumber,
+    });
+
+    if (!ownedApplication) {
+      return res.status(404).json({
+        ok: false,
+        message: "일치하는 신청 내역을 찾을 수 없습니다.",
+      });
+    }
+
+    const summaryResult = await pool.query(
+      `
+        SELECT service_type
+        FROM stage_service_orders
+        WHERE name = $1
+          AND phone = $2
+          AND LOWER(email) = $3
+          AND payment_status = 'DONE'
+      `,
+      [name, ownedApplication.phone, email]
+    );
+
+    const purchasedServiceTypes = new Set(
+      summaryResult.rows.map((row) => row.service_type)
+    );
+
+    return res.status(200).json({
+      ok: true,
+      summary: {
+        hasStagePhoto: purchasedServiceTypes.has("stage-photo"),
+        hasStageVideo: purchasedServiceTypes.has("stage-video"),
+        hasHairMakeup: purchasedServiceTypes.has("hair-makeup"),
+      },
+    });
+  } catch (error) {
+    console.error("Failed to fetch stage service summary:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to fetch stage service summary",
     });
   }
 });

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
+import { buildStageServiceDetailPath } from "../lib/stageServiceFlowRoutes";
 
 const stageServiceItems = [
   {
@@ -18,6 +20,8 @@ const stageServiceItems = [
 ];
 
 export function StageServiceSelectPage() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { t } = useLanguage();
   const trackRef = useRef(null);
   const dragStateRef = useRef({
@@ -119,6 +123,15 @@ export function StageServiceSelectPage() {
     }
 
     setSelectedServiceKey(itemKey);
+    navigate(
+      buildStageServiceDetailPath({
+        serviceKey: itemKey,
+        name: searchParams.get("name") || "",
+        email: searchParams.get("email") || "",
+        phone: searchParams.get("phone") || "",
+      }),
+      { state: { source: "select" } },
+    );
   }
 
   return (

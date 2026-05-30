@@ -1,0 +1,101 @@
+{
+  "disciplineOptions": [
+    "보디빌딩",
+    "클래식",
+    "피지크",
+    "남성 모델",
+    "남성 피트니스",
+    "남성 데님",
+    "미즈비키니",
+    "피규어",
+    "여성 모델",
+    "여성 피트니스",
+    "여성 데님"
+  ],
+  "services": {
+    "stage-photo": {
+      "title": "무대 사진 촬영",
+      "basePrice": 180000,
+      "additionalDisciplinePrice": 60000
+    },
+    "stage-video": {
+      "title": "무대 영상 촬영",
+      "videoTypes": [
+        {
+          "value": "TYPE_A",
+          "label": "Type A",
+          "price": 220000
+        },
+        {
+          "value": "TYPE_J",
+          "label": "Type J",
+          "price": 440000
+        }
+      ]
+    },
+    "hair-makeup": {
+      "title": "헤어&메이크업",
+      "hairOptions": [
+        {
+          "value": "MALE_HAIR_MAKEUP",
+          "label": "남자 헤어&메이크업",
+          "price": 110000,
+          "gender": "male"
+        },
+        {
+          "value": "MALE_MAKEUP",
+          "label": "남자 메이크업",
+          "price": 70000,
+          "gender": "male"
+        },
+        {
+          "value": "MALE_HAIR",
+          "label": "남자 헤어",
+          "price": 40000,
+          "gender": "male"
+        },
+        {
+          "value": "FEMALE_HAIR_MAKEUP",
+          "label": "여자 헤어&메이크업",
+          "price": 180000,
+          "gender": "female"
+        },
+        {
+          "value": "FEMALE_MAKEUP",
+          "label": "여자 메이크업",
+          "price": 110000,
+          "gender": "female"
+        },
+        {
+          "value": "FEMALE_HAIR",
+          "label": "여자 헤어",
+          "price": 70000,
+          "gender": "female"
+        }
+      ],
+      "optionalOptions": [
+        {
+          "value": "BODY_MAKEUP",
+          "label": "바디메이크업",
+          "price": 99000,
+          "gender": "all",
+          "requiresAdditionalDiscipline": false
+        },
+        {
+          "value": "MALE_RETOUCH",
+          "label": "남자 리터치",
+          "price": 20000,
+          "gender": "male",
+          "requiresAdditionalDiscipline": true
+        },
+        {
+          "value": "FEMALE_RETOUCH",
+          "label": "여자 리터치",
+          "price": 33000,
+          "gender": "female",
+          "requiresAdditionalDiscipline": true
+        }
+      ]
+    }
+  }
+}

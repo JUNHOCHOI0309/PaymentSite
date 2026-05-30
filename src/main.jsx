@@ -4,9 +4,12 @@ import "./App.css";
 import { SiteFavicon } from "./components/layout/SiteFavicon";
 import { ScrollToTop } from "./components/layout/ScrollToTop";
 import { ApplicationFlowRouteGuard } from "./components/routing/ApplicationFlowRouteGuard";
+import { StageServiceFlowRouteGuard } from "./components/routing/StageServiceFlowRouteGuard";
 import { ApplicationFlowProvider } from "./context/ApplicationFlowContext";
 import { LanguageProvider } from "./context/LanguageContext";
+import { StageServiceFlowProvider } from "./context/StageServiceFlowContext";
 import { applicationFlowSteps } from "./lib/applicationFlowAccess";
+import { stageServiceFlowSteps } from "./lib/stageServiceFlowAccess";
 import { ApplyCompletePage } from "./pages/ApplyCompletePage";
 import { ApplyConsentPage } from "./pages/ApplyConsentPage";
 import { ApplyPage } from "./pages/ApplyPage";
@@ -20,12 +23,21 @@ import { CompetitionIntroPage, MmkIntroPage } from "./pages/CompetitionIntroPage
 import { FailPage } from "./pages/Fail";
 import { HomePage } from "./pages/HomePage";
 import { LookupPage } from "./pages/LookupPage";
+import { StageServiceCompletePage } from "./pages/StageServiceCompletePage";
+import { StageServiceDetailPage } from "./pages/StageServiceDetailPage";
+import { StageServiceReviewPage } from "./pages/StageServiceReviewPage";
 import { PaymentBillingPage } from "./pages/payment/PaymentBilling";
 import { PaymentCheckoutPage } from "./pages/payment/PaymentCheckout";
 import { PaymentSuccessPage } from "./pages/payment/PaymentSuccess";
 import { BrandpaySuccessPage } from "./pages/brandpay/BrandpaySuccess";
 import { PrivacyPage } from "./pages/PrivacyPage";
 import { TermsPage } from "./pages/TermsPage";
+import { StageServiceBrandpayCheckoutPage } from "./pages/stageService/StageServiceBrandpayCheckout";
+import { StageServiceBrandpaySuccessPage } from "./pages/stageService/StageServiceBrandpaySuccess";
+import { StageServicePaymentCheckoutPage } from "./pages/stageService/StageServicePaymentCheckout";
+import { StageServicePaymentSuccessPage } from "./pages/stageService/StageServicePaymentSuccess";
+import { StageServiceWidgetCheckoutPage } from "./pages/stageService/StageServiceWidgetCheckout";
+import { StageServiceWidgetSuccessPage } from "./pages/stageService/StageServiceWidgetSuccess";
 import { WidgetCheckoutPage } from "./pages/widget/WidgetCheckout";
 import { WidgetSuccessPage } from "./pages/widget/WidgetSuccess";
 
@@ -66,6 +78,33 @@ const router = createBrowserRouter([
       {
         path: "apply/stage-services",
         element: <StageServiceSelectPage />,
+      },
+      {
+        path: "apply/stage-services/detail",
+        element: <StageServiceDetailPage />,
+      },
+      {
+        path: "apply/stage-services/review",
+        element: (
+          <StageServiceFlowRouteGuard
+            minStep={stageServiceFlowSteps.REVIEW}
+            requireDraftId
+          >
+            <StageServiceReviewPage />
+          </StageServiceFlowRouteGuard>
+        ),
+      },
+      {
+        path: "apply/stage-services/complete",
+        element: (
+          <StageServiceFlowRouteGuard
+            minStep={stageServiceFlowSteps.COMPLETE}
+            requireDraftId
+            requireOrderId
+          >
+            <StageServiceCompletePage />
+          </StageServiceFlowRouteGuard>
+        ),
       },
       {
         path: "apply/detail",
@@ -166,6 +205,38 @@ const router = createBrowserRouter([
         ],
       },
       {
+        path: "stage-services/widget",
+        children: [
+          {
+            path: "checkout",
+            element: (
+              <StageServiceFlowRouteGuard
+                minStep={stageServiceFlowSteps.CHECKOUT}
+                requireDraftId
+                requireOrderId
+                requirePaymentMethod="widget"
+              >
+                <StageServiceWidgetCheckoutPage />
+              </StageServiceFlowRouteGuard>
+            ),
+          },
+          {
+            path: "success",
+            element: (
+              <StageServiceFlowRouteGuard
+                minStep={stageServiceFlowSteps.CHECKOUT}
+                requireDraftId
+                requireOrderId
+                requirePaymentMethod="widget"
+                requireSearchParams={["orderId", "amount", "paymentKey"]}
+              >
+                <StageServiceWidgetSuccessPage />
+              </StageServiceFlowRouteGuard>
+            ),
+          },
+        ],
+      },
+      {
         path: "checkout",
         element: (
           <ApplicationFlowRouteGuard
@@ -211,6 +282,38 @@ const router = createBrowserRouter([
         ],
       },
       {
+        path: "stage-services/brandpay",
+        children: [
+          {
+            path: "checkout",
+            element: (
+              <StageServiceFlowRouteGuard
+                minStep={stageServiceFlowSteps.CHECKOUT}
+                requireDraftId
+                requireOrderId
+                requirePaymentMethod="brandpay"
+              >
+                <StageServiceBrandpayCheckoutPage />
+              </StageServiceFlowRouteGuard>
+            ),
+          },
+          {
+            path: "success",
+            element: (
+              <StageServiceFlowRouteGuard
+                minStep={stageServiceFlowSteps.CHECKOUT}
+                requireDraftId
+                requireOrderId
+                requirePaymentMethod="brandpay"
+                requireSearchParams={["orderId", "amount", "paymentKey", "customerKey"]}
+              >
+                <StageServiceBrandpaySuccessPage />
+              </StageServiceFlowRouteGuard>
+            ),
+          },
+        ],
+      },
+      {
         path: "payment",
         children: [
           {
@@ -247,6 +350,42 @@ const router = createBrowserRouter([
         ],
       },
       {
+        path: "stage-services/payment",
+        children: [
+          {
+            path: "checkout",
+            element: (
+              <StageServiceFlowRouteGuard
+                minStep={stageServiceFlowSteps.CHECKOUT}
+                requireDraftId
+                requireOrderId
+                requirePaymentMethod="payment"
+              >
+                <StageServicePaymentCheckoutPage />
+              </StageServiceFlowRouteGuard>
+            ),
+          },
+          {
+            path: "success",
+            element: (
+              <StageServiceFlowRouteGuard
+                minStep={stageServiceFlowSteps.CHECKOUT}
+                requireDraftId
+                requireOrderId
+                requirePaymentMethod="payment"
+                requireSearchParams={["orderId", "amount", "paymentKey"]}
+              >
+                <StageServicePaymentSuccessPage />
+              </StageServiceFlowRouteGuard>
+            ),
+          },
+        ],
+      },
+      {
+        path: "stage-services/fail",
+        element: <FailPage />,
+      },
+      {
         path: "fail",
         element: (
           <ApplicationFlowRouteGuard
@@ -265,7 +404,9 @@ const router = createBrowserRouter([
 ReactDOM.createRoot(document.getElementById("root")).render(
   <LanguageProvider>
     <ApplicationFlowProvider>
-      <RouterProvider router={router} />
+      <StageServiceFlowProvider>
+        <RouterProvider router={router} />
+      </StageServiceFlowProvider>
     </ApplicationFlowProvider>
   </LanguageProvider>,
 );

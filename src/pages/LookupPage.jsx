@@ -6,6 +6,7 @@ import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
 import {
   getApplicationRefundQuote,
+  getStageServiceSummary,
   lookupApplication,
   requestApplicationRefund,
   sendLookupVerificationCode,
@@ -265,18 +266,47 @@ export function LookupPage() {
               ...application,
               refundQuote: refundJson.refundQuote || null,
               refundQuoteError: "",
+              stageServiceSummary: null,
+              stageServiceSummaryError: "",
             };
           } catch (error) {
             return {
               ...application,
               refundQuote: null,
               refundQuoteError: error.message || t("lookup.refundQuoteFailed"),
+              stageServiceSummary: null,
+              stageServiceSummaryError: "",
             };
           }
         })
       );
 
-      setResults(applicationsWithRefundQuotes);
+      const applicationsWithStageServiceSummary = await Promise.all(
+        applicationsWithRefundQuotes.map(async (application) => {
+          try {
+            const summaryJson = await getStageServiceSummary({
+              name: form.name,
+              email: form.email,
+              verificationToken,
+              applicationNumber: application.applicationNumber,
+            });
+
+            return {
+              ...application,
+              stageServiceSummary: summaryJson.summary || null,
+              stageServiceSummaryError: "",
+            };
+          } catch (error) {
+            return {
+              ...application,
+              stageServiceSummary: null,
+              stageServiceSummaryError: error.message || t("lookup.lookupFailed"),
+            };
+          }
+        }),
+      );
+
+      setResults(applicationsWithStageServiceSummary);
       setRefundMessages({});
       setVerificationMessage(t("lookup.lookupDone"));
     } catch (error) {
@@ -531,6 +561,52 @@ export function LookupPage() {
                         >
                           {refundMessages[result.applicationNumber].text}
                         </p>
+                      ) : null}
+                    </div>
+                    <div className="site-lookup-stage-services">
+                      <h4>{t("stageService.lookupTitle")}</h4>
+                      {result.stageServiceSummary ? (
+                        <div className="site-lookup-refund__rows">
+                          <div className="site-review-row">
+                            <span>{t("stageService.lookupPhoto")}</span>
+                            <strong>
+                              {result.stageServiceSummary.hasStagePhoto
+                                ? t("stageService.lookupPurchased")
+                                : t("stageService.lookupMissing")}
+                            </strong>
+                          </div>
+                          <div className="site-review-row">
+                            <span>{t("stageService.lookupVideo")}</span>
+                            <strong>
+                              {result.stageServiceSummary.hasStageVideo
+                                ? t("stageService.lookupPurchased")
+                                : t("stageService.lookupMissing")}
+                            </strong>
+                          </div>
+                          <div className="site-review-row">
+                            <span>{t("stageService.lookupHairMakeup")}</span>
+                            <strong>
+                              {result.stageServiceSummary.hasHairMakeup
+                                ? t("stageService.lookupPurchased")
+                                : t("stageService.lookupMissing")}
+                            </strong>
+                          </div>
+                        </div>
+                      ) : result.stageServiceSummaryError ? (
+                        <p className="site-lookup-refund__error">{result.stageServiceSummaryError}</p>
+                      ) : null}
+                      {result.stageServiceSummary &&
+                      (!result.stageServiceSummary.hasStagePhoto ||
+                        !result.stageServiceSummary.hasStageVideo ||
+                        !result.stageServiceSummary.hasHairMakeup) ? (
+                        <div className="site-lookup-refund__actions">
+                          <a
+                            className="site-lookup-stage-services__link"
+                            href={`/apply/stage-services?name=${encodeURIComponent(form.name)}&email=${encodeURIComponent(form.email)}`}
+                          >
+                            {t("stageService.lookupSelectLink")}
+                          </a>
+                        </div>
                       ) : null}
                     </div>
                   </div>

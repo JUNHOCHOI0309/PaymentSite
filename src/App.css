@@ -3028,6 +3028,73 @@ body {
   color: #d82424;
 }
 
+.site-stage-service-detail__summary {
+  gap: 18px;
+}
+
+.site-stage-service-detail__back-button {
+  align-self: flex-start;
+}
+
+.site-stage-service-price-box {
+  display: grid;
+  gap: 12px;
+  padding: 18px 20px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.site-stage-service-price-box__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 0.95rem;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.site-stage-service-price-box__row strong {
+  color: #ffffff;
+}
+
+.site-stage-service-detail__actions {
+  grid-column: 1 / -1;
+}
+
+.site-stage-service-review-card .site-payment-methods {
+  margin-top: 32px;
+}
+
+.site-lookup-stage-services {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.site-lookup-stage-services h4 {
+  margin: 0 0 14px;
+  font-size: 1rem;
+  color: #ffffff;
+}
+
+.site-lookup-stage-services__link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 999px;
+  background: #234b80;
+  color: #ffffff;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.site-lookup-stage-services__link:hover,
+.site-lookup-stage-services__link:focus-visible {
+  background: #2c5d9f;
+}
+
 .site-consent-page .site-review-card {
   display: grid;
   gap: 28px;

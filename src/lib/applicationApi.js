@@ -178,6 +178,81 @@ export async function getApplicationByOrder(orderId) {
   return readJson(response);
 }
 
+export async function createStageServiceDraft(payload) {
+  const response = await apiFetch("/api/stage-services/draft", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
+export async function updateStageServiceDraft(draftId, payload) {
+  const response = await apiFetch(`/api/stage-services/draft/${draftId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
+export async function getStageServiceDraft(draftId) {
+  const response = await apiFetch(`/api/stage-services/draft/${draftId}`);
+  return readJson(response);
+}
+
+export async function createStageServiceOrder(payload) {
+  const response = await apiFetch("/api/stage-services/orders", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
+export async function completeStageService(payload) {
+  const response = await apiFetch("/api/stage-services/complete", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
+export async function getStageServiceOrderByNumber(serviceOrderNumber) {
+  const response = await apiFetch(`/api/stage-services/${serviceOrderNumber}`);
+  return readJson(response);
+}
+
+export async function getStageServiceOrderByOrder(orderId) {
+  const response = await apiFetch(`/api/stage-services/by-order/${orderId}`);
+  return readJson(response);
+}
+
+export async function getStageServiceSummary(payload) {
+  const response = await apiFetch("/api/stage-services/summary", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
 export async function adminLogin(payload) {
   const response = await adminApiFetch("/api/admin/login", {
     method: "POST",
