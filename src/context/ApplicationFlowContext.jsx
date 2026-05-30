@@ -20,6 +20,7 @@ const initialState = {
     email: "",
     birthDate: "",
     organization: "",
+    weightClass: "",
   },
   uploadedFileMeta: {
     originalFilename: "",

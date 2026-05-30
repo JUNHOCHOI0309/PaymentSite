@@ -7,6 +7,7 @@ import { PageShell } from "../components/layout/PageShell";
 import { useApplicationFlow } from "../context/ApplicationFlowContext";
 import { useLanguage } from "../context/LanguageContext";
 import { getApplicationAdditionalInfo } from "../data/applicationAdditionalInfo";
+import { getWeightClassOptions } from "../data/applicationWeightClassOptions";
 import {
   buildApiUrl,
   createDraft,
@@ -69,6 +70,7 @@ function getInitialFieldErrors() {
     phone: "",
     email: "",
     birthDate: "",
+    weightClass: "",
   };
 }
 
@@ -119,6 +121,8 @@ export function ApplyPage() {
   const competitionName = searchParams.get("discipline") || t("apply.fallbackCompetition");
   const selectedImageKey = searchParams.get("imageKey") || "";
   const additionalInfo = getApplicationAdditionalInfo(locale, selectedImageKey);
+  const weightClassOptions = getWeightClassOptions(selectedImageKey);
+  const hasWeightClassOptions = weightClassOptions.length > 0;
   const [additionalInfoTitlePrimary, additionalInfoTitleSecondary] =
     splitDisplayTitle(additionalInfo.title);
 
@@ -179,6 +183,39 @@ export function ApplyPage() {
     state.selection,
   ]);
 
+  useEffect(() => {
+    if (!hasWeightClassOptions) {
+      if (state.applicantInfo.weightClass) {
+        dispatch({
+          type: "SET_APPLICANT_FIELD",
+          field: "weightClass",
+          value: "",
+        });
+      }
+      return;
+    }
+
+    if (
+      state.applicantInfo.weightClass &&
+      !weightClassOptions.includes(state.applicantInfo.weightClass)
+    ) {
+      dispatch({
+        type: "SET_APPLICANT_FIELD",
+        field: "weightClass",
+        value: "",
+      });
+      setFieldErrors((current) => ({
+        ...current,
+        weightClass: "",
+      }));
+    }
+  }, [
+    dispatch,
+    hasWeightClassOptions,
+    state.applicantInfo.weightClass,
+    weightClassOptions,
+  ]);
+
   function validateApplicantField(field, value) {
     const normalizedValue = typeof value === "string" ? value.trim() : value;
 
@@ -195,6 +232,8 @@ export function ApplyPage() {
           : t("apply.emailError");
       case "birthDate":
         return normalizedValue ? "" : t("apply.birthDateError");
+      case "weightClass":
+        return hasWeightClassOptions && !normalizedValue ? t("apply.weightClassError") : "";
       default:
         return "";
     }
@@ -206,6 +245,7 @@ export function ApplyPage() {
       phone: validateApplicantField("phone", state.applicantInfo.phone),
       email: validateApplicantField("email", state.applicantInfo.email),
       birthDate: validateApplicantField("birthDate", state.applicantInfo.birthDate),
+      weightClass: validateApplicantField("weightClass", state.applicantInfo.weightClass),
     };
 
     setFieldErrors(nextErrors);
@@ -303,6 +343,7 @@ export function ApplyPage() {
         email: state.applicantInfo.email,
         birthDate: state.applicantInfo.birthDate,
         organization: state.applicantInfo.organization,
+        weightClass: state.applicantInfo.weightClass,
         paymentMethod: state.paymentMethod,
         selection: state.selection,
         consents: {
@@ -420,6 +461,30 @@ export function ApplyPage() {
                 value={state.applicantInfo.organization}
                 onChange={setApplicantField("organization")}
               />
+              {hasWeightClassOptions ? (
+                <label className="site-field">
+                  <span className="site-field__label">
+                    {t("apply.weightClass")}
+                    <span className="site-field__requirement">({t("apply.required")})</span>
+                  </span>
+                  <select
+                    className={`site-input ${fieldErrors.weightClass ? "site-input--error" : ""}`.trim()}
+                    value={state.applicantInfo.weightClass}
+                    onChange={setApplicantField("weightClass")}
+                    required
+                  >
+                    <option value="">{t("apply.weightClassPlaceholder")}</option>
+                    {weightClassOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                  {fieldErrors.weightClass ? (
+                    <span className="site-field__error">{fieldErrors.weightClass}</span>
+                  ) : null}
+                </label>
+              ) : null}
               <label className="site-field">
                 <span className="site-field__label">
                   {t("apply.submitFile")}
