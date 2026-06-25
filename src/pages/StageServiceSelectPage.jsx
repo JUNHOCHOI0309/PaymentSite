@@ -2,20 +2,24 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
+import { buildApiUrl } from "../lib/applicationApi";
 import { buildStageServiceDetailPath } from "../lib/stageServiceFlowRoutes";
 
 const stageServiceItems = [
   {
     key: "stage-photo",
     titleKey: "stageServiceSelect.photo",
+    imageKey: "register/stagephoto.png",
   },
   {
     key: "stage-video",
     titleKey: "stageServiceSelect.video",
+    imageKey: "register/stagevideo.png",
   },
   {
     key: "hair-makeup",
     titleKey: "stageServiceSelect.hairMakeup",
+    imageKey: "register/hairmakeup.png",
   },
 ];
 
@@ -183,7 +187,10 @@ export function StageServiceSelectPage() {
               type="button"
             >
               <div className="site-register-card__placeholder-media">
-                <span>{t("stageServiceSelect.placeholder")}</span>
+                <img
+                  alt={t(item.titleKey)}
+                  src={buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(item.imageKey)}`)}
+                />
               </div>
               <strong className="site-register-card__placeholder-title">
                 {t(item.titleKey)}
