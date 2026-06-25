@@ -3131,6 +3131,13 @@ body {
   gap: 14px;
 }
 
+.site-consent-page__service-period {
+  margin: -4px 0 0;
+  color: #6b7684;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
 .site-consent-page__item {
   border: 1px solid rgba(45, 49, 64, 0.08);
   border-radius: 18px;

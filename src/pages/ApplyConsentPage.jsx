@@ -339,6 +339,10 @@ export function ApplyConsentPage() {
             ))}
           </div>
 
+          <p className="site-consent-page__service-period">
+            *위 상품의 최대 이용기간은 6개월입니다
+          </p>
+
           <div className="site-inline-actions">
             <Button
               variant="ghost"
