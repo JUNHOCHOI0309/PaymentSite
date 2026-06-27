@@ -1895,6 +1895,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 12px;
+  flex: 0 0 auto;
 }
 
 .site-header__language {
@@ -1905,6 +1906,7 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.06);
+  flex: 0 0 auto;
 }
 
 .site-header__language-button {
@@ -2021,6 +2023,7 @@ body {
   flex-direction: column;
   gap: 4px;
   cursor: pointer;
+  flex: 0 0 auto;
 }
 
 .site-header__menu-button-line {

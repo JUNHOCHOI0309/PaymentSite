@@ -66,6 +66,12 @@ export function SiteHeader() {
     };
   }, [isMobileMenuOpen]);
 
+  function handleMobileOverlayClick(event) {
+    if (event.target === event.currentTarget) {
+      setIsMobileMenuOpen(false);
+    }
+  }
+
   return (
     <header className={`site-header ${isScrolled ? "site-header--scrolled" : ""}`}>
       <div className="site-header__inner">
@@ -128,6 +134,7 @@ export function SiteHeader() {
         className={`site-header__mobile-overlay ${
           isMobileMenuOpen ? "site-header__mobile-overlay--open" : ""
         }`}
+        onClick={handleMobileOverlayClick}
       >
         <nav className="site-header__mobile-panel" aria-label="Mobile navigation">
           {mobileSections.map((section) => (
