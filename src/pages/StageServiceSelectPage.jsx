@@ -17,6 +17,12 @@ const stageServiceItems = [
     imageKey: "register/stagevideo.png",
   },
   {
+    key: "musclemania-tan",
+    titleKey: "stageServiceSelect.musclemaniaTan",
+    imageKey: "register/musclemaniatan.png",
+    disabled: true,
+  },
+  {
     key: "hair-makeup",
     titleKey: "stageServiceSelect.hairMakeup",
     imageKey: "register/hairmakeup.png",
@@ -120,16 +126,20 @@ export function StageServiceSelectPage() {
     setIsDragging(false);
   }
 
-  function handleCardClick(itemKey) {
+  function handleCardClick(item) {
     if (dragStateRef.current.didDrag) {
       dragStateRef.current.didDrag = false;
       return;
     }
 
-    setSelectedServiceKey(itemKey);
+    if (item.disabled) {
+      return;
+    }
+
+    setSelectedServiceKey(item.key);
     navigate(
       buildStageServiceDetailPath({
-        serviceKey: itemKey,
+        serviceKey: item.key,
         name: searchParams.get("name") || "",
         email: searchParams.get("email") || "",
         phone: searchParams.get("phone") || "",
@@ -178,12 +188,14 @@ export function StageServiceSelectPage() {
           <div className="site-register-carousel__spacer" aria-hidden="true" />
           {stageServiceItems.map((item) => (
             <button
-              aria-pressed={selectedServiceKey === item.key}
+              aria-disabled={item.disabled ? "true" : "false"}
+              aria-pressed={selectedServiceKey === item.key && !item.disabled}
               className={`site-register-card site-register-card--placeholder ${
-                selectedServiceKey === item.key ? "site-register-card--selected" : ""
+                selectedServiceKey === item.key && !item.disabled ? "site-register-card--selected" : ""
+              } ${item.disabled ? "site-register-card--disabled" : ""
               }`}
               key={item.key}
-              onClick={() => handleCardClick(item.key)}
+              onClick={() => handleCardClick(item)}
               type="button"
             >
               <div className="site-register-card__placeholder-media">
