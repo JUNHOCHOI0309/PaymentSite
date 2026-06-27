@@ -581,6 +581,13 @@ body {
   margin: 0;
 }
 
+html,
+body,
+#root {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 #root {
   min-height: 100vh;
 }
@@ -2428,6 +2435,7 @@ body {
 
 @media (max-width: 960px) {
   .site-header__inner {
+    position: relative;
     width: min(100%, calc(100% - 32px));
     min-height: 70px;
   }
@@ -2441,7 +2449,17 @@ body {
   }
 
   .site-header__controls {
+    position: absolute;
+    top: 50%;
+    right: 0;
+    transform: translateY(-50%);
     gap: 10px;
+  }
+
+  .site-header__brand {
+    max-width: calc(100% - 132px);
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .site-header__language {
@@ -2554,6 +2572,7 @@ body {
 
   .site-header__brand {
     font-size: 1rem;
+    max-width: calc(100% - 118px);
   }
 
   .site-header__language-button {
@@ -2598,6 +2617,7 @@ body {
 
   .site-header__brand {
     font-size: 0.92rem;
+    max-width: calc(100% - 108px);
   }
 
   .site-header__controls {
