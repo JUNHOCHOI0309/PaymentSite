@@ -16,8 +16,8 @@ export function OrganizationPage() {
 
   return (
     <InfoPage
-      title={t("infoPages.organizationTitle")}
-      bodyTitle={t("infoPages.organizationBodyTitle")}
+      title={t("header.organizationPage")}
+      bodyTitle={t("header.organizationPage")}
       body={t("infoPages.organizationBody")}
     />
   );
@@ -28,8 +28,8 @@ export function HallOfFamePage() {
 
   return (
     <InfoPage
-      title={t("infoPages.hallOfFameTitle")}
-      bodyTitle={t("infoPages.hallOfFameBodyTitle")}
+      title={t("header.archive")}
+      bodyTitle={t("header.hallOfFame")}
       body={t("infoPages.hallOfFameBody")}
     />
   );
@@ -40,8 +40,8 @@ export function SponsorsPage() {
 
   return (
     <InfoPage
-      title={t("infoPages.sponsorsTitle")}
-      bodyTitle={t("infoPages.sponsorsBodyTitle")}
+      title={t("header.archive")}
+      bodyTitle={t("header.sponsors")}
       body={t("infoPages.sponsorsBody")}
     />
   );
