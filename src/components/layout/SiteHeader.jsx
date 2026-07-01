@@ -31,6 +31,7 @@ export function SiteHeader() {
         links: [
           { to: "/apply", label: t("header.applyDiscipline") },
           { to: "/apply/stage-services", label: t("header.applyStageService") },
+          { to: "/apply/guide", label: t("header.applyGuide") },
         ],
       },
       {
@@ -109,6 +110,7 @@ export function SiteHeader() {
             <div className="site-header__dropdown-menu">
               <Link to="/apply">{t("header.applyDiscipline")}</Link>
               <Link to="/apply/stage-services">{t("header.applyStageService")}</Link>
+              <Link to="/apply/guide">{t("header.applyGuide")}</Link>
             </div>
           </div>
           <Link to="/lookup">{t("header.lookup")}</Link>

@@ -5,6 +5,7 @@ export const translations = {
       apply: "대회신청",
       applyDiscipline: "종목 선택",
       applyStageService: "무대 서비스 선택",
+      applyGuide: "신청 안내",
       lookup: "신청조회",
       competitionIntro: "대회소개",
       mmkIntro: "MMK 소개",
@@ -37,8 +38,10 @@ export const translations = {
       kickerReview: "검토",
       kickerComplete: "완료",
       kickerLookup: "조회",
+      kickerGuide: "가이드",
       kickerPrivacy: "개인정보",
       kickerTerms: "약관",
+      viewApplyGuide: "자세한 신청 안내 보기",
     },
     home: {
       heroVideoLabel: "대회 메인 영상",
@@ -60,6 +63,10 @@ export const translations = {
       women: "여성",
       prevCards: "이전 카드 보기",
       nextCards: "다음 카드 보기",
+      noticeTitle: "신청 흐름 안내",
+      notice1: "종목을 선택하면 신청 상세 페이지로 이동합니다.",
+      notice2: "신청 정보 입력, 동의 사항 확인, 결제 완료 순서로 진행됩니다.",
+      notice3: "신청 완료 후 신청번호가 발급되며 신청 조회에서 상태를 확인할 수 있습니다.",
     },
     stageServiceSelect: {
       title: "무대 서비스 선택",
@@ -383,6 +390,90 @@ export const translations = {
       section3: "운영 정책",
       section3Body: "일정 변경, 심사 기준, 수상 취소 조건 등 행사 운영에 필요한 기준을 고지하는 영역입니다.",
     },
+    applyGuide: {
+      title: "신청 안내",
+      description: "대회 신청, 결제, 신청 조회까지의 전체 흐름을 한 번에 확인할 수 있는 안내 페이지입니다.",
+      applicationSectionTitle: "신청서 작성 방법",
+      lookupSectionTitle: "신청 내용 조회 방법",
+      faqSectionTitle: "추가 안내",
+      applicationSteps: [
+        {
+          step: "STEP 1",
+          title: "종목 선택",
+          body: "대회신청 메뉴에서 참가할 종목을 선택하면 세부 신청 페이지로 이동합니다.",
+        },
+        {
+          step: "STEP 2",
+          title: "신청 정보 입력",
+          body: "성함, 연락처, 이메일, 생년월일과 선택 항목을 입력하고 필요한 첨부파일을 업로드합니다.",
+        },
+        {
+          step: "STEP 3",
+          title: "동의 사항 확인",
+          body: "개인정보, 참가 유의사항, 환불 규정 등 필수 동의 항목을 확인한 뒤 다음 단계로 진행합니다.",
+        },
+        {
+          step: "STEP 4",
+          title: "신청 내용 검토",
+          body: "입력한 신청 정보와 첨부파일을 다시 확인하고 결제 수단을 선택합니다.",
+        },
+        {
+          step: "STEP 5",
+          title: "결제 완료",
+          body: "결제가 정상적으로 완료되면 신청번호가 발급되고 신청 완료 페이지로 이동합니다.",
+        },
+        {
+          step: "STEP 6",
+          title: "무대 서비스 연동",
+          body: "필요한 경우 신청 완료 페이지에서 바로 무대 서비스 신청으로 이동할 수 있습니다.",
+        },
+      ],
+      lookupSteps: [
+        {
+          step: "01",
+          title: "이메일 인증 요청",
+          body: "성함과 이메일을 입력한 뒤 인증번호를 전송하고, 이메일로 받은 6자리 코드를 입력합니다.",
+        },
+        {
+          step: "02",
+          title: "신청 상태 조회",
+          body: "이메일 인증이 완료되면 신청 번호, 결제 상태, 접수 상태를 조회할 수 있습니다.",
+        },
+        {
+          step: "03",
+          title: "환불 가능 여부 확인",
+          body: "환불 비율, 예상 환불 금액, 적용 규칙을 조회하고 자동 환불이 가능한 경우 요청할 수 있습니다.",
+        },
+        {
+          step: "04",
+          title: "무대 서비스 확인",
+          body: "사진, 영상, 헤어&메이크업 구매 여부를 확인하고 미구매 항목이 있으면 신청 페이지로 이동할 수 있습니다.",
+        },
+      ],
+      faqItems: [
+        {
+          question: "대회 신청과 무대 서비스 결제를 따로 진행해도 되나요?",
+          answer: "네. 대회 신청과 무대 서비스는 별도로 결제를 진행해도 서버에서 동일한 신청자 정보와 연동되며, 신청 조회 페이지에서 이상 없이 함께 확인할 수 있습니다.",
+        },
+        {
+          question: "신청 정보는 언제 저장되나요?",
+          answer: "신청 정보 입력 단계에서 draft 형태로 먼저 저장된 뒤, 결제 완료 시 최종 신청서로 확정됩니다.",
+        },
+        {
+          question: "신청번호는 어디에서 확인하나요?",
+          answer: "결제 완료 후 신청 완료 페이지에서 확인할 수 있으며, 이후 신청 조회 페이지에서도 다시 조회할 수 있습니다.",
+        },
+        {
+          question: "파일 업로드 시 주의할 점이 있나요?",
+          answer: "허용된 확장자와 파일 크기 제한을 지켜야 하며, 업로드된 파일명은 서버에서 별도 object key로 저장됩니다.",
+        },
+      ],
+      supportTitle: "문제가 생겼을 때",
+      supportBody: "진행 중 오류나 확인이 필요한 사항이 있으면 아래 연락처로 문의해 주세요.",
+      supportPhoneLabel: "문의 전화",
+      supportPhone: "02-379-2222",
+      lookupButton: "신청 조회로 가기",
+    },
     infoPages: {
       organizationTitle: "조직도",
       organizationBodyTitle: "조직도",
@@ -401,6 +492,7 @@ export const translations = {
       apply: "Apply",
       applyDiscipline: "Disciplines",
       applyStageService: "Stage Services",
+      applyGuide: "Application Guide",
       lookup: "Lookup",
       competitionIntro: "Competition",
       mmkIntro: "About MMK",
@@ -433,8 +525,10 @@ export const translations = {
       kickerReview: "Review",
       kickerComplete: "Complete",
       kickerLookup: "Lookup",
+      kickerGuide: "Guide",
       kickerPrivacy: "Privacy",
       kickerTerms: "Terms",
+      viewApplyGuide: "View Application Guide",
     },
     home: {
       heroVideoLabel: "Main competition video",
@@ -456,6 +550,10 @@ export const translations = {
       women: "WOMEN",
       prevCards: "View previous cards",
       nextCards: "View next cards",
+      noticeTitle: "Application Flow",
+      notice1: "Selecting a discipline moves you to the detailed application page.",
+      notice2: "The process continues through application details, consent confirmation, and payment completion.",
+      notice3: "After completion, an application number is issued and the status can be checked on the lookup page.",
     },
     stageServiceSelect: {
       title: "Stage Service Selection",
@@ -778,6 +876,90 @@ export const translations = {
       section2Body: "This section clearly explains when refunds are available after payment completion and why refunds may not be possible.",
       section3: "Operating Policy",
       section3Body: "This area communicates the standards required to operate the event, such as schedule changes, judging criteria, and award cancellation conditions.",
+    },
+    applyGuide: {
+      title: "Application Guide",
+      description: "This guide explains the full flow from competition application to payment and application lookup.",
+      applicationSectionTitle: "How to Submit an Application",
+      lookupSectionTitle: "How to Check Your Application",
+      faqSectionTitle: "Additional Notes",
+      applicationSteps: [
+        {
+          step: "STEP 1",
+          title: "Choose a Discipline",
+          body: "Select your competition discipline from the Apply menu to move to the detailed application page.",
+        },
+        {
+          step: "STEP 2",
+          title: "Enter Application Details",
+          body: "Fill in your name, phone number, email, birth date, optional fields, and upload any required files.",
+        },
+        {
+          step: "STEP 3",
+          title: "Review Consents",
+          body: "Confirm the required consent items such as privacy, participation notes, and refund policy before continuing.",
+        },
+        {
+          step: "STEP 4",
+          title: "Review Your Submission",
+          body: "Check the information and uploaded files once more, then choose your payment method.",
+        },
+        {
+          step: "STEP 5",
+          title: "Complete Payment",
+          body: "When payment is approved, the application is finalized and an application number is issued.",
+        },
+        {
+          step: "STEP 6",
+          title: "Continue to Stage Services",
+          body: "If needed, you can move directly to stage service applications from the completion page.",
+        },
+      ],
+      lookupSteps: [
+        {
+          step: "01",
+          title: "Request Email Verification",
+          body: "Enter your name and email, request a verification code, and then enter the 6-digit code received by email.",
+        },
+        {
+          step: "02",
+          title: "Check Application Status",
+          body: "After verification, you can view the application number, payment status, and submission status.",
+        },
+        {
+          step: "03",
+          title: "Review Refund Eligibility",
+          body: "You can review the refund percentage, estimated refund amount, and applied refund rule. If auto-refund is available, you can request it.",
+        },
+        {
+          step: "04",
+          title: "Check Stage Services",
+          body: "You can review whether photo, video, or hair & makeup services have been purchased and move to the service page if needed.",
+        },
+      ],
+      faqItems: [
+        {
+          question: "Can competition and stage service payments be completed separately?",
+          answer: "Yes. Even if competition registration and stage services are paid separately, the server links them to the same applicant information and they appear together on the lookup page without issue.",
+        },
+        {
+          question: "When is my application saved?",
+          answer: "Your application data is first saved as a draft, then finalized as a completed application after payment succeeds.",
+        },
+        {
+          question: "Where can I find my application number?",
+          answer: "It appears on the completion page after payment and can also be retrieved later from the lookup page.",
+        },
+        {
+          question: "What should I know about file uploads?",
+          answer: "Only allowed file types and sizes can be uploaded, and the stored filename is generated separately on the server as an object key.",
+        },
+      ],
+      supportTitle: "If Something Goes Wrong",
+      supportBody: "If you run into an issue or need confirmation during the process, please contact the number below.",
+      supportPhoneLabel: "Support Phone",
+      supportPhone: "02-379-2222",
+      lookupButton: "Go to Application Lookup",
     },
     infoPages: {
       organizationTitle: "Organization",

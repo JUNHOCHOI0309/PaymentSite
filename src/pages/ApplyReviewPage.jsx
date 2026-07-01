@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "../components/common/Button";
 import { NoticeBox } from "../components/common/NoticeBox";
 import { PageShell } from "../components/layout/PageShell";
@@ -158,6 +158,9 @@ export function ApplyReviewPage() {
               <li>{t("review.notice2")}</li>
               <li>{t("review.notice3")}</li>
             </ul>
+            <Link className="site-notice__link" to="/apply/guide">
+              {t("common.viewApplyGuide")}
+            </Link>
           </NoticeBox>
 
           <div className="site-payment-methods">

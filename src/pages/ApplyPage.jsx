@@ -700,6 +700,9 @@ export function ApplyPage() {
             <li>{t("apply.notice2")}</li>
             <li>{t("apply.notice3")}</li>
           </ul>
+          <Link className="site-notice__link" to="/apply/guide">
+            {t("common.viewApplyGuide")}
+          </Link>
         </NoticeBox>
 
         <section

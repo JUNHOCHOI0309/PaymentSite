@@ -12,6 +12,7 @@ import { applicationFlowSteps } from "./lib/applicationFlowAccess";
 import { stageServiceFlowSteps } from "./lib/stageServiceFlowAccess";
 import { ApplyCompletePage } from "./pages/ApplyCompletePage";
 import { ApplyConsentPage } from "./pages/ApplyConsentPage";
+import { ApplyGuidePage } from "./pages/ApplyGuidePage";
 import { ApplyPage } from "./pages/ApplyPage";
 import { ApplyReviewPage } from "./pages/ApplyReviewPage";
 import { ApplySelectPage } from "./pages/ApplySelectPage";
@@ -121,6 +122,10 @@ const router = createBrowserRouter([
             <ApplyConsentPage />
           </ApplicationFlowRouteGuard>
         ),
+      },
+      {
+        path: "apply/guide",
+        element: <ApplyGuidePage />,
       },
       {
         path: "apply/review",

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { NoticeBox } from "../components/common/NoticeBox";
 import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
 import { buildApiUrl } from "../lib/applicationApi";
@@ -219,6 +220,17 @@ export function ApplySelectPage() {
           ))}
           <div className="site-register-carousel__spacer" aria-hidden="true" />
         </div>
+
+        <NoticeBox title={t("applySelect.noticeTitle")}>
+          <ul className="site-list">
+            <li>{t("applySelect.notice1")}</li>
+            <li>{t("applySelect.notice2")}</li>
+            <li>{t("applySelect.notice3")}</li>
+          </ul>
+          <Link className="site-notice__link" to="/apply/guide">
+            {t("common.viewApplyGuide")}
+          </Link>
+        </NoticeBox>
       </section>
     </PageShell>
   );

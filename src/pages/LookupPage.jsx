@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { Button } from "../components/common/Button";
 import { Input } from "../components/common/Input";
 import { NoticeBox } from "../components/common/NoticeBox";
@@ -478,6 +479,9 @@ export function LookupPage() {
               <li>{t("lookup.notice2")}</li>
               <li>{t("lookup.notice3")}</li>
             </ul>
+            <Link className="site-notice__link" to="/apply/guide">
+              {t("common.viewApplyGuide")}
+            </Link>
           </NoticeBox>
 
           {results.length > 0 ? (
