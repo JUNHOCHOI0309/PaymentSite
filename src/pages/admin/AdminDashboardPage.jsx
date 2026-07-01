@@ -60,6 +60,50 @@ function SummaryCard({ label, value }) {
   );
 }
 
+function FileLinksCell({ applicationNumber, documentOriginalFilename, audioOriginalFilename }) {
+  const links = [];
+
+  if (documentOriginalFilename) {
+    links.push({
+      key: "document",
+      label: `문서: ${documentOriginalFilename}`,
+      href: buildApiUrl(
+        `/api/admin/applications/${encodeURIComponent(applicationNumber)}/files/document/download`,
+      ),
+    });
+  }
+
+  if (audioOriginalFilename) {
+    links.push({
+      key: "audio",
+      label: `MP3: ${audioOriginalFilename}`,
+      href: buildApiUrl(
+        `/api/admin/applications/${encodeURIComponent(applicationNumber)}/files/audio/download`,
+      ),
+    });
+  }
+
+  if (!links.length) {
+    return <span>-</span>;
+  }
+
+  return (
+    <div className="site-admin-file-links">
+      {links.map((link) => (
+        <a
+          className="site-admin-file-links__item"
+          href={link.href}
+          key={link.key}
+          rel="noreferrer"
+          target="_blank"
+        >
+          {link.label}
+        </a>
+      ))}
+    </div>
+  );
+}
+
 function TableSection({ title, columns, rows, emptyText }) {
   return (
     <section className="site-admin-section">
@@ -232,6 +276,17 @@ export function AdminDashboardPage() {
                 label: "부문 / 종목",
                 render: (row) => (
                   <MetaCell primary={row.discipline} secondary={`${row.division || "-"} / ${row.organization || "-"}`} />
+                ),
+              },
+              {
+                key: "files",
+                label: "제출 파일",
+                render: (row) => (
+                  <FileLinksCell
+                    applicationNumber={row.applicationNumber}
+                    documentOriginalFilename={row.documentOriginalFilename}
+                    audioOriginalFilename={row.audioOriginalFilename}
+                  />
                 ),
               },
               { key: "paymentStatus", label: "결제 상태" },

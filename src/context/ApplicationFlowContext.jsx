@@ -30,6 +30,12 @@ const initialState = {
     mimeType: "",
     fileSize: 0,
   },
+  uploadedAudioFileMeta: {
+    originalFilename: "",
+    storedFilename: "",
+    mimeType: "",
+    fileSize: 0,
+  },
   consents: {
     privacy: false,
     terms: false,
@@ -75,6 +81,11 @@ function applicationFlowReducer(state, action) {
       return {
         ...state,
         uploadedFileMeta: action.payload,
+      };
+    case "SET_AUDIO_FILE_META":
+      return {
+        ...state,
+        uploadedAudioFileMeta: action.payload,
       };
     case "TOGGLE_CONSENT":
       return {
@@ -128,6 +139,10 @@ function applicationFlowReducer(state, action) {
         uploadedFileMeta: {
           ...initialState.uploadedFileMeta,
           ...(action.payload?.uploadedFileMeta || {}),
+        },
+        uploadedAudioFileMeta: {
+          ...initialState.uploadedAudioFileMeta,
+          ...(action.payload?.uploadedAudioFileMeta || {}),
         },
         selection: {
           ...initialState.selection,

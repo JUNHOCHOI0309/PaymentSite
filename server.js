@@ -55,7 +55,7 @@ const adminLoginRateStore = new Map();
 const adminLoginFailureStore = new Map();
 
 const maxUploadBytes = 10 * 1024 * 1024;
-const allowedUploadMimeTypes = new Set([
+const allowedDocumentUploadMimeTypes = new Set([
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/msword",
@@ -64,7 +64,7 @@ const allowedUploadMimeTypes = new Set([
   "image/jpeg",
   "image/png",
 ]);
-const allowedUploadExtensions = new Set([
+const allowedDocumentUploadExtensions = new Set([
   ".pdf",
   ".doc",
   ".docx",
@@ -74,6 +74,13 @@ const allowedUploadExtensions = new Set([
   ".jpeg",
   ".png",
 ]);
+const allowedAudioUploadMimeTypes = new Set([
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/x-mpeg-3",
+  "audio/mpg",
+]);
+const allowedAudioUploadExtensions = new Set([".mp3"]);
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -1301,12 +1308,60 @@ function sanitizeFilenameStem(filename) {
     .slice(0, 60) || "file";
 }
 
-function isAllowedUpload(file) {
+function normalizeUploadKind(value) {
+  return normalizeText(value) === "audio" ? "audio" : "document";
+}
+
+function getAllowedUploadRules(fileKind) {
+  return fileKind === "audio"
+    ? {
+        mimeTypes: allowedAudioUploadMimeTypes,
+        extensions: allowedAudioUploadExtensions,
+      }
+    : {
+        mimeTypes: allowedDocumentUploadMimeTypes,
+        extensions: allowedDocumentUploadExtensions,
+      };
+}
+
+function isAudioUploadExtension(extension) {
+  return extension === ".mp3";
+}
+
+function isAudioUploadRecord(record) {
+  const extension = getUploadExtension(record?.original_filename);
+  return isAudioUploadExtension(extension);
+}
+
+function splitApplicationFiles(rows) {
+  const files = {
+    documentFile: null,
+    audioFile: null,
+  };
+
+  for (const row of rows || []) {
+    if (isAudioUploadRecord(row)) {
+      if (!files.audioFile) {
+        files.audioFile = row;
+      }
+      continue;
+    }
+
+    if (!files.documentFile) {
+      files.documentFile = row;
+    }
+  }
+
+  return files;
+}
+
+function isAllowedUpload(file, fileKind) {
   const extension = getUploadExtension(file.originalname);
+  const rules = getAllowedUploadRules(fileKind);
 
   return (
-    allowedUploadMimeTypes.has(file.mimetype) &&
-    allowedUploadExtensions.has(extension)
+    rules.mimeTypes.has(file.mimetype) &&
+    rules.extensions.has(extension)
   );
 }
 
@@ -1326,9 +1381,29 @@ function hasZipSignature(buffer) {
   );
 }
 
-function matchesUploadSignature(file) {
+function hasMp3Signature(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 3) {
+    return false;
+  }
+
+  if (hasSignature(buffer, [0x49, 0x44, 0x33])) {
+    return true;
+  }
+
+  return (
+    buffer.length >= 2 &&
+    buffer[0] === 0xff &&
+    (buffer[1] & 0xe0) === 0xe0
+  );
+}
+
+function matchesUploadSignature(file, fileKind) {
   const extension = getUploadExtension(file.originalname);
   const { buffer } = file;
+
+  if (fileKind === "audio") {
+    return extension === ".mp3" && hasMp3Signature(buffer);
+  }
 
   switch (extension) {
     case ".pdf":
@@ -1349,11 +1424,12 @@ function matchesUploadSignature(file) {
   }
 }
 
-function buildUploadObjectKey(draftId, originalFilename) {
+function buildUploadObjectKey(draftId, originalFilename, fileKind) {
   const extension = getUploadExtension(originalFilename);
   const safeStem = sanitizeFilenameStem(originalFilename);
+  const kindSegment = normalizeUploadKind(fileKind);
 
-  return `applications/${draftId}/${Date.now()}_${crypto
+  return `applications/${draftId}/${kindSegment}/${Date.now()}_${crypto
     .randomBytes(8)
     .toString("hex")}_${safeStem}${extension}`;
 }
@@ -2959,20 +3035,38 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
     const result = await pool.query(
       `
         SELECT
-          application_number,
-          order_id,
-          name,
-          phone,
-          email,
-          organization,
-          instagram_id,
-          introduction,
-          division,
-          discipline,
-          payment_status,
-          submitted_at
-        FROM applications
-        ORDER BY submitted_at DESC
+          a.application_number,
+          a.order_id,
+          a.name,
+          a.phone,
+          a.email,
+          a.organization,
+          a.instagram_id,
+          a.introduction,
+          a.division,
+          a.discipline,
+          a.payment_status,
+          a.submitted_at,
+          document_file.original_filename AS document_original_filename,
+          audio_file.original_filename AS audio_original_filename
+        FROM applications a
+        LEFT JOIN LATERAL (
+          SELECT original_filename
+          FROM application_files af
+          WHERE af.application_id = a.id
+            AND lower(af.original_filename) NOT LIKE '%.mp3'
+          ORDER BY af.uploaded_at DESC
+          LIMIT 1
+        ) document_file ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT original_filename
+          FROM application_files af
+          WHERE af.application_id = a.id
+            AND lower(af.original_filename) LIKE '%.mp3'
+          ORDER BY af.uploaded_at DESC
+          LIMIT 1
+        ) audio_file ON TRUE
+        ORDER BY a.submitted_at DESC
         LIMIT 200
       `
     );
@@ -3001,6 +3095,8 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
         discipline: row.discipline,
         paymentStatus: row.payment_status,
         submittedAt: row.submitted_at,
+        documentOriginalFilename: row.document_original_filename,
+        audioOriginalFilename: row.audio_original_filename,
       })),
     });
   } catch (error) {
@@ -3008,6 +3104,93 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
     return res.status(500).json({
       ok: false,
       message: "Failed to fetch admin applications",
+    });
+  }
+});
+
+app.get("/admin/applications/:applicationNumber/files/:fileKind/download", requireAdminAuth, async function (req, res) {
+  try {
+    if (!ensureR2ReadReady()) {
+      return res.status(500).json({
+        ok: false,
+        message: "R2 read is not configured",
+      });
+    }
+
+    const applicationNumber = normalizeText(req.params.applicationNumber);
+    const fileKind = normalizeUploadKind(req.params.fileKind);
+
+    if (!applicationNumber) {
+      return res.status(400).json({
+        ok: false,
+        message: "Application number is required",
+      });
+    }
+
+    const filterSql =
+      fileKind === "audio"
+        ? "lower(af.original_filename) LIKE '%.mp3'"
+        : "lower(af.original_filename) NOT LIKE '%.mp3'";
+
+    const fileResult = await pool.query(
+      `
+        SELECT
+          af.original_filename,
+          af.stored_filename,
+          af.mime_type
+        FROM applications a
+        JOIN application_files af
+          ON af.application_id = a.id
+        WHERE a.application_number = $1
+          AND ${filterSql}
+        ORDER BY af.uploaded_at DESC
+        LIMIT 1
+      `,
+      [applicationNumber]
+    );
+
+    if (fileResult.rowCount === 0) {
+      return res.status(404).json({
+        ok: false,
+        message: "Requested file not found",
+      });
+    }
+
+    const file = fileResult.rows[0];
+    const objectResponse = await r2Client.send(
+      new GetObjectCommand({
+        Bucket: r2BucketName,
+        Key: file.stored_filename,
+      })
+    );
+    const bodyBytes = await objectResponse.Body.transformToByteArray();
+
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_DOWNLOAD_APPLICATION_FILE",
+      targetType: "application_file",
+      targetId: applicationNumber,
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+      metadata: {
+        fileKind,
+        originalFilename: file.original_filename,
+      },
+    });
+
+    res.setHeader("Content-Type", file.mime_type || "application/octet-stream");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename*=UTF-8''${encodeURIComponent(file.original_filename || "download")}`
+    );
+    res.setHeader("Cache-Control", "no-store");
+
+    return res.status(200).send(Buffer.from(bodyBytes));
+  } catch (error) {
+    console.error("Failed to download application file:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to download application file",
     });
   }
 });
@@ -3644,16 +3827,18 @@ app.get("/applications/draft/:draftId", async function (req, res) {
         FROM application_files
         WHERE draft_id = $1
         ORDER BY uploaded_at DESC
-        LIMIT 1
       `,
       [draft.id]
     );
+    const splitFiles = splitApplicationFiles(fileResult.rows);
 
     return res.status(200).json({
       ok: true,
       draft: mapDraftRow(draft),
       consents: mapConsentRow(consentResult.rows[0]),
-      file: fileResult.rows[0] || null,
+      file: splitFiles.documentFile || null,
+      documentFile: splitFiles.documentFile || null,
+      audioFile: splitFiles.audioFile || null,
     });
   } catch (error) {
     console.error("Failed to fetch application draft:", error);
@@ -4586,6 +4771,7 @@ app.post("/files/upload", async function (req, res) {
     await runSingleFileUpload(req, res);
 
     const draftId = normalizeText(req.body.draftId);
+    const fileKind = normalizeUploadKind(req.body.fileKind);
     const uploadedFile = req.file;
 
     if (!draftId || !uploadedFile) {
@@ -4611,14 +4797,14 @@ app.post("/files/upload", async function (req, res) {
       });
     }
 
-    if (!isAllowedUpload(uploadedFile)) {
+    if (!isAllowedUpload(uploadedFile, fileKind)) {
       return res.status(400).json({
         ok: false,
         message: "Unsupported file type",
       });
     }
 
-    if (!matchesUploadSignature(uploadedFile)) {
+    if (!matchesUploadSignature(uploadedFile, fileKind)) {
       return res.status(400).json({
         ok: false,
         message: "Uploaded file signature does not match the declared type",
@@ -4633,7 +4819,7 @@ app.post("/files/upload", async function (req, res) {
     }
 
     const safeOriginalFilename = sanitizeOriginalFilename(uploadedFile.originalname);
-    const storedFilename = buildUploadObjectKey(draftId, safeOriginalFilename);
+    const storedFilename = buildUploadObjectKey(draftId, safeOriginalFilename, fileKind);
 
     await r2Client.send(
       new PutObjectCommand({
