@@ -48,8 +48,8 @@ function StepGrid({ items }) {
 export function ApplyGuidePage() {
   const { t } = useLanguage();
   const [openSections, setOpenSections] = useState({
-    application: true,
-    lookup: true,
+    application: false,
+    lookup: false,
     faq: true,
   });
 
