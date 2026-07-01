@@ -1419,6 +1419,8 @@ function mapDraftRow(row) {
     email: row.email,
     birthDate: row.birth_date,
     organization: row.organization,
+    instagramId: row.instagram_id,
+    introduction: row.introduction,
     weightClass: row.weight_class,
     division: row.division,
     discipline: row.discipline,
@@ -1441,6 +1443,8 @@ function mapApplicationRow(row) {
     email: maskEmail(row.email),
     birthDate: row.birth_date,
     organization: row.organization,
+    instagramId: row.instagram_id,
+    introduction: row.introduction,
     weightClass: row.weight_class,
     division: row.division,
     discipline: row.discipline,
@@ -1808,6 +1812,8 @@ function validateDraftPayload(body) {
   const email = normalizeText(body.email);
   const birthDate = normalizeText(body.birthDate);
   const organization = normalizeText(body.organization);
+  const instagramId = normalizeText(body.instagramId) || "없음";
+  const introduction = normalizeText(body.introduction);
   const weightClass = normalizeText(body.weightClass);
   const paymentMethod = normalizeText(body.paymentMethod) || "widget";
   const selection = {
@@ -1831,6 +1837,13 @@ function validateDraftPayload(body) {
     };
   }
 
+  if (introduction && introduction.length > 100) {
+    return {
+      ok: false,
+      message: "자기 소개 멘트는 100자 이내로 입력해 주세요.",
+    };
+  }
+
   return {
     ok: true,
     payload: {
@@ -1839,6 +1852,8 @@ function validateDraftPayload(body) {
       email,
       birthDate,
       organization,
+      instagramId,
+      introduction,
       weightClass,
       paymentMethod,
       selection,
@@ -2950,6 +2965,8 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
           phone,
           email,
           organization,
+          instagram_id,
+          introduction,
           division,
           discipline,
           payment_status,
@@ -2978,6 +2995,8 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
         phone: row.phone,
         email: row.email,
         organization: row.organization,
+        instagramId: row.instagram_id,
+        introduction: row.introduction,
         division: row.division,
         discipline: row.discipline,
         paymentStatus: row.payment_status,
@@ -3333,6 +3352,8 @@ app.post("/applications/draft", async function (req, res) {
           email,
           birth_date,
           organization,
+          instagram_id,
+          introduction,
           weight_class,
           division,
           discipline,
@@ -3340,7 +3361,7 @@ app.post("/applications/draft", async function (req, res) {
           created_at,
           updated_at
         )
-        VALUES ($1, $2, 'DRAFT', $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
+        VALUES ($1, $2, 'DRAFT', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
         RETURNING
           draft_id,
           order_id,
@@ -3351,6 +3372,8 @@ app.post("/applications/draft", async function (req, res) {
           email,
           birth_date,
           organization,
+          instagram_id,
+          introduction,
           weight_class,
           division,
           discipline,
@@ -3366,6 +3389,8 @@ app.post("/applications/draft", async function (req, res) {
         payload.email,
         payload.birthDate,
         payload.organization,
+        payload.instagramId,
+        payload.introduction,
         payload.weightClass,
         payload.selection.division,
         payload.selection.discipline,
@@ -3445,10 +3470,12 @@ app.patch("/applications/draft/:draftId", async function (req, res) {
           email = $5,
           birth_date = $6,
           organization = $7,
-          weight_class = $8,
-          division = $9,
-          discipline = $10,
-          image_key = $11,
+          instagram_id = $8,
+          introduction = $9,
+          weight_class = $10,
+          division = $11,
+          discipline = $12,
+          image_key = $13,
           updated_at = NOW()
         WHERE draft_id = $1
         RETURNING
@@ -3461,6 +3488,8 @@ app.patch("/applications/draft/:draftId", async function (req, res) {
           email,
           birth_date,
           organization,
+          instagram_id,
+          introduction,
           weight_class,
           division,
           discipline,
@@ -3476,6 +3505,8 @@ app.patch("/applications/draft/:draftId", async function (req, res) {
         payload.email,
         payload.birthDate,
         payload.organization,
+        payload.instagramId,
+        payload.introduction,
         payload.weightClass,
         payload.selection.division,
         payload.selection.discipline,
@@ -3561,6 +3592,8 @@ app.get("/applications/draft/:draftId", async function (req, res) {
           email,
           birth_date,
           organization,
+          instagram_id,
+          introduction,
           weight_class,
           division,
           discipline,
@@ -4710,6 +4743,8 @@ app.post("/applications/lookup", async function (req, res) {
           email,
           birth_date,
           organization,
+          instagram_id,
+          introduction,
           weight_class,
           division,
           discipline,
@@ -5496,6 +5531,8 @@ app.post("/applications/complete", async function (req, res) {
           email,
           birth_date,
           organization,
+          instagram_id,
+          introduction,
           weight_class,
           division,
           discipline,
@@ -5531,6 +5568,8 @@ app.post("/applications/complete", async function (req, res) {
           email,
           birth_date,
           organization,
+          instagram_id,
+          introduction,
           weight_class,
           division,
           discipline,
@@ -5589,6 +5628,8 @@ app.post("/applications/complete", async function (req, res) {
           email,
           birth_date,
           organization,
+          instagram_id,
+          introduction,
           weight_class,
           division,
           discipline,
@@ -5596,7 +5637,7 @@ app.post("/applications/complete", async function (req, res) {
           submitted_at,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, 'SUBMITTED', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
+        VALUES ($1, $2, $3, $4, 'SUBMITTED', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW())
         RETURNING
           id,
           application_number,
@@ -5610,6 +5651,8 @@ app.post("/applications/complete", async function (req, res) {
           email,
           birth_date,
           organization,
+          instagram_id,
+          introduction,
           weight_class,
           division,
           discipline,
@@ -5628,6 +5671,8 @@ app.post("/applications/complete", async function (req, res) {
         draft.email,
         draft.birth_date,
         draft.organization,
+        draft.instagram_id,
+        draft.introduction,
         draft.weight_class,
         draft.division,
         draft.discipline,
@@ -5706,6 +5751,8 @@ app.get("/applications/:applicationNumber", async function (req, res) {
           email,
           birth_date,
           organization,
+          instagram_id,
+          introduction,
           weight_class,
           division,
           discipline,

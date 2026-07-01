@@ -126,6 +126,8 @@ export function ApplyReviewPage() {
             <ReviewRow label={t("review.email")} value={draftSnapshot?.draft?.email || state.applicantInfo.email} />
             <ReviewRow label={t("review.birthDate")} value={draftSnapshot?.draft?.birthDate || state.applicantInfo.birthDate} />
             <ReviewRow label={t("review.organization")} value={draftSnapshot?.draft?.organization || state.applicantInfo.organization} />
+            <ReviewRow label={t("review.instagramId")} value={draftSnapshot?.draft?.instagramId || state.applicantInfo.instagramId || t("review.instagramIdDefault")} />
+            <ReviewRow label={t("review.introduction")} value={draftSnapshot?.draft?.introduction || state.applicantInfo.introduction} />
             <ReviewRow label={t("review.weightClass")} value={draftSnapshot?.draft?.weightClass || state.applicantInfo.weightClass} />
             <ReviewRow label={t("review.file")} value={draftSnapshot?.file?.original_filename || state.uploadedFileMeta.originalFilename} />
             <ReviewRow label={t("review.fee")} value={t("review.testPayment")} />

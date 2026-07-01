@@ -38,6 +38,7 @@ const allowedUploadMimeTypes = new Set([
 ]);
 const fileInputAccept =
   ".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/jpeg,image/png";
+const introductionMaxLength = 100;
 
 function getRegisterImageUrl(key) {
   return buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(key)}`);
@@ -343,6 +344,8 @@ export function ApplyPage() {
         email: state.applicantInfo.email,
         birthDate: state.applicantInfo.birthDate,
         organization: state.applicantInfo.organization,
+        instagramId: state.applicantInfo.instagramId,
+        introduction: state.applicantInfo.introduction,
         weightClass: state.applicantInfo.weightClass,
         paymentMethod: state.paymentMethod,
         selection: state.selection,
@@ -461,6 +464,30 @@ export function ApplyPage() {
                 value={state.applicantInfo.organization}
                 onChange={setApplicantField("organization")}
               />
+              <Input
+                label={t("apply.instagramId")}
+                requirement={t("apply.optional")}
+                value={state.applicantInfo.instagramId}
+                onChange={setApplicantField("instagramId")}
+                placeholder={t("apply.instagramIdPlaceholder")}
+              />
+              <label className="site-field site-field--full">
+                <span className="site-field__label">
+                  {t("apply.introduction")}
+                  <span className="site-field__requirement">({t("apply.optional")})</span>
+                </span>
+                <textarea
+                  className="site-input site-input--textarea"
+                  maxLength={introductionMaxLength}
+                  onChange={setApplicantField("introduction")}
+                  placeholder={t("apply.introductionPlaceholder")}
+                  rows={4}
+                  value={state.applicantInfo.introduction}
+                />
+                <span className="site-field__hint site-field__hint--align-end">
+                  {`${state.applicantInfo.introduction.length}/${introductionMaxLength}`}
+                </span>
+              </label>
               {hasWeightClassOptions ? (
                 <label className="site-field">
                   <span className="site-field__label">

@@ -20,6 +20,8 @@ const initialState = {
     email: "",
     birthDate: "",
     organization: "",
+    instagramId: "",
+    introduction: "",
     weightClass: "",
   },
   uploadedFileMeta: {
@@ -119,6 +121,18 @@ function applicationFlowReducer(state, action) {
       const nextState = {
         ...state,
         ...action.payload,
+        applicantInfo: {
+          ...initialState.applicantInfo,
+          ...(action.payload?.applicantInfo || {}),
+        },
+        uploadedFileMeta: {
+          ...initialState.uploadedFileMeta,
+          ...(action.payload?.uploadedFileMeta || {}),
+        },
+        selection: {
+          ...initialState.selection,
+          ...(action.payload?.selection || {}),
+        },
         consents: {
           ...initialState.consents,
           ...(action.payload?.consents || {}),

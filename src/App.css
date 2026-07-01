@@ -921,6 +921,10 @@ body,
   gap: 8px;
 }
 
+.site-field--full {
+  grid-column: 1 / -1;
+}
+
 .site-field__label {
   color: #2f3650;
   font-weight: 600;
@@ -936,6 +940,10 @@ body,
 .site-field__hint {
   color: #7a8292;
   font-size: 0.88rem;
+}
+
+.site-field__hint--align-end {
+  text-align: right;
 }
 
 .site-field__error {
@@ -959,6 +967,12 @@ body,
 
 .site-input--file {
   padding: 11px 12px;
+}
+
+.site-input--textarea {
+  min-height: 120px;
+  resize: vertical;
+  line-height: 1.6;
 }
 
 .site-file-help {
