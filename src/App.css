@@ -3594,6 +3594,25 @@ body {
   height: auto;
 }
 
+.site-introduce-page__status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 420px;
+  padding: clamp(32px, 5vw, 56px);
+  background: #fff;
+  text-align: center;
+}
+
+.site-introduce-page__status p {
+  margin: 0;
+  color: #111;
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  font-weight: 900;
+  line-height: 1.18;
+  letter-spacing: 0;
+}
+
 @media (max-width: 1100px) {
   .site-apply-detail__layout {
     grid-template-columns: 1fr;

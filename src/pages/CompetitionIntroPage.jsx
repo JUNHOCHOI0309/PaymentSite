@@ -37,11 +37,11 @@ const localizedIntroContent = {
   },
 };
 
-function getIntroduceImageUrl(key) {
+export function getIntroduceImageUrl(key) {
   return buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(key)}`);
 }
 
-function IntroPageLayout({ title, bodyTitle, children }) {
+export function IntroPageLayout({ title, bodyTitle, children }) {
   return (
     <PageShell>
       <section className="site-introduce-page">

@@ -9,6 +9,10 @@ export const translations = {
       competitionIntro: "대회소개",
       mmkIntro: "MMK 소개",
       competitionGuide: "대회 소개",
+      organizationPage: "조직도",
+      archive: "아카이브",
+      hallOfFame: "명예의 전당",
+      sponsors: "후원사 리스트",
     },
     footer: {
       privacy: "개인정보 처리안내",
@@ -374,6 +378,17 @@ export const translations = {
       section3: "운영 정책",
       section3Body: "일정 변경, 심사 기준, 수상 취소 조건 등 행사 운영에 필요한 기준을 고지하는 영역입니다.",
     },
+    infoPages: {
+      organizationTitle: "조직도",
+      organizationBodyTitle: "조직도",
+      organizationBody: "현재 준비중입니다.",
+      hallOfFameTitle: "명예의 전당",
+      hallOfFameBodyTitle: "명예의 전당",
+      hallOfFameBody: "현재 준비중입니다.",
+      sponsorsTitle: "후원사 리스트",
+      sponsorsBodyTitle: "후원사 리스트",
+      sponsorsBody: "현재 준비중입니다.",
+    },
   },
   en: {
     header: {
@@ -385,6 +400,10 @@ export const translations = {
       competitionIntro: "Competition",
       mmkIntro: "About MMK",
       competitionGuide: "Competition Guide",
+      organizationPage: "Organization",
+      archive: "Archive",
+      hallOfFame: "Hall of Fame",
+      sponsors: "Sponsors",
     },
     footer: {
       privacy: "Privacy Notice",
@@ -749,6 +768,17 @@ export const translations = {
       section2Body: "This section clearly explains when refunds are available after payment completion and why refunds may not be possible.",
       section3: "Operating Policy",
       section3Body: "This area communicates the standards required to operate the event, such as schedule changes, judging criteria, and award cancellation conditions.",
+    },
+    infoPages: {
+      organizationTitle: "Organization",
+      organizationBodyTitle: "Organization",
+      organizationBody: "Currently in preparation.",
+      hallOfFameTitle: "Hall of Fame",
+      hallOfFameBodyTitle: "Hall of Fame",
+      hallOfFameBody: "Currently in preparation.",
+      sponsorsTitle: "Sponsor List",
+      sponsorsBodyTitle: "Sponsors",
+      sponsorsBody: "Currently in preparation.",
     },
   },
 };

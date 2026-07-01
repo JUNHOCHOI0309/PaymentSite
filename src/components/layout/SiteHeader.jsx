@@ -14,6 +14,18 @@ export function SiteHeader() {
         links: [{ to: "/", label: t("header.home") }],
       },
       {
+        key: "competition-intro",
+        title: t("header.competitionIntro"),
+        links: [
+          { to: "/mmk-intro", label: t("header.mmkIntro") },
+          { to: "/competition-intro", label: t("header.competitionGuide") },
+        ],
+      },
+      {
+        key: "organization",
+        links: [{ to: "/organization", label: t("header.organizationPage") }],
+      },
+      {
         key: "apply",
         title: t("header.apply"),
         links: [
@@ -26,11 +38,11 @@ export function SiteHeader() {
         links: [{ to: "/lookup", label: t("header.lookup") }],
       },
       {
-        key: "intro",
-        title: t("header.competitionIntro"),
+        key: "archive",
+        title: t("header.archive"),
         links: [
-          { to: "/mmk-intro", label: t("header.mmkIntro") },
-          { to: "/competition-intro", label: t("header.competitionGuide") },
+          { to: "/hall-of-fame", label: t("header.hallOfFame") },
+          { to: "/sponsors", label: t("header.sponsors") },
         ],
       },
     ],
@@ -82,6 +94,16 @@ export function SiteHeader() {
           <Link to="/">{t("header.home")}</Link>
           <div className="site-header__dropdown">
             <button className="site-header__dropdown-trigger" type="button">
+              {t("header.competitionIntro")}
+            </button>
+            <div className="site-header__dropdown-menu">
+              <Link to="/mmk-intro">{t("header.mmkIntro")}</Link>
+              <Link to="/competition-intro">{t("header.competitionGuide")}</Link>
+            </div>
+          </div>
+          <Link to="/organization">{t("header.organizationPage")}</Link>
+          <div className="site-header__dropdown">
+            <button className="site-header__dropdown-trigger" type="button">
               {t("header.apply")}
             </button>
             <div className="site-header__dropdown-menu">
@@ -92,11 +114,11 @@ export function SiteHeader() {
           <Link to="/lookup">{t("header.lookup")}</Link>
           <div className="site-header__dropdown">
             <button className="site-header__dropdown-trigger" type="button">
-              {t("header.competitionIntro")}
+              {t("header.archive")}
             </button>
             <div className="site-header__dropdown-menu">
-              <Link to="/mmk-intro">{t("header.mmkIntro")}</Link>
-              <Link to="/competition-intro">{t("header.competitionGuide")}</Link>
+              <Link to="/hall-of-fame">{t("header.hallOfFame")}</Link>
+              <Link to="/sponsors">{t("header.sponsors")}</Link>
             </div>
           </div>
         </nav>
