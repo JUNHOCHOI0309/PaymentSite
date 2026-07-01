@@ -10,6 +10,23 @@ export function ApplyCompletePage() {
   const { t } = useLanguage();
   const [application, setApplication] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const stageServiceSearchParams = new URLSearchParams();
+
+  if (application?.name) {
+    stageServiceSearchParams.set("name", application.name);
+  }
+
+  if (application?.email) {
+    stageServiceSearchParams.set("email", application.email);
+  }
+
+  if (application?.phone) {
+    stageServiceSearchParams.set("phone", application.phone);
+  }
+
+  const stageServicePath = stageServiceSearchParams.toString()
+    ? `/apply/stage-services?${stageServiceSearchParams.toString()}`
+    : "/apply/stage-services";
 
   useEffect(() => {
     async function fetchApplication() {
@@ -61,8 +78,11 @@ export function ApplyCompletePage() {
             <Link to="/">
               <Button variant="ghost">{t("complete.home")}</Button>
             </Link>
+            <Link to={stageServicePath}>
+              <Button>{t("complete.stageServices")}</Button>
+            </Link>
             <Link to="/lookup">
-              <Button>{t("complete.lookup")}</Button>
+              <Button variant="ghost">{t("complete.lookup")}</Button>
             </Link>
           </div>
         </div>
