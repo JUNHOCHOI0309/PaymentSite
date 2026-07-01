@@ -335,6 +335,15 @@ const localizedAdditionalInfo = {
           },
         ],
       },
+      "register/common_4.png": {
+        title: "Transformation",
+        sections: [
+          {
+            title: "준비중",
+            body: "상세 안내 자료를 준비 중입니다.",
+          },
+        ],
+      },
       "register/woman_1.png": {
         title: "미즈비키니\n\n(MS.BIKINI)",
         sections: [
@@ -770,6 +779,15 @@ Accessories are allowed.`,
       },
       "register/common_3.png": {
         title: "Danim Korea",
+        sections: [
+          {
+            title: "Coming Soon",
+            body: "Detailed guidance materials are being prepared.",
+          },
+        ],
+      },
+      "register/common_4.png": {
+        title: "Transformation",
         sections: [
           {
             title: "Coming Soon",

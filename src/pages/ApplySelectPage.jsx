@@ -8,6 +8,7 @@ const commonItems = [
   { key: "register/common_1.png", title: "Model Korea" },
   { key: "register/common_2.png", title: "Fitness Korea" },
   { key: "register/common_3.png", title: "Danim Korea" },
+  { key: "register/common_4.png", title: "Transformation" },
 ];
 
 function getDisciplineGroups(t) {
