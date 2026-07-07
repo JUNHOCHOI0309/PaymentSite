@@ -1,6 +1,7 @@
 require("dotenv").config();
 
 const crypto = require("crypto");
+const fs = require("fs");
 const nodemailer = require("nodemailer");
 const path = require("path");
 const { promisify } = require("util");
@@ -215,6 +216,7 @@ app.use(function (req, res, next) {
 
 app.use(express.static("public"));
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 
 //DB Pool 생성
 const databaseUrl = process.env.DATABASE_URL;
@@ -227,6 +229,369 @@ const pool = new Pool({
   connectionString: databaseUrl,
   ssl: false, //Cloud DB for PostgreSQL ssl 설정에 따라 변경
 });
+
+const paymentProviders = Object.freeze({
+  TOSS: "toss",
+  KCP: "kcp",
+});
+const validPaymentProviders = new Set(Object.values(paymentProviders));
+const defaultPaymentProvider =
+  normalizePaymentProvider(process.env.DEFAULT_PAYMENT_PROVIDER) || paymentProviders.KCP;
+const kcpEnabled = process.env.KCP_ENABLED !== "false";
+const kcpMaxAmount = Math.max(0, Number(process.env.KCP_MAX_AMOUNT || 0));
+const kcpMode = normalizeText(process.env.KCP_MODE) === "production" ? "production" : "test";
+const kcpTradeRegisterUrl =
+  kcpMode === "production"
+    ? "https://spl.kcp.co.kr/std/brpay/treg"
+    : "https://stg-spl.kcp.co.kr/std/brpay/treg";
+const kcpPaymentApproveUrl =
+  kcpMode === "production"
+    ? "https://spl.kcp.co.kr/gw/enc/v1/payment"
+    : "https://stg-spl.kcp.co.kr/gw/enc/v1/payment";
+const kcpSiteCode = normalizeText(process.env.KCP_SITE_CD) || "T0000";
+const publicBaseUrl = normalizeBaseUrl(process.env.PUBLIC_BASE_URL);
+const publicApiBaseUrl = normalizeBaseUrl(process.env.PUBLIC_API_BASE_URL);
+
+async function ensurePaymentProviderColumnsReady() {
+  async function hasColumn(tableName, columnName) {
+    const result = await pool.query(
+      `
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = $1
+          AND column_name = $2
+        LIMIT 1
+      `,
+      [tableName, columnName]
+    );
+
+    return result.rowCount > 0;
+  }
+
+  if (!(await hasColumn("orders", "payment_provider"))) {
+    await pool.query(`
+      ALTER TABLE orders
+      ADD COLUMN payment_provider VARCHAR(20)
+    `);
+    await pool.query(`
+      UPDATE orders
+      SET payment_provider = 'toss'
+      WHERE payment_provider IS NULL
+    `);
+    await pool.query(`
+      ALTER TABLE orders
+      ALTER COLUMN payment_provider SET DEFAULT 'kcp'
+    `);
+    await pool.query(`
+      ALTER TABLE orders
+      ALTER COLUMN payment_provider SET NOT NULL
+    `);
+  }
+
+  if (!(await hasColumn("orders", "payment_method"))) {
+    await pool.query(`
+      ALTER TABLE orders
+      ADD COLUMN payment_method VARCHAR(40)
+    `);
+  }
+
+  if (!(await hasColumn("payments", "payment_provider"))) {
+    await pool.query(`
+      ALTER TABLE payments
+      ADD COLUMN payment_provider VARCHAR(20)
+    `);
+    await pool.query(`
+      UPDATE payments
+      SET payment_provider = 'toss'
+      WHERE payment_provider IS NULL
+    `);
+    await pool.query(`
+      ALTER TABLE payments
+      ALTER COLUMN payment_provider SET DEFAULT 'kcp'
+    `);
+    await pool.query(`
+      ALTER TABLE payments
+      ALTER COLUMN payment_provider SET NOT NULL
+    `);
+  }
+
+  if (!(await hasColumn("payments", "provider_payment_id"))) {
+    await pool.query(`
+      ALTER TABLE payments
+      ADD COLUMN provider_payment_id VARCHAR(120)
+    `);
+  }
+
+  await pool.query(`
+    UPDATE payments
+    SET provider_payment_id = payment_key
+    WHERE provider_payment_id IS NULL
+      AND payment_key IS NOT NULL
+  `);
+
+  try {
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_payments_provider_payment_id
+      ON payments (payment_provider, provider_payment_id)
+    `);
+  } catch (error) {
+    if (error.code !== "42501") {
+      throw error;
+    }
+  }
+
+  const webhookTableResult = await pool.query(
+    "SELECT to_regclass('public.payment_webhook_events') AS table_name"
+  );
+
+  if (webhookTableResult.rows[0]?.table_name) {
+    if (!(await hasColumn("payment_webhook_events", "payment_provider"))) {
+      await pool.query(`
+        ALTER TABLE payment_webhook_events
+        ADD COLUMN payment_provider VARCHAR(20)
+      `);
+      await pool.query(`
+        UPDATE payment_webhook_events
+        SET payment_provider = 'toss'
+        WHERE payment_provider IS NULL
+      `);
+      await pool.query(`
+        ALTER TABLE payment_webhook_events
+        ALTER COLUMN payment_provider SET DEFAULT 'kcp'
+      `);
+      await pool.query(`
+        ALTER TABLE payment_webhook_events
+        ALTER COLUMN payment_provider SET NOT NULL
+      `);
+    }
+  }
+}
+
+function normalizePaymentProvider(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return validPaymentProviders.has(normalized) ? normalized : null;
+}
+
+function resolvePaymentProvider({ requestedProvider, amount }) {
+  const hasExplicitProvider =
+    typeof requestedProvider === "string" && requestedProvider.trim().length > 0;
+  const normalizedRequestedProvider = normalizePaymentProvider(requestedProvider);
+
+  if (hasExplicitProvider && !normalizedRequestedProvider) {
+    return {
+      ok: false,
+      status: 400,
+      message: "Invalid paymentProvider",
+    };
+  }
+
+  let provider = normalizedRequestedProvider || defaultPaymentProvider;
+
+  if (provider === paymentProviders.KCP) {
+    if (!kcpEnabled) {
+      if (hasExplicitProvider) {
+        return {
+          ok: false,
+          status: 503,
+          message: "KCP payment is disabled",
+        };
+      }
+
+      provider = paymentProviders.TOSS;
+    } else if (kcpMaxAmount > 0 && amount > kcpMaxAmount) {
+      return {
+        ok: false,
+        status: 403,
+        message: "KCP payment amount exceeds the configured safety limit",
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    provider,
+  };
+}
+
+function normalizeBaseUrl(value) {
+  const normalized = normalizeText(value);
+  return normalized ? normalized.replace(/\/+$/, "") : null;
+}
+
+function readTextFromEnvOrFile({ value, filePath, preserveLineBreaks }) {
+  let source = normalizeText(value);
+
+  if (!source && normalizeText(filePath)) {
+    source = fs.readFileSync(path.resolve(filePath), "utf8");
+  }
+
+  if (!source) {
+    return null;
+  }
+
+  const withLineBreaks = source.replace(/\\n/g, "\n");
+  return preserveLineBreaks
+    ? withLineBreaks
+    : withLineBreaks.replace(/\r?\n/g, "").trim();
+}
+
+function getKcpCertInfo() {
+  return readTextFromEnvOrFile({
+    value: process.env.KCP_CERT_INFO,
+    filePath: process.env.KCP_CERT_INFO_PATH,
+    preserveLineBreaks: false,
+  });
+}
+
+function getKcpPrivateKey() {
+  return readTextFromEnvOrFile({
+    value: process.env.KCP_PRIVATE_KEY,
+    filePath: process.env.KCP_PRIVATE_KEY_PATH,
+    preserveLineBreaks: true,
+  });
+}
+
+function assertKcpConfigured() {
+  if (!kcpEnabled) {
+    const error = new Error("KCP payment is disabled");
+    error.statusCode = 503;
+    throw error;
+  }
+
+  const certInfo = getKcpCertInfo();
+  const privateKey = getKcpPrivateKey();
+
+  if (!kcpSiteCode || !certInfo || !privateKey) {
+    const error = new Error("KCP payment is not configured");
+    error.statusCode = 503;
+    throw error;
+  }
+
+  const privateKeyPassphrase = normalizeText(process.env.KCP_PRIVATE_KEY_PASSPHRASE);
+
+  if (privateKey.includes("BEGIN ENCRYPTED PRIVATE KEY") && !privateKeyPassphrase) {
+    const error = new Error("KCP private key passphrase is required");
+    error.statusCode = 503;
+    throw error;
+  }
+
+  return {
+    certInfo,
+    privateKey,
+    privateKeyPassphrase,
+  };
+}
+
+function createKcpSignature(targetData, privateKey, passphrase) {
+  const signer = crypto.createSign("RSA-SHA256");
+  signer.update(targetData, "utf8");
+  signer.end();
+  return signer.sign(passphrase ? { key: privateKey, passphrase } : privateKey, "base64");
+}
+
+function mapClientPaymentMethodToKcp(value) {
+  switch (normalizeText(value)) {
+    case "CARD":
+      return {
+        payMethod: "CARD",
+        payType: "PACA",
+        label: "카드",
+      };
+    case "TRANSFER":
+    case "BANK":
+      return {
+        payMethod: "BANK",
+        payType: "PABK",
+        label: "계좌이체",
+      };
+    case "MOBILE_PHONE":
+    case "MOBX":
+      return {
+        payMethod: "MOBX",
+        payType: "PAMC",
+        label: "휴대폰",
+      };
+    default:
+      return null;
+  }
+}
+
+function getRequestPublicOrigin(req) {
+  return (
+    publicBaseUrl ||
+    normalizeBaseUrl(req.headers.origin) ||
+    `${req.protocol}://${req.get("host")}`
+  );
+}
+
+function getRequestPublicApiBaseUrl(req) {
+  return publicApiBaseUrl || `${getRequestPublicOrigin(req)}/api`;
+}
+
+function buildKcpRedirectUrl(req, pathName, params = {}) {
+  const url = new URL(pathName, `${getRequestPublicOrigin(req)}/`);
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value != null && value !== "") {
+      url.searchParams.set(key, String(value));
+    }
+  });
+
+  return url.toString();
+}
+
+function buildKcpReturnUrl(req, params = {}) {
+  const url = new URL("kcp/return", `${getRequestPublicApiBaseUrl(req)}/`);
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value != null && value !== "") {
+      url.searchParams.set(key, String(value));
+    }
+  });
+
+  return url.toString();
+}
+
+function resolveKcpRegType(userAgent) {
+  return /Mobile|Android|iPhone|iPad|iPod/i.test(String(userAgent || ""))
+    ? "mobile"
+    : "web";
+}
+
+async function postKcpJson(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json; charset=UTF-8",
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  let json = {};
+
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch (_error) {
+    json = {
+      res_cd: "KCP_RESPONSE_PARSE_FAILED",
+      res_msg: text,
+    };
+  }
+
+  return {
+    response,
+    json,
+  };
+}
+
+function getKcpResponseCode(payload) {
+  return payload?.res_cd || payload?.Code || payload?.code || null;
+}
+
+function getKcpResponseMessage(payload) {
+  return payload?.res_msg || payload?.Message || payload?.message || null;
+}
 
 //주문 식별 생성 헬퍼
 function generateOrderId(){
@@ -1175,6 +1540,8 @@ async function findLookupOwnedApplication({ name, email, applicationNumber }) {
         applications.submitted_at,
         applications.updated_at,
         orders.amount AS order_amount,
+        orders.payment_provider AS order_payment_provider,
+        latest_payment.payment_provider AS latest_payment_provider,
         latest_payment.status AS latest_payment_status,
         latest_payment.method AS latest_payment_method,
         latest_payment.total_amount,
@@ -1185,6 +1552,7 @@ async function findLookupOwnedApplication({ name, email, applicationNumber }) {
         ON orders.order_id = applications.order_id
       LEFT JOIN LATERAL (
         SELECT
+          payment_provider,
           status,
           method,
           total_amount,
@@ -2111,6 +2479,8 @@ async function upsertPaymentFromWebhook(client, {
       `
         UPDATE payments
         SET
+          payment_provider = COALESCE(payment_provider, $9),
+          provider_payment_id = COALESCE(provider_payment_id, $1),
           status = COALESCE($3, status),
           method = COALESCE($4, method),
           payment_type = COALESCE($5, payment_type),
@@ -2130,6 +2500,7 @@ async function upsertPaymentFromWebhook(client, {
         snapshot.approvedAt,
         snapshot.totalAmount,
         JSON.stringify(payload),
+        paymentProviders.TOSS,
       ]
     );
 
@@ -2145,6 +2516,8 @@ async function upsertPaymentFromWebhook(client, {
       INSERT INTO payments (
         order_id,
         payment_key,
+        payment_provider,
+        provider_payment_id,
         method,
         payment_type,
         status,
@@ -2153,10 +2526,12 @@ async function upsertPaymentFromWebhook(client, {
         raw_response_json,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, NOW())
     `,
     [
       orderId,
+      paymentKey,
+      paymentProviders.TOSS,
       paymentKey,
       snapshot.method,
       snapshot.paymentType,
@@ -2216,7 +2591,7 @@ async function applyWebhookBusinessState({
     if (orderId) {
       const orderResult = await client.query(
         `
-          SELECT status
+          SELECT status, payment_provider
           FROM orders
           WHERE order_id = $1
           FOR UPDATE
@@ -2225,6 +2600,13 @@ async function applyWebhookBusinessState({
       );
 
       if (orderResult.rowCount > 0) {
+        const orderProvider =
+          orderResult.rows[0].payment_provider || paymentProviders.TOSS;
+
+        if (orderProvider !== paymentProviders.TOSS) {
+          throw new Error(`Toss webhook received for ${orderProvider} order`);
+        }
+
         const targetOrderStatus = mapPaymentStatusToOrderStatus(paymentStatus);
         const currentOrderStatus = orderResult.rows[0].status;
 
@@ -2289,14 +2671,388 @@ async function verifyDepositCallbackSecret({ paymentKey, orderId, secret }) {
   }
 }
 
+app.post("/kcp/trade/register", async function (req, res) {
+  const orderId = normalizeText(req.body.orderId);
+  const draftId = normalizeText(req.body.draftId);
+  const context = normalizeText(req.body.context) === "stageService" ? "stageService" : "application";
+  const requestedPaymentMethod = normalizeText(req.body.paymentMethod) || "CARD";
+  const kcpMethod = mapClientPaymentMethodToKcp(requestedPaymentMethod);
+
+  if (!orderId) {
+    return res.status(400).json({
+      ok: false,
+      message: "Missing orderId",
+    });
+  }
+
+  if (!kcpMethod) {
+    return res.status(400).json({
+      ok: false,
+      code: "KCP_PAYMENT_METHOD_UNSUPPORTED",
+      message: "KCP LITE PAY에서 아직 지원하지 않는 결제수단입니다.",
+    });
+  }
+
+  let kcpConfig;
+
+  try {
+    kcpConfig = assertKcpConfigured();
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      ok: false,
+      code: "KCP_NOT_CONFIGURED",
+      message: error.message,
+    });
+  }
+
+  try {
+    const orderResult = await pool.query(
+      `
+        SELECT
+          order_id,
+          order_name,
+          amount,
+          customer_name,
+          customer_email,
+          payment_provider,
+          status
+        FROM orders
+        WHERE order_id = $1
+        LIMIT 1
+      `,
+      [orderId]
+    );
+
+    if (orderResult.rowCount === 0) {
+      return res.status(404).json({
+        ok: false,
+        message: "Order not found",
+      });
+    }
+
+    const order = orderResult.rows[0];
+
+    if ((order.payment_provider || paymentProviders.TOSS) !== paymentProviders.KCP) {
+      return res.status(409).json({
+        ok: false,
+        code: "PAYMENT_PROVIDER_MISMATCH",
+        message: `Order is locked to ${order.payment_provider} payment provider`,
+      });
+    }
+
+    if (order.status !== "READY") {
+      return res.status(409).json({
+        ok: false,
+        message: `Order is not in READY status. Current status: ${order.status}`,
+      });
+    }
+
+    const amount = normalizeAmount(order.amount);
+
+    if (amount === null) {
+      return res.status(400).json({
+        ok: false,
+        message: "Invalid order amount",
+      });
+    }
+
+    const regType = resolveKcpRegType(req.headers["user-agent"]);
+    const signatureSource = [
+      kcpSiteCode,
+      String(amount),
+      kcpMethod.payMethod,
+      regType,
+      order.order_id,
+    ].join("^");
+    const kcpSignData = createKcpSignature(
+      signatureSource,
+      kcpConfig.privateKey,
+      kcpConfig.privateKeyPassphrase
+    );
+    const retURL = buildKcpReturnUrl(req, {
+      context,
+      draftId,
+      orderId: order.order_id,
+    });
+    const failPath = context === "stageService" ? "/stage-services/fail" : "/fail";
+    const failUrl = buildKcpRedirectUrl(req, failPath, {
+      code: "KCP_AUTH_FAILED",
+      message: "KCP 결제 인증에 실패했습니다.",
+    });
+    const registerBody = {
+      site_cd: kcpSiteCode,
+      kcp_cert_info: kcpConfig.certInfo,
+      kcp_sign_data: kcpSignData,
+      ordr_idxx: order.order_id,
+      pay_method: kcpMethod.payMethod,
+      good_mny: String(amount),
+      good_name: order.order_name,
+      reg_type: regType,
+      ret_URL: retURL,
+      fail_url: failUrl,
+    };
+    const { response, json } = await postKcpJson(kcpTradeRegisterUrl, registerBody);
+    const payUrl = json.pay_url || json.payUrl || json.PayUrl;
+
+    if (!response.ok || !payUrl) {
+      return res.status(response.ok ? 502 : response.status).json({
+        ok: false,
+        code: getKcpResponseCode(json) || "KCP_TRADE_REGISTER_FAILED",
+        message: getKcpResponseMessage(json) || "KCP 거래등록에 실패했습니다.",
+        kcp: json,
+      });
+    }
+
+    await pool.query(
+      `
+        UPDATE orders
+        SET
+          payment_method = $2,
+          updated_at = NOW()
+        WHERE order_id = $1
+      `,
+      [order.order_id, kcpMethod.payMethod]
+    );
+
+    return res.status(200).json({
+      ok: true,
+      paymentProvider: paymentProviders.KCP,
+      payUrl,
+      formFields: {
+        ordr_idxx: order.order_id,
+        ...(kcpMethod.payMethod === "MOBX"
+          ? { shop_user_id: order.customer_email || order.customer_name || order.order_id }
+          : {}),
+      },
+    });
+  } catch (error) {
+    console.error("Failed to register KCP trade:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to register KCP trade",
+    });
+  }
+});
+
+app.post("/kcp/return", async function (req, res) {
+  const context = normalizeText(req.query.context) === "stageService" ? "stageService" : "application";
+  const draftId = normalizeText(req.query.draftId);
+  const orderId =
+    normalizeText(req.query.orderId) ||
+    normalizeText(req.body.ordr_idxx) ||
+    normalizeText(req.body.ordr_no) ||
+    normalizeText(req.body.order_no);
+  const encData = normalizeText(req.body.enc_data);
+  const encInfo = normalizeText(req.body.enc_info);
+  const tranCd = normalizeText(req.body.tran_cd);
+  const failPath = context === "stageService" ? "/stage-services/fail" : "/fail";
+  const successPath = context === "stageService" ? "/stage-services/payment/success" : "/payment/success";
+
+  function redirectFailure(code, message) {
+    return res.redirect(
+      buildKcpRedirectUrl(req, failPath, {
+        code,
+        message,
+      })
+    );
+  }
+
+  if (!orderId || !encData || !encInfo || !tranCd) {
+    return redirectFailure("KCP_AUTH_DATA_MISSING", "KCP 인증 결과가 올바르지 않습니다.");
+  }
+
+  let kcpConfig;
+
+  try {
+    kcpConfig = assertKcpConfigured();
+  } catch (error) {
+    return redirectFailure("KCP_NOT_CONFIGURED", error.message);
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const orderResult = await client.query(
+      `
+        SELECT
+          order_id,
+          amount,
+          payment_provider,
+          payment_method,
+          status
+        FROM orders
+        WHERE order_id = $1
+        FOR UPDATE
+      `,
+      [orderId]
+    );
+
+    if (orderResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return redirectFailure("ORDER_NOT_FOUND", "주문 정보를 찾을 수 없습니다.");
+    }
+
+    const order = orderResult.rows[0];
+
+    if ((order.payment_provider || paymentProviders.TOSS) !== paymentProviders.KCP) {
+      await client.query("ROLLBACK");
+      return redirectFailure("PAYMENT_PROVIDER_MISMATCH", "KCP 결제 주문이 아닙니다.");
+    }
+
+    const existingPaymentResult = await client.query(
+      `
+        SELECT payment_key, total_amount
+        FROM payments
+        WHERE order_id = $1
+          AND payment_provider = $2
+        ORDER BY updated_at DESC
+        LIMIT 1
+      `,
+      [order.order_id, paymentProviders.KCP]
+    );
+
+    if (existingPaymentResult.rowCount > 0) {
+      await client.query("COMMIT");
+      const payment = existingPaymentResult.rows[0];
+      return res.redirect(
+        buildKcpRedirectUrl(req, successPath, {
+          draftId,
+          orderId: order.order_id,
+          amount: payment.total_amount || order.amount,
+          paymentKey: payment.payment_key,
+          provider: paymentProviders.KCP,
+          confirmed: "1",
+        })
+      );
+    }
+
+    if (order.status !== "READY") {
+      await client.query("ROLLBACK");
+      return redirectFailure("ORDER_NOT_READY", "결제 가능한 주문 상태가 아닙니다.");
+    }
+
+    const kcpMethod = mapClientPaymentMethodToKcp(order.payment_method);
+
+    if (!kcpMethod) {
+      await client.query("ROLLBACK");
+      return redirectFailure("KCP_PAYMENT_METHOD_MISSING", "KCP 결제수단을 확인할 수 없습니다.");
+    }
+
+    const amount = normalizeAmount(order.amount);
+
+    if (amount === null) {
+      await client.query("ROLLBACK");
+      return redirectFailure("INVALID_ORDER_AMOUNT", "주문 금액이 올바르지 않습니다.");
+    }
+
+    const approveBody = {
+      site_cd: kcpSiteCode,
+      kcp_cert_info: kcpConfig.certInfo,
+      enc_data: encData,
+      enc_info: encInfo,
+      tran_cd: tranCd,
+      ordr_idxx: order.order_id,
+      ordr_mony: String(amount),
+      pay_type: kcpMethod.payType,
+      ordr_no: order.order_id,
+    };
+    const { response, json } = await postKcpJson(kcpPaymentApproveUrl, approveBody);
+
+    const kcpResponseCode = getKcpResponseCode(json);
+    const kcpResponseMessage = getKcpResponseMessage(json);
+
+    if (!response.ok || kcpResponseCode !== "0000") {
+      await client.query(
+        `
+          UPDATE orders
+          SET status = 'FAILED', updated_at = NOW()
+          WHERE order_id = $1
+        `,
+        [order.order_id]
+      );
+      await client.query("COMMIT");
+      return redirectFailure(
+        kcpResponseCode || "KCP_APPROVE_FAILED",
+        kcpResponseMessage || "KCP 결제 승인에 실패했습니다."
+      );
+    }
+
+    const kcpTransactionNo = normalizeText(json.tno);
+
+    if (!kcpTransactionNo) {
+      await client.query("ROLLBACK");
+      return redirectFailure("KCP_TNO_MISSING", "KCP 거래번호를 확인할 수 없습니다.");
+    }
+
+    const approvedAmount = Number(json.amount || json.card_mny || amount);
+    const approvedAt = new Date().toISOString();
+
+    await client.query(
+      `
+        INSERT INTO payments (
+          order_id,
+          payment_key,
+          payment_provider,
+          provider_payment_id,
+          method,
+          payment_type,
+          status,
+          approved_at,
+          total_amount,
+          raw_response_json,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'DONE', $7, $8, $9::jsonb, NOW())
+      `,
+      [
+        order.order_id,
+        kcpTransactionNo,
+        paymentProviders.KCP,
+        kcpTransactionNo,
+        json.pay_method || kcpMethod.label,
+        kcpMethod.payType,
+        approvedAt,
+        Number.isFinite(approvedAmount) ? approvedAmount : amount,
+        JSON.stringify(json),
+      ]
+    );
+
+    await client.query(
+      `
+        UPDATE orders
+        SET status = 'PAID', updated_at = NOW()
+        WHERE order_id = $1
+      `,
+      [order.order_id]
+    );
+
+    await client.query("COMMIT");
+
+    return res.redirect(
+      buildKcpRedirectUrl(req, successPath, {
+        draftId,
+        orderId: order.order_id,
+        amount: Number.isFinite(approvedAmount) ? approvedAmount : amount,
+        paymentKey: kcpTransactionNo,
+        provider: paymentProviders.KCP,
+        confirmed: "1",
+      })
+    );
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Failed to approve KCP payment:", error);
+    return redirectFailure("KCP_APPROVE_ERROR", "KCP 결제 승인 처리 중 오류가 발생했습니다.");
+  } finally {
+    client.release();
+  }
+});
+
 // TODO: 개발자센터에 로그인해서 내 결제위젯 연동 키 > 시크릿 키를 입력하세요. 시크릿 키는 외부에 공개되면 안돼요.
 // @docs https://docs.tosspayments.com/reference/using-api/api-keys
 const widgetSecretKey = process.env.TOSS_WIDGET_SECRET_KEY;
 const apiSecretKey = process.env.TOSS_API_SECRET_KEY;
-
-if (!apiSecretKey) {
-  throw new Error("Missing TOSS_API_SECRET_KEY in .env");
-}
 
 // 토스페이먼츠 API는 시크릿 키를 사용자 ID로 사용하고, 비밀번호는 사용하지 않습니다.
 // 비밀번호가 없다는 것을 알리기 위해 시크릿 키 뒤에 콜론을 추가합니다.
@@ -2304,8 +3060,9 @@ if (!apiSecretKey) {
 const encryptedWidgetSecretKey = widgetSecretKey
   ? "Basic " + Buffer.from(widgetSecretKey + ":").toString("base64")
   : null;
-const encryptedApiSecretKey =
-  "Basic " + Buffer.from(apiSecretKey + ":").toString("base64");
+const encryptedApiSecretKey = apiSecretKey
+  ? "Basic " + Buffer.from(apiSecretKey + ":").toString("base64")
+  : null;
 
 // 결제위젯 승인
 async function confirmPaymentAndPersist(req, res, options) {
@@ -2347,6 +3104,7 @@ async function confirmPaymentAndPersist(req, res, options) {
           order_id,
           order_name,
           amount,
+          payment_provider,
           status
         FROM orders
         WHERE order_id = $1
@@ -2364,6 +3122,16 @@ async function confirmPaymentAndPersist(req, res, options) {
     }
 
     const order = orderResult.rows[0];
+
+    if ((order.payment_provider || paymentProviders.TOSS) !== paymentProviders.TOSS) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        code: "PAYMENT_PROVIDER_MISMATCH",
+        message: `Order is locked to ${order.payment_provider} payment provider`,
+      });
+    }
+
     const paymentResult = await client.query(
       `
         SELECT
@@ -2461,6 +3229,8 @@ async function confirmPaymentAndPersist(req, res, options) {
         INSERT INTO payments (
           order_id,
           payment_key,
+          payment_provider,
+          provider_payment_id,
           method,
           payment_type,
           status,
@@ -2469,10 +3239,12 @@ async function confirmPaymentAndPersist(req, res, options) {
           raw_response_json,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, NOW())
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, NOW())
       `,
       [
         orderId,
+        tossResult.paymentKey || paymentKey,
+        paymentProviders.TOSS,
         tossResult.paymentKey || paymentKey,
         tossResult.method || null,
         tossResult.type || null,
@@ -2535,6 +3307,13 @@ app.post("/confirm/widget", async function (req, res) {
 
 // 결제창 승인
 app.post("/confirm/payment", async function (req, res) {
+  if (!encryptedApiSecretKey) {
+    return res.status(503).json({
+      ok: false,
+      message: "Toss payment is not configured",
+    });
+  }
+
   return confirmPaymentAndPersist(req, res, {
     authorization: encryptedApiSecretKey,
     confirmUrl: "https://api.tosspayments.com/v1/payments/confirm",
@@ -2544,6 +3323,13 @@ app.post("/confirm/payment", async function (req, res) {
 
 // 브랜드페이 승인
 app.post("/confirm/brandpay", async function (req, res) {
+  if (!encryptedApiSecretKey) {
+    return res.status(503).json({
+      ok: false,
+      message: "Toss brandpay is not configured",
+    });
+  }
+
   return confirmPaymentAndPersist(req, res, {
     authorization: encryptedApiSecretKey,
     confirmUrl: "https://api.tosspayments.com/v1/brandpay/payments/confirm",
@@ -2554,6 +3340,13 @@ app.post("/confirm/brandpay", async function (req, res) {
 
 // 브랜드페이 Access Token 발급
 app.get("/callback-auth", function (req, res) {
+  if (!encryptedApiSecretKey) {
+    return res.status(503).json({
+      ok: false,
+      message: "Toss brandpay is not configured",
+    });
+  }
+
   const { customerKey, code } = req.query;
 
   // 요청으로 받은 customerKey 와 요청한 주체가 동일인인지 검증 후 Access Token 발급 API 를 호출하세요.
@@ -2592,6 +3385,13 @@ const billingKeyMap = new Map();
 
 // 빌링키 발급
 app.post("/issue-billing-key", function (req, res) {
+  if (!encryptedApiSecretKey) {
+    return res.status(503).json({
+      ok: false,
+      message: "Toss billing is not configured",
+    });
+  }
+
   const { customerKey, authKey } = req.body;
 
   // AuthKey 로 빌링키 발급 API 를 호출하세요
@@ -2626,6 +3426,13 @@ app.post("/issue-billing-key", function (req, res) {
 
 // 자동결제 승인
 app.post("/confirm-billing", function (req, res) {
+  if (!encryptedApiSecretKey) {
+    return res.status(503).json({
+      ok: false,
+      message: "Toss billing is not configured",
+    });
+  }
+
   const {
     customerKey,
     amount,
@@ -3377,6 +4184,7 @@ app.get("/admin/audit-logs", requireAdminAuth, async function (req, res) {
 async function startServer() {
   try {
     await pool.query("SELECT 1");
+    await ensurePaymentProviderColumnsReady();
     await ensureLookupVerificationStoreReady();
     await ensureAdminBootstrapReady();
     console.log("PostgreSQL connected");
@@ -3403,16 +4211,18 @@ app.post("/webhooks/toss", async function (req,res) {
             event_id,
             payment_key,
             order_id,
+            payment_provider,
             payload_json,
             processing_status
           )
-          VALUES ($1, $2, $3, $4, $5::jsonb, 'RECEIVED')
+          VALUES ($1, $2, $3, $4, $5, $6::jsonb, 'RECEIVED')
         `,
         [
           eventType,
           eventId,
           paymentKey,
           orderId,
+          paymentProviders.TOSS,
           JSON.stringify(payload),
         ]
       );
@@ -3448,7 +4258,8 @@ app.post("/webhooks/toss", async function (req,res) {
             event_type = $2,
             payment_key = $3,
             order_id = $4,
-            payload_json = $5::jsonb,
+            payment_provider = $5,
+            payload_json = $6::jsonb,
             processing_status = 'RECEIVED',
             processed_at = NULL,
             received_at = NOW()
@@ -3459,6 +4270,7 @@ app.post("/webhooks/toss", async function (req,res) {
           eventType,
           paymentKey,
           orderId,
+          paymentProviders.TOSS,
           JSON.stringify(payload),
         ]
       );
@@ -4209,6 +5021,7 @@ app.get("/stage-services/draft/:draftId", async function (req, res) {
 app.post("/stage-services/orders", async function (req, res) {
   try {
     const draftId = normalizeText(req.body.draftId);
+    const requestedPaymentProvider = req.body.paymentProvider;
 
     if (!draftId) {
       return res.status(400).json({
@@ -4250,6 +5063,7 @@ app.post("/stage-services/orders", async function (req, res) {
             amount,
             customer_name,
             customer_email,
+            payment_provider,
             status,
             created_at
           FROM orders
@@ -4269,6 +5083,7 @@ app.post("/stage-services/orders", async function (req, res) {
             amount: order.amount,
             customerName: order.customer_name,
             customerEmail: order.customer_email,
+            paymentProvider: order.payment_provider,
             status: order.status,
             createdAt: order.created_at,
           },
@@ -4278,6 +5093,18 @@ app.post("/stage-services/orders", async function (req, res) {
 
     const orderId = generateOrderId();
     const orderName = `${stageServiceDefinitions[draft.service_type]?.title || "무대 서비스"} 결제`;
+    const providerResolution = resolvePaymentProvider({
+      requestedProvider: requestedPaymentProvider,
+      amount: Number(draft.total_amount),
+    });
+
+    if (!providerResolution.ok) {
+      return res.status(providerResolution.status).json({
+        ok: false,
+        message: providerResolution.message,
+      });
+    }
+
     const result = await pool.query(
       `
         INSERT INTO orders (
@@ -4286,15 +5113,17 @@ app.post("/stage-services/orders", async function (req, res) {
           amount,
           customer_name,
           customer_email,
+          payment_provider,
           status
         )
-        VALUES ($1, $2, $3, $4, $5, 'READY')
+        VALUES ($1, $2, $3, $4, $5, $6, 'READY')
         RETURNING
           order_id,
           order_name,
           amount,
           customer_name,
           customer_email,
+          payment_provider,
           status,
           created_at
       `,
@@ -4304,6 +5133,7 @@ app.post("/stage-services/orders", async function (req, res) {
         draft.total_amount,
         draft.name,
         draft.email,
+        providerResolution.provider,
       ]
     );
 
@@ -4327,6 +5157,7 @@ app.post("/stage-services/orders", async function (req, res) {
         amount: order.amount,
         customerName: order.customer_name,
         customerEmail: order.customer_email,
+        paymentProvider: order.payment_provider,
         status: order.status,
         createdAt: order.created_at,
       },
@@ -5120,6 +5951,19 @@ app.post("/applications/refund/request", async function (req, res) {
         ok: false,
         code: "PAYMENT_KEY_MISSING",
         message: "환불 처리에 필요한 결제 키를 찾을 수 없습니다.",
+      });
+    }
+
+    const refundPaymentProvider =
+      application.latest_payment_provider ||
+      application.order_payment_provider ||
+      paymentProviders.TOSS;
+
+    if (refundPaymentProvider !== paymentProviders.TOSS) {
+      return res.status(409).json({
+        ok: false,
+        code: "PAYMENT_PROVIDER_MISMATCH",
+        message: "해당 결제사의 자동 환불 처리가 아직 준비되지 않았습니다.",
       });
     }
 
@@ -6029,6 +6873,7 @@ app.post("/orders", async function (req,res) {
       amount,
       customerName = null,
       customerEmail = null,
+      paymentProvider = null,
     } = req.body;
 
     if(!orderName || typeof orderName !== "string" || !orderName.trim()){
@@ -6047,6 +6892,18 @@ app.post("/orders", async function (req,res) {
       });
     }
 
+    const providerResolution = resolvePaymentProvider({
+      requestedProvider: paymentProvider,
+      amount: normalizedAmount,
+    });
+
+    if (!providerResolution.ok) {
+      return res.status(providerResolution.status).json({
+        ok: false,
+        message: providerResolution.message,
+      });
+    }
+
     const safeOrderName = orderName.trim();
     const orderId = generateOrderId();
 
@@ -6057,15 +6914,17 @@ app.post("/orders", async function (req,res) {
         amount,
         customer_name,
         customer_email,
+        payment_provider,
         status
       )
-      VALUES ($1, $2, $3, $4, $5, 'READY')
+      VALUES ($1, $2, $3, $4, $5, $6, 'READY')
       RETURNING
         order_id,
         order_name,
         amount,
         customer_name,
         customer_email,
+        payment_provider,
         status,
         created_at  
     `;
@@ -6075,7 +6934,8 @@ app.post("/orders", async function (req,res) {
       safeOrderName,
       normalizedAmount,
       customerName,
-      customerEmail
+      customerEmail,
+      providerResolution.provider
     ];
 
     const result = await pool.query(insertQuery, values);
@@ -6102,6 +6962,7 @@ app.post("/orders", async function (req,res) {
         amount: order.amount,
         customerName: order.customer_name,
         customerEmail: order.customer_email,
+        paymentProvider: order.payment_provider,
         status: order.status,
         createdAt: order.created_at,
       },

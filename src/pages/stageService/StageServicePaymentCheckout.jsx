@@ -4,13 +4,10 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "../../context/LanguageContext";
 import { useStageServiceFlow } from "../../context/StageServiceFlowContext";
 import { formatStageServiceAmount, getStageServiceTitle } from "../../data/stageServiceConfig";
+import { prepareKcpPayment } from "../../lib/applicationApi";
 
 const clientKey = import.meta.env.VITE_TOSS_API_CLIENT_KEY;
 const customerKey = generateRandomString();
-
-if (!clientKey) {
-  throw new Error("VITE_TOSS_API_CLIENT_KEY is not set");
-}
 
 export function StageServicePaymentCheckoutPage() {
   const navigate = useNavigate();
@@ -26,6 +23,10 @@ export function StageServicePaymentCheckoutPage() {
 
   useEffect(() => {
     async function fetchPayment() {
+      if (!clientKey) {
+        return;
+      }
+
       try {
         const tossPayments = await loadTossPayments(clientKey);
         setPayment(tossPayments.payment({ customerKey }));
@@ -40,6 +41,28 @@ export function StageServicePaymentCheckoutPage() {
   async function requestPayment() {
     if (!orderId) {
       setErrorMessage(t("payment.missingOrder"));
+      return;
+    }
+
+    try {
+      const kcpPayment = await prepareKcpPayment({
+        context: "stageService",
+        draftId,
+        orderId,
+        paymentMethod: selectedPaymentMethod,
+      });
+
+      submitKcpPayment(kcpPayment.payUrl, kcpPayment.formFields);
+      return;
+    } catch (error) {
+      if (error.code !== "PAYMENT_PROVIDER_MISMATCH") {
+        setErrorMessage(error.message || t("payment.prepareError"));
+        return;
+      }
+    }
+
+    if (!payment) {
+      setErrorMessage(t("payment.prepareError"));
       return;
     }
 
@@ -80,7 +103,7 @@ export function StageServicePaymentCheckoutPage() {
             </button>
           ))}
         </div>
-        <button className="button" onClick={() => requestPayment()} disabled={!payment}>
+        <button className="button" onClick={() => requestPayment()} disabled={!orderId}>
           {t("payment.pay")}
         </button>
       </div>
@@ -99,4 +122,25 @@ export function StageServicePaymentCheckoutPage() {
 
 function generateRandomString() {
   return window.btoa(Math.random().toString()).slice(0, 20);
+}
+
+function submitKcpPayment(payUrl, formFields = {}) {
+  const form = document.createElement("form");
+  form.method = "post";
+  form.action = payUrl;
+
+  Object.entries(formFields).forEach(([name, value]) => {
+    if (value == null) {
+      return;
+    }
+
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = name;
+    input.value = String(value);
+    form.appendChild(input);
+  });
+
+  document.body.appendChild(form);
+  form.submit();
 }

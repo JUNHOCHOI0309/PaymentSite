@@ -97,6 +97,18 @@ export async function createOrder(payload) {
   return readJson(response);
 }
 
+export async function prepareKcpPayment(payload) {
+  const response = await apiFetch("/api/kcp/trade/register", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
 export async function completeApplication(payload) {
   const response = await apiFetch("/api/applications/complete", {
     method: "POST",

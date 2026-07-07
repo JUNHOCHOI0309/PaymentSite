@@ -14,22 +14,37 @@ export function PaymentSuccessPage() {
 
   useEffect(() => {
     async function confirmAndComplete() {
-      const requestData = {
-        orderId: searchParams.get("orderId"),
-        amount: searchParams.get("amount"),
-        paymentKey: searchParams.get("paymentKey"),
+      const isKcpConfirmed =
+        searchParams.get("provider") === "kcp" && searchParams.get("confirmed") === "1";
+
+      let json = {
+        ok: true,
+        payment: {
+          paymentKey: searchParams.get("paymentKey"),
+          orderId: searchParams.get("orderId"),
+          totalAmount: Number(searchParams.get("amount") || 0),
+          provider: "kcp",
+        },
       };
 
-      const response = await apiFetch("/api/confirm/payment", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestData),
-      });
+      if (!isKcpConfirmed) {
+        const requestData = {
+          orderId: searchParams.get("orderId"),
+          amount: searchParams.get("amount"),
+          paymentKey: searchParams.get("paymentKey"),
+        };
 
-      const json = await response.json();
+        const response = await apiFetch("/api/confirm/payment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestData),
+        });
 
-      if (!response.ok) {
-        throw { message: json.message, code: json.code };
+        json = await response.json();
+
+        if (!response.ok) {
+          throw { message: json.message, code: json.code };
+        }
       }
 
       const completeResult = await completeApplication({
