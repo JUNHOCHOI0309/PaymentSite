@@ -23,7 +23,12 @@ import { BrandpayCheckoutPage } from "./pages/brandpay/BrandpayCheckout";
 import { CompetitionIntroPage, MmkIntroPage } from "./pages/CompetitionIntroPage";
 import { FailPage } from "./pages/Fail";
 import { HomePage } from "./pages/HomePage";
-import { HallOfFamePage, OrganizationPage, SponsorsPage } from "./pages/InfoPages";
+import {
+  HallOfFamePage,
+  OrganizationCommitteePage,
+  OrganizationPage,
+  SponsorsPage,
+} from "./pages/InfoPages";
 import { LookupPage } from "./pages/LookupPage";
 import { StageServiceCompletePage } from "./pages/StageServiceCompletePage";
 import { StageServiceDetailPage } from "./pages/StageServiceDetailPage";
@@ -157,6 +162,10 @@ const router = createBrowserRouter([
       {
         path: "organization",
         element: <OrganizationPage />,
+      },
+      {
+        path: "organization-committee",
+        element: <OrganizationCommitteePage />,
       },
       {
         path: "hall-of-fame",

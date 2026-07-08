@@ -11,12 +11,28 @@ function InfoPage({ title, bodyTitle, body }) {
   );
 }
 
-export function OrganizationPage() {
-  const { t } = useLanguage();
+export function OrganizationCommitteePage() {
+  const { locale } = useLanguage();
+  const committeeTitle = locale === "ko" ? "MMK조직위원회" : "MMK Committee";
+  const committeePageTitle = locale === "ko" ? "조직위원회" : "Committee";
+  const preparingText = locale === "ko" ? "현재 준비중입니다." : "Currently in preparation.";
 
   return (
     <InfoPage
-      title={t("header.organizationPage")}
+      title={committeeTitle}
+      bodyTitle={committeePageTitle}
+      body={preparingText}
+    />
+  );
+}
+
+export function OrganizationPage() {
+  const { locale, t } = useLanguage();
+  const committeeTitle = locale === "ko" ? "MMK조직위원회" : "MMK Committee";
+
+  return (
+    <InfoPage
+      title={committeeTitle}
       bodyTitle={t("header.organizationPage")}
       body={t("infoPages.organizationBody")}
     />
