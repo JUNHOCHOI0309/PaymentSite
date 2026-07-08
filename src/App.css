@@ -2952,7 +2952,7 @@ body {
 }
 
 .site-register-carousel {
-  --register-card-width: 360px;
+  --register-card-width: 432px;
   width: 100%;
   margin-top: 200px;
   display: flex;
@@ -3012,8 +3012,8 @@ body {
 .site-register-card--placeholder {
   display: grid;
   grid-template-rows: 1fr auto;
-  gap: 16px;
-  padding: 24px;
+  gap: 12px;
+  padding: 20px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.03);
@@ -3068,7 +3068,7 @@ body {
   }
 
   .site-register-carousel {
-    --register-card-width: 280px;
+    --register-card-width: 336px;
     margin-top: 72px;
     gap: 20px;
   }
@@ -3111,7 +3111,7 @@ body {
   }
 
   .site-register-carousel {
-    --register-card-width: 230px;
+    --register-card-width: 276px;
   }
 
   .site-register-scroll-hint {
