@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, useState } from "react";
 import { applicationFlowSteps } from "../lib/applicationFlowAccess";
+import { getDefaultSnsPlatform } from "../lib/applicationSns";
 
 const STORAGE_KEY = "application-flow-state";
 const requiredConsentKeys = ["privacy", "terms", "refund"];
@@ -21,6 +22,9 @@ const initialState = {
     email: "",
     birthDate: "",
     organization: "",
+    snsPlatform: getDefaultSnsPlatform(),
+    snsOtherPlatform: "",
+    snsId: "",
     instagramId: "",
     introduction: "",
     weightClass: "",

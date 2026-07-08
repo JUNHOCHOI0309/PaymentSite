@@ -14,6 +14,11 @@ import {
 } from "../data/applicationEntryFees";
 import { getWeightClassOptions } from "../data/applicationWeightClassOptions";
 import {
+  getSnsPlatformOptions,
+  parseStoredSnsIdentity,
+  serializeDetailedSnsIdentity,
+} from "../lib/applicationSns";
+import {
   buildApiUrl,
   createDraft,
   updateDraft,
@@ -149,6 +154,7 @@ export function ApplyPage() {
   const weightClassOptions = getWeightClassOptions(selectedImageKey);
   const hasWeightClassOptions = weightClassOptions.length > 0;
   const entryFeeAmount = getApplicationEntryFee(selectedImageKey);
+  const snsPlatformOptions = getSnsPlatformOptions(locale);
   const [additionalInfoTitlePrimary, additionalInfoTitleSecondary] =
     splitDisplayTitle(additionalInfo.title);
 
@@ -246,6 +252,44 @@ export function ApplyPage() {
     weightClassOptions,
   ]);
 
+  useEffect(() => {
+    if (state.applicantInfo.snsId || !state.applicantInfo.instagramId) {
+      return;
+    }
+
+    const parsedSnsIdentity = parseStoredSnsIdentity(state.applicantInfo.instagramId);
+
+    if (parsedSnsIdentity.platform !== state.applicantInfo.snsPlatform) {
+      dispatch({
+        type: "SET_APPLICANT_FIELD",
+        field: "snsPlatform",
+        value: parsedSnsIdentity.platform,
+      });
+    }
+
+    if (parsedSnsIdentity.id !== state.applicantInfo.snsId) {
+      dispatch({
+        type: "SET_APPLICANT_FIELD",
+        field: "snsId",
+        value: parsedSnsIdentity.id,
+      });
+    }
+
+    if ((parsedSnsIdentity.customPlatform || "") !== (state.applicantInfo.snsOtherPlatform || "")) {
+      dispatch({
+        type: "SET_APPLICANT_FIELD",
+        field: "snsOtherPlatform",
+        value: parsedSnsIdentity.customPlatform || "",
+      });
+    }
+  }, [
+    dispatch,
+    state.applicantInfo.instagramId,
+    state.applicantInfo.snsId,
+    state.applicantInfo.snsOtherPlatform,
+    state.applicantInfo.snsPlatform,
+  ]);
+
   function validateApplicantField(field, value) {
     const normalizedValue = typeof value === "string" ? value.trim() : value;
 
@@ -288,6 +332,38 @@ export function ApplyPage() {
         field === "phone"
           ? formatPhoneNumber(event.target.value)
           : event.target.value;
+
+      if (field === "snsPlatform") {
+        dispatch({
+          type: "SET_APPLICANT_FIELD",
+          field,
+          value: nextValue,
+        });
+
+        if (nextValue === "none" || !nextValue) {
+          dispatch({
+            type: "SET_APPLICANT_FIELD",
+            field: "snsId",
+            value: "",
+          });
+          dispatch({
+            type: "SET_APPLICANT_FIELD",
+            field: "snsOtherPlatform",
+            value: "",
+          });
+          return;
+        }
+
+        if (nextValue !== "other") {
+          dispatch({
+            type: "SET_APPLICANT_FIELD",
+            field: "snsOtherPlatform",
+            value: "",
+          });
+        }
+
+        return;
+      }
 
       dispatch({
         type: "SET_APPLICANT_FIELD",
@@ -391,13 +467,19 @@ export function ApplyPage() {
     setIsSubmitting(true);
 
     try {
+      const serializedSnsIdentity = serializeDetailedSnsIdentity({
+        platform: state.applicantInfo.snsPlatform,
+        customPlatform: state.applicantInfo.snsOtherPlatform,
+        id: state.applicantInfo.snsId,
+      });
+
       const payload = {
         name: state.applicantInfo.name,
         phone: state.applicantInfo.phone,
         email: state.applicantInfo.email,
         birthDate: state.applicantInfo.birthDate,
         organization: state.applicantInfo.organization,
-        instagramId: state.applicantInfo.instagramId,
+        instagramId: serializedSnsIdentity,
         introduction: state.applicantInfo.introduction,
         weightClass: state.applicantInfo.weightClass,
         paymentMethod: state.paymentMethod,
@@ -540,13 +622,45 @@ export function ApplyPage() {
                 value={state.applicantInfo.organization}
                 onChange={setApplicantField("organization")}
               />
-              <Input
-                label={t("apply.instagramId")}
-                requirement={t("apply.optional")}
-                value={state.applicantInfo.instagramId}
-                onChange={setApplicantField("instagramId")}
-                placeholder={t("apply.instagramIdPlaceholder")}
-              />
+              <label className="site-field site-field--full">
+                <span className="site-field__label">
+                  {t("apply.snsId")}
+                  <span className="site-field__requirement">({t("apply.optional")})</span>
+                </span>
+                <div className="site-field__compound">
+                  <select
+                    className="site-input"
+                    value={state.applicantInfo.snsPlatform}
+                    onChange={setApplicantField("snsPlatform")}
+                  >
+                    <option value="">{t("apply.snsPlatformPlaceholder")}</option>
+                    {snsPlatformOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className="site-input"
+                    type="text"
+                    disabled={!state.applicantInfo.snsPlatform || state.applicantInfo.snsPlatform === "none"}
+                    value={state.applicantInfo.snsId}
+                    onChange={setApplicantField("snsId")}
+                    placeholder={t("apply.snsIdPlaceholder")}
+                  />
+                </div>
+                {state.applicantInfo.snsPlatform === "other" ? (
+                  <div className="site-field__compound site-field__compound--single">
+                    <input
+                      className="site-input"
+                      type="text"
+                      value={state.applicantInfo.snsOtherPlatform}
+                      onChange={setApplicantField("snsOtherPlatform")}
+                      placeholder={t("apply.snsOtherPlatformPlaceholder")}
+                    />
+                  </div>
+                ) : null}
+              </label>
               <label className="site-field site-field--full">
                 <span className="site-field__label">
                   {t("apply.introduction")}

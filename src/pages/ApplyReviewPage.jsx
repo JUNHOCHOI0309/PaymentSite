@@ -10,6 +10,10 @@ import {
   getApplicationEntryFee,
 } from "../data/applicationEntryFees";
 import { applicationFlowSteps } from "../lib/applicationFlowAccess";
+import {
+  formatStoredSnsIdentity,
+  serializeDetailedSnsIdentity,
+} from "../lib/applicationSns";
 import { buildApplyDetailPath } from "../lib/applicationFlowRoutes";
 import { createOrder, getDraft } from "../lib/applicationApi";
 
@@ -38,6 +42,13 @@ export function ApplyReviewPage() {
   const reviewConsents = draftSnapshot?.consents || state.consents;
   const selectedImageKey = reviewDraft?.imageKey || state.selection.imageKey;
   const entryFeeAmount = getApplicationEntryFee(selectedImageKey);
+  const snsIdentityValue =
+    reviewDraft?.instagramId ||
+    serializeDetailedSnsIdentity({
+      platform: state.applicantInfo.snsPlatform,
+      customPlatform: state.applicantInfo.snsOtherPlatform,
+      id: state.applicantInfo.snsId,
+    });
 
   useEffect(() => {
     if (!requiredConsentsAccepted) {
@@ -132,7 +143,10 @@ export function ApplyReviewPage() {
             <ReviewRow label={t("review.email")} value={draftSnapshot?.draft?.email || state.applicantInfo.email} />
             <ReviewRow label={t("review.birthDate")} value={draftSnapshot?.draft?.birthDate || state.applicantInfo.birthDate} />
             <ReviewRow label={t("review.organization")} value={draftSnapshot?.draft?.organization || state.applicantInfo.organization} />
-            <ReviewRow label={t("review.instagramId")} value={draftSnapshot?.draft?.instagramId || state.applicantInfo.instagramId || t("review.instagramIdDefault")} />
+            <ReviewRow
+              label={t("review.snsId")}
+              value={formatStoredSnsIdentity(snsIdentityValue, locale, t("review.snsIdDefault"))}
+            />
             <ReviewRow label={t("review.introduction")} value={draftSnapshot?.draft?.introduction || state.applicantInfo.introduction} />
             <ReviewRow label={t("review.weightClass")} value={draftSnapshot?.draft?.weightClass || state.applicantInfo.weightClass} />
             <ReviewRow

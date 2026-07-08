@@ -921,6 +921,17 @@ body,
   gap: 8px;
 }
 
+.site-field__compound {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(0, 1.2fr);
+  gap: 12px;
+}
+
+.site-field__compound--single {
+  grid-template-columns: 1fr;
+  margin-top: 12px;
+}
+
 .site-field--full {
   grid-column: 1 / -1;
 }
@@ -1626,6 +1637,10 @@ body,
   }
 
   .site-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .site-field__compound {
     grid-template-columns: 1fr;
   }
 
