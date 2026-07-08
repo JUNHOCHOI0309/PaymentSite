@@ -185,6 +185,8 @@ export const translations = {
       description: "항목 제목을 눌러 내용을 펼치고, 확인한 항목만 체크해 주세요.",
       agreeAll: "전체 동의",
       optionalNotice: "마케팅 정보 수신 동의와 사진 동영상 콘텐츠 사용 동의는 선택 항목입니다.",
+      refundConsentNotice:
+        "[필수] 본인은 본 환불 규정에 대한 전자적 동의가 서면 동의와 동일한 효력을 가질 수 있음을 확인하며, 결제 완료 후에는 현재 고지된 환불 정책 버전과 행사일 기준에 따라 환불 가능 기간, 환불 비율, 환불 불가 구간이 적용됩니다. 현재 기준으로 결제 완료 후 7일 이내이면서 행사 7일 전까지는 전액, 행사 6일 전부터 3일 전까지는 50%, 행사 2일 전부터 행사 당일까지는 환불이 불가할 수 있음에 동의합니다.",
       previous: "이전으로",
       next: "다음 단계로",
       required: "필수",
@@ -670,6 +672,8 @@ export const translations = {
       description: "Open each section by title and check only the items you agree to.",
       agreeAll: "Agree to all",
       optionalNotice: "Marketing consent and photo/video content consent are optional items.",
+      refundConsentNotice:
+        "[Required] I acknowledge that electronic consent to this refund policy may have the same effect as written consent. After payment is completed, the applicable refund window, refund rate, and non-refundable period are determined by the currently posted policy version and the event date. Under the current policy, a full refund may apply within 7 days of payment and up to 7 days before the event, a 50% refund may apply from 6 days to 3 days before the event, and refunds may be unavailable from 2 days before the event through the event day.",
       previous: "Back",
       next: "Continue",
       required: "Required",

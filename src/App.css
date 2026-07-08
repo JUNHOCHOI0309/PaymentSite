@@ -3469,6 +3469,11 @@ body {
   line-height: 1.6;
 }
 
+.site-consent-page__all-note--required {
+  color: #2f3650;
+  font-weight: 600;
+}
+
 .site-consent-page__items {
   display: grid;
   gap: 14px;

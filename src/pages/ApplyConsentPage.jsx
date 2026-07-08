@@ -323,6 +323,9 @@ export function ApplyConsentPage() {
               <span>{t("consent.agreeAll")}</span>
             </label>
             <p>{t("consent.optionalNotice")}</p>
+            <p className="site-consent-page__all-note site-consent-page__all-note--required">
+              {t("consent.refundConsentNotice")}
+            </p>
           </div>
 
           <div className="site-consent-page__items">
