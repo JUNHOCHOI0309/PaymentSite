@@ -593,6 +593,29 @@ function getKcpResponseMessage(payload) {
   return payload?.res_msg || payload?.Message || payload?.message || null;
 }
 
+function getKcpApprovedOrderId(payload) {
+  return (
+    normalizeText(payload?.order_no) ||
+    normalizeText(payload?.ordr_idxx) ||
+    normalizeText(payload?.ordr_no) ||
+    normalizeText(payload?.orderId) ||
+    null
+  );
+}
+
+function getKcpApprovedAmount(payload) {
+  const candidate =
+    payload?.amount ??
+    payload?.good_mny ??
+    payload?.ordr_mony ??
+    payload?.card_mny ??
+    payload?.total_amount ??
+    null;
+  const amount = Number(candidate);
+
+  return Number.isInteger(amount) && amount > 0 ? amount : null;
+}
+
 //주문 식별 생성 헬퍼
 function generateOrderId(){
   return `order_${Date.now()}_${Math.random().toString(36).slice(2,10)}`;
@@ -3009,6 +3032,25 @@ app.post("/kcp/return", async function (req, res) {
       );
     }
 
+    const approvedOrderId = getKcpApprovedOrderId(json);
+    const approvedAmountFromKcp = getKcpApprovedAmount(json);
+
+    if (approvedOrderId && approvedOrderId !== order.order_id) {
+      await client.query("ROLLBACK");
+      return redirectFailure(
+        "KCP_ORDER_ID_MISMATCH",
+        "KCP 승인 주문번호가 서버 주문번호와 일치하지 않습니다."
+      );
+    }
+
+    if (approvedAmountFromKcp !== null && approvedAmountFromKcp !== amount) {
+      await client.query("ROLLBACK");
+      return redirectFailure(
+        "KCP_AMOUNT_MISMATCH",
+        "KCP 승인 금액이 서버 주문 금액과 일치하지 않습니다."
+      );
+    }
+
     const kcpTransactionNo = normalizeText(json.tno);
 
     if (!kcpTransactionNo) {
@@ -3016,7 +3058,7 @@ app.post("/kcp/return", async function (req, res) {
       return redirectFailure("KCP_TNO_MISSING", "KCP 거래번호를 확인할 수 없습니다.");
     }
 
-    const approvedAmount = Number(json.amount || json.card_mny || amount);
+    const approvedAmount = approvedAmountFromKcp ?? amount;
     const approvedAt = new Date().toISOString();
 
     await client.query(
