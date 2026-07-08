@@ -3919,9 +3919,11 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
           a.name,
           a.phone,
           a.email,
+          a.birth_date,
           a.organization,
           a.instagram_id,
           a.introduction,
+          a.weight_class,
           a.division,
           a.discipline,
           a.payment_status,
@@ -3967,9 +3969,12 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
         name: row.name,
         phone: row.phone,
         email: row.email,
+        birthDate: row.birth_date,
         organization: row.organization,
+        snsIdentity: row.instagram_id,
         instagramId: row.instagram_id,
         introduction: row.introduction,
+        weightClass: row.weight_class,
         division: row.division,
         discipline: row.discipline,
         paymentStatus: row.payment_status,
@@ -3983,6 +3988,84 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
     return res.status(500).json({
       ok: false,
       message: "Failed to fetch admin applications",
+    });
+  }
+});
+
+app.get("/admin/stage-services", requireAdminAuth, async function (req, res) {
+  try {
+    const result = await pool.query(
+      `
+        SELECT
+          service_order_number,
+          order_id,
+          payment_key,
+          service_type,
+          name,
+          phone,
+          email,
+          linked_application_number,
+          linked_discipline,
+          photo_has_additional_discipline,
+          photo_additional_discipline,
+          video_type,
+          video_additional_discipline,
+          hair_participant_discipline,
+          hair_option,
+          hair_additional_discipline,
+          hair_optional_option,
+          total_amount,
+          payment_status,
+          service_status,
+          purchased_at,
+          updated_at
+        FROM stage_service_orders
+        ORDER BY purchased_at DESC NULLS LAST, updated_at DESC
+        LIMIT 200
+      `
+    );
+
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_VIEW_STAGE_SERVICES",
+      targetType: "stage_service_orders",
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+      metadata: { count: result.rowCount },
+    });
+
+    return res.status(200).json({
+      ok: true,
+      stageServices: result.rows.map((row) => ({
+        serviceOrderNumber: row.service_order_number,
+        orderId: row.order_id,
+        paymentKey: row.payment_key,
+        serviceType: row.service_type,
+        name: row.name,
+        phone: row.phone,
+        email: row.email,
+        linkedApplicationNumber: row.linked_application_number,
+        linkedDiscipline: row.linked_discipline,
+        photoHasAdditionalDiscipline: row.photo_has_additional_discipline ? "O" : "X",
+        photoAdditionalDiscipline: row.photo_additional_discipline,
+        videoType: row.video_type,
+        videoAdditionalDiscipline: row.video_additional_discipline,
+        hairParticipantDiscipline: row.hair_participant_discipline,
+        hairOption: row.hair_option,
+        hairAdditionalDiscipline: row.hair_additional_discipline,
+        hairOptionalOption: row.hair_optional_option,
+        totalAmount: row.total_amount,
+        paymentStatus: row.payment_status,
+        serviceStatus: row.service_status,
+        purchasedAt: row.purchased_at,
+        updatedAt: row.updated_at,
+      })),
+    });
+  } catch (error) {
+    console.error("Failed to fetch admin stage services:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to fetch admin stage services",
     });
   }
 });
@@ -4076,7 +4159,28 @@ app.get("/admin/applications/:applicationNumber/files/:fileKind/download", requi
 
 app.get("/admin/refunds", requireAdminAuth, async function (req, res) {
   try {
-    const result = await pool.query(
+    const refundRequestResult = await pool.query(
+      `
+        SELECT
+          requests.*,
+          applications.name AS application_name,
+          applications.phone AS application_phone,
+          applications.email AS application_email,
+          applications.division,
+          applications.discipline,
+          payments.status AS payment_status
+        FROM application_refund_requests AS requests
+        LEFT JOIN applications
+          ON applications.application_number = requests.application_number
+        LEFT JOIN payments
+          ON payments.payment_key = requests.payment_key
+          OR payments.order_id = requests.order_id
+        ORDER BY requests.created_at DESC
+        LIMIT 200
+      `
+    );
+
+    const canceledPaymentResult = await pool.query(
       `
         SELECT
           payments.order_id,
@@ -4112,12 +4216,24 @@ app.get("/admin/refunds", requireAdminAuth, async function (req, res) {
       targetType: "payments",
       ipAddress: getRequestIp(req),
       userAgent: getRequestUserAgent(req),
-      metadata: { count: result.rowCount },
+      metadata: {
+        refundRequestCount: refundRequestResult.rowCount,
+        canceledPaymentCount: canceledPaymentResult.rowCount,
+      },
     });
 
     return res.status(200).json({
       ok: true,
-      refunds: result.rows.map((row) => ({
+      refundRequests: refundRequestResult.rows.map((row) => ({
+        ...mapRefundRequestRow(row),
+        name: row.application_name,
+        phone: row.application_phone,
+        email: row.application_email,
+        division: row.division,
+        discipline: row.discipline,
+        paymentStatus: row.payment_status,
+      })),
+      refunds: canceledPaymentResult.rows.map((row) => ({
         orderId: row.order_id,
         paymentKey: row.payment_key,
         applicationNumber: row.application_number,
@@ -4139,6 +4255,182 @@ app.get("/admin/refunds", requireAdminAuth, async function (req, res) {
       ok: false,
       message: "Failed to fetch admin refunds",
     });
+  }
+});
+
+app.post("/admin/refunds/:refundRequestId/retry-sync", requireAdminAuth, async function (req, res) {
+  const refundRequestId = Number(req.params.refundRequestId);
+
+  if (!Number.isInteger(refundRequestId) || refundRequestId <= 0) {
+    return res.status(400).json({
+      ok: false,
+      message: "Invalid refund request id",
+    });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const refundRequestResult = await client.query(
+      `
+        SELECT *
+        FROM application_refund_requests
+        WHERE id = $1
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [refundRequestId]
+    );
+
+    if (refundRequestResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({
+        ok: false,
+        message: "Refund request not found",
+      });
+    }
+
+    const refundRequest = refundRequestResult.rows[0];
+
+    if (refundRequest.request_status === "COMPLETED") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        code: "REFUND_REQUEST_ALREADY_COMPLETED",
+        message: "이미 완료된 환불 요청입니다.",
+      });
+    }
+
+    if (refundRequest.request_status !== "SYNC_FAILED") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        code: "REFUND_REQUEST_NOT_RETRYABLE",
+        message: "현재 상태에서는 재동기화를 실행할 수 없습니다.",
+      });
+    }
+
+    let providerResponse = refundRequest.provider_response_json;
+
+    if (typeof providerResponse === "string") {
+      try {
+        providerResponse = JSON.parse(providerResponse);
+      } catch (_error) {
+        providerResponse = null;
+      }
+    }
+
+    if (!providerResponse || typeof providerResponse !== "object") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        code: "REFUND_PROVIDER_RESPONSE_MISSING",
+        message: "결제사 환불 응답 원본이 없어 재동기화를 진행할 수 없습니다.",
+      });
+    }
+
+    const nextPaymentStatus = providerResponse.status || "CANCELED";
+    const nextApplicationStatus =
+      nextPaymentStatus === "PARTIAL_CANCELED" ? "PARTIAL_REFUNDED" : "REFUNDED";
+
+    await client.query(
+      `
+        UPDATE payments
+        SET
+          method = COALESCE($3, method),
+          payment_type = COALESCE($4, payment_type),
+          status = $5,
+          approved_at = COALESCE($6, approved_at),
+          total_amount = COALESCE($7, total_amount),
+          raw_response_json = COALESCE($8::jsonb, raw_response_json),
+          updated_at = NOW()
+        WHERE payment_key = $1
+           OR order_id = $2
+      `,
+      [
+        refundRequest.payment_key,
+        refundRequest.order_id,
+        providerResponse.method || null,
+        providerResponse.type || null,
+        nextPaymentStatus,
+        providerResponse.approvedAt || null,
+        providerResponse.totalAmount ?? refundRequest.original_amount ?? null,
+        JSON.stringify(providerResponse),
+      ]
+    );
+
+    await client.query(
+      `
+        UPDATE orders
+        SET status = $2, updated_at = NOW()
+        WHERE order_id = $1
+      `,
+      [refundRequest.order_id, mapPaymentStatusToOrderStatus(nextPaymentStatus) || "CANCELED"]
+    );
+
+    const applicationResult = await client.query(
+      `
+        UPDATE applications
+        SET
+          status = $2,
+          payment_status = $3,
+          updated_at = NOW()
+        WHERE application_number = $1
+        RETURNING *
+      `,
+      [refundRequest.application_number, nextApplicationStatus, nextPaymentStatus]
+    );
+
+    if (applicationResult.rowCount === 0) {
+      throw new Error("Application not found for refund sync");
+    }
+
+    const completedRequestResult = await client.query(
+      `
+        UPDATE application_refund_requests
+        SET
+          request_status = 'COMPLETED',
+          processed_at = COALESCE(processed_at, NOW()),
+          updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `,
+      [refundRequestId]
+    );
+
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_RETRY_REFUND_SYNC",
+      targetType: "application_refund_request",
+      targetId: String(refundRequestId),
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+      metadata: {
+        applicationNumber: refundRequest.application_number,
+        nextPaymentStatus,
+        nextApplicationStatus,
+      },
+    });
+
+    await client.query("COMMIT");
+
+    return res.status(200).json({
+      ok: true,
+      refundRequest: mapRefundRequestRow(completedRequestResult.rows[0]),
+      application:
+        applicationResult.rowCount > 0 ? mapApplicationRow(applicationResult.rows[0]) : null,
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("Failed to retry refund sync:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to retry refund sync",
+    });
+  } finally {
+    client.release();
   }
 });
 

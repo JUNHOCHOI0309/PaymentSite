@@ -296,8 +296,24 @@ export async function getAdminApplications() {
   return readJson(response);
 }
 
+export async function getAdminStageServices() {
+  const response = await adminApiFetch("/api/admin/stage-services");
+  return readJson(response);
+}
+
 export async function getAdminRefunds() {
   const response = await adminApiFetch("/api/admin/refunds");
+  return readJson(response);
+}
+
+export async function retryAdminRefundSync(refundRequestId) {
+  const response = await adminApiFetch(
+    `/api/admin/refunds/${encodeURIComponent(refundRequestId)}/retry-sync`,
+    {
+      method: "POST",
+    },
+  );
+
   return readJson(response);
 }
 
