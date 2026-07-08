@@ -16,7 +16,7 @@ export function SiteFooter() {
           사업장 주소 : 서울특별시 강남구 강남대로160길 15, 2층 (신사동)
         </p>
         <p className="site-footer__meta">사업장 전화번호 : 02-379-2222</p>
-        <p className="site-footer__meta">상점아이디(MID) : mmkore4r0w</p>
+        <p className="site-footer__meta">통신판매업신고번호 : 제 2026-서울강남-03786 호</p>
       </div>
       <div className="site-footer__links">
         <Link to="/privacy">{t("footer.privacy")}</Link>
