@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { NoticeBox } from "../components/common/NoticeBox";
+import { useNavigate } from "react-router-dom";
 import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
 import { buildApiUrl } from "../lib/applicationApi";
@@ -214,23 +213,22 @@ export function ApplySelectPage() {
         >
           <div className="site-register-carousel__spacer" aria-hidden="true" />
           {activeItems.map((item) => (
-            <button className="site-register-card" key={item.key} onClick={() => handleCardClick(item)} type="button">
-              <img draggable="false" src={getRegisterImageUrl(item.key)} alt={item.title} />
+            <button
+              className="site-register-card site-register-card--placeholder"
+              key={item.key}
+              onClick={() => handleCardClick(item)}
+              type="button"
+            >
+              <div className="site-register-card__placeholder-media">
+                <img draggable="false" src={getRegisterImageUrl(item.key)} alt={item.title} />
+              </div>
+              <strong className="site-register-card__placeholder-title">
+                {item.title}
+              </strong>
             </button>
           ))}
           <div className="site-register-carousel__spacer" aria-hidden="true" />
         </div>
-
-        <NoticeBox title={t("applySelect.noticeTitle")}>
-          <ul className="site-list">
-            <li>{t("applySelect.notice1")}</li>
-            <li>{t("applySelect.notice2")}</li>
-            <li>{t("applySelect.notice3")}</li>
-          </ul>
-          <Link className="site-notice__link" to="/apply/guide">
-            {t("common.viewApplyGuide")}
-          </Link>
-        </NoticeBox>
       </section>
     </PageShell>
   );
