@@ -2341,6 +2341,36 @@ function extractWebhookFields(payload) {
   };
 }
 
+function buildKcpWebhookEventId(payload) {
+  const explicitEventId = payload?.event_id || payload?.eventId || null;
+
+  if (explicitEventId) {
+    return explicitEventId;
+  }
+
+  const fingerprintSource = {
+    siteCode: payload?.site_cd || null,
+    transactionNo: payload?.tno || null,
+    orderNo: payload?.order_no || payload?.ordr_idxx || null,
+    transactionCode: payload?.tx_cd || null,
+    transactionTime: payload?.tx_tm || null,
+  };
+
+  return `kcp_${crypto
+    .createHash("sha256")
+    .update(JSON.stringify(fingerprintSource))
+    .digest("hex")}`;
+}
+
+function extractKcpWebhookFields(payload) {
+  return {
+    eventType: payload?.tx_cd || payload?.event_type || "KCP_WEBHOOK",
+    eventId: buildKcpWebhookEventId(payload),
+    paymentKey: payload?.tno || null,
+    orderId: payload?.order_no || payload?.ordr_idxx || null,
+  };
+}
+
 // 웹훅 Event 상태 업데이트
 async function markWebhookEventStatus(eventId, status) {
   await pool.query(
@@ -4311,6 +4341,87 @@ app.post("/webhooks/toss", async function (req,res) {
 
     return res.status(error.statusCode || 500).json({
       ok: false,
+      message: "Failed to store webhook event",
+    });
+  }
+});
+
+app.post("/webhooks/kcp", async function (req, res) {
+  const payload = req.body || {};
+  const { eventType, eventId, paymentKey, orderId } = extractKcpWebhookFields(payload);
+
+  try {
+    try {
+      await pool.query(
+        `
+          INSERT INTO payment_webhook_events (
+            event_type,
+            event_id,
+            payment_key,
+            order_id,
+            payment_provider,
+            payload_json,
+            processing_status
+          )
+          VALUES ($1, $2, $3, $4, $5, $6::jsonb, 'RECEIVED')
+        `,
+        [
+          eventType,
+          eventId,
+          paymentKey,
+          orderId,
+          paymentProviders.KCP,
+          JSON.stringify(payload),
+        ]
+      );
+    } catch (insertError) {
+      if (insertError.code !== "23505") {
+        throw insertError;
+      }
+
+      await pool.query(
+        `
+          UPDATE payment_webhook_events
+          SET
+            event_type = $2,
+            payment_key = $3,
+            order_id = $4,
+            payment_provider = $5,
+            payload_json = $6::jsonb,
+            processing_status = 'RECEIVED',
+            processed_at = NULL,
+            received_at = NOW()
+          WHERE event_id = $1
+        `,
+        [
+          eventId,
+          eventType,
+          paymentKey,
+          orderId,
+          paymentProviders.KCP,
+          JSON.stringify(payload),
+        ]
+      );
+    }
+
+    await markWebhookEventStatus(eventId, "PROCESSED");
+
+    return res.status(200).json({
+      result: "0000",
+    });
+  } catch (error) {
+    if (eventId) {
+      try {
+        await markWebhookEventStatus(eventId, "FAILED");
+      } catch (updateError) {
+        console.error("Failed to update KCP webhook event status:", updateError);
+      }
+    }
+
+    console.error("Failed to store KCP webhook event:", error);
+
+    return res.status(500).json({
+      result: "9999",
       message: "Failed to store webhook event",
     });
   }
