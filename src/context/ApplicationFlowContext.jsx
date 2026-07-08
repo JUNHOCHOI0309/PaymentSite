@@ -3,12 +3,13 @@ import { applicationFlowSteps } from "../lib/applicationFlowAccess";
 
 const STORAGE_KEY = "application-flow-state";
 const requiredConsentKeys = ["privacy", "terms", "refund"];
+const applicationPaymentMethod = "payment";
 
 const initialState = {
   draftId: null,
   orderId: null,
   flowStep: null,
-  paymentMethod: "payment",
+  paymentMethod: applicationPaymentMethod,
   selection: {
     division: "",
     discipline: "",
@@ -67,6 +68,10 @@ function deriveFlowStep(nextState) {
     : applicationFlowSteps.CONSENT;
 }
 
+function normalizeApplicationPaymentMethod() {
+  return applicationPaymentMethod;
+}
+
 function applicationFlowReducer(state, action) {
   switch (action.type) {
     case "SET_APPLICANT_FIELD":
@@ -106,7 +111,7 @@ function applicationFlowReducer(state, action) {
     case "SET_PAYMENT_METHOD":
       return {
         ...state,
-        paymentMethod: action.value,
+        paymentMethod: normalizeApplicationPaymentMethod(action.value),
       };
     case "SET_SELECTION":
       return {
@@ -132,6 +137,7 @@ function applicationFlowReducer(state, action) {
       const nextState = {
         ...state,
         ...action.payload,
+        paymentMethod: normalizeApplicationPaymentMethod(action.payload?.paymentMethod),
         applicantInfo: {
           ...initialState.applicantInfo,
           ...(action.payload?.applicantInfo || {}),

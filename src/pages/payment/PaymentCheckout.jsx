@@ -3,11 +3,11 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApplicationFlow } from "../../context/ApplicationFlowContext";
 import { useLanguage } from "../../context/LanguageContext";
+import { getApplicationEntryFee } from "../../data/applicationEntryFees";
 import { prepareKcpPayment } from "../../lib/applicationApi";
 
 const clientKey = import.meta.env.VITE_TOSS_API_CLIENT_KEY;
 const customerKey = generateRandomString();
-const amount = { currency: "KRW", value: 1 };
 
 export function PaymentCheckoutPage() {
   const navigate = useNavigate();
@@ -20,6 +20,10 @@ export function PaymentCheckoutPage() {
 
   const orderId = searchParams.get("orderId") || state.orderId;
   const draftId = searchParams.get("draftId") || state.draftId;
+  const amount = {
+    currency: "KRW",
+    value: getApplicationEntryFee(state.selection.imageKey),
+  };
 
   useEffect(() => {
     async function fetchPayment() {

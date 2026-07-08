@@ -1,0 +1,50 @@
+{
+  "defaultAmount": 200000,
+  "items": [
+    {
+      "imageKey": "register/man_1.png",
+      "title": "Body Building",
+      "amount": 200000
+    },
+    {
+      "imageKey": "register/man_2.png",
+      "title": "Classic",
+      "amount": 200000
+    },
+    {
+      "imageKey": "register/man_3.png",
+      "title": "Physique",
+      "amount": 200000
+    },
+    {
+      "imageKey": "register/common_1.png",
+      "title": "Model Korea",
+      "amount": 200000
+    },
+    {
+      "imageKey": "register/common_2.png",
+      "title": "Fitness Korea",
+      "amount": 200000
+    },
+    {
+      "imageKey": "register/common_3.png",
+      "title": "Danim Korea",
+      "amount": 200000
+    },
+    {
+      "imageKey": "register/common_4.png",
+      "title": "Transformation",
+      "amount": 200000
+    },
+    {
+      "imageKey": "register/woman_1.png",
+      "title": "Ms. Bikini Korea",
+      "amount": 200000
+    },
+    {
+      "imageKey": "register/woman_2.png",
+      "title": "Figure Korea",
+      "amount": 200000
+    }
+  ]
+}

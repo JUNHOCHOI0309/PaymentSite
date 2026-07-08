@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApplicationFlow } from "../../context/ApplicationFlowContext";
 import { useLanguage } from "../../context/LanguageContext";
+import { getApplicationEntryFee } from "../../data/applicationEntryFees";
 import { buildApiUrl } from "../../lib/applicationApi";
 
 const clientKey = "test_ck_D5GePWvyJnrK0W0k6q8gLzN97Eoq";
@@ -18,6 +19,7 @@ export function BrandpayCheckoutPage() {
 
   const orderId = searchParams.get("orderId") || state.orderId;
   const draftId = searchParams.get("draftId") || state.draftId;
+  const entryFeeAmount = getApplicationEntryFee(state.selection.imageKey);
 
   useEffect(() => {
     async function fetchBrandpay() {
@@ -46,7 +48,7 @@ export function BrandpayCheckoutPage() {
     await brandpay.requestPayment({
       amount: {
         currency: "KRW",
-        value: 1,
+        value: entryFeeAmount,
       },
       orderId,
       orderName: t("brandpay.orderName"),

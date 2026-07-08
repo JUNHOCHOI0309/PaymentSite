@@ -2,12 +2,13 @@ import { createContext, useContext, useEffect, useMemo, useReducer, useState } f
 import { stageServiceFlowSteps } from "../lib/stageServiceFlowAccess";
 
 const STORAGE_KEY = "stage-service-flow-state";
+const stageServicePaymentMethod = "payment";
 
 const initialState = {
   draftId: null,
   orderId: null,
   flowStep: null,
-  paymentMethod: "payment",
+  paymentMethod: stageServicePaymentMethod,
   serviceKey: "",
   applicantInfo: {
     name: "",
@@ -47,6 +48,10 @@ function deriveFlowStep(nextState) {
   return null;
 }
 
+function normalizeStageServicePaymentMethod() {
+  return stageServicePaymentMethod;
+}
+
 function stageServiceFlowReducer(state, action) {
   switch (action.type) {
     case "SET_SERVICE_KEY":
@@ -83,7 +88,7 @@ function stageServiceFlowReducer(state, action) {
     case "SET_PAYMENT_METHOD":
       return {
         ...state,
-        paymentMethod: action.value,
+        paymentMethod: normalizeStageServicePaymentMethod(action.value),
       };
     case "SET_DRAFT_ID":
       return {
@@ -104,6 +109,7 @@ function stageServiceFlowReducer(state, action) {
       const nextState = {
         ...state,
         ...action.payload,
+        paymentMethod: normalizeStageServicePaymentMethod(action.payload?.paymentMethod),
         applicantInfo: {
           ...initialState.applicantInfo,
           ...(action.payload?.applicantInfo || {}),

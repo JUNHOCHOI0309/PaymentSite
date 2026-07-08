@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApplicationFlow } from "../../context/ApplicationFlowContext";
 import { useLanguage } from "../../context/LanguageContext";
+import { getApplicationEntryFee } from "../../data/applicationEntryFees";
 
 const clientKey = import.meta.env.VITE_TOSS_WIDGET_CLIENT_KEY;
 const customerKey = generateRandomString();
@@ -12,9 +13,10 @@ export function WidgetCheckoutPage() {
   const [searchParams] = useSearchParams();
   const { state } = useApplicationFlow();
   const { t } = useLanguage();
+  const entryFeeAmount = getApplicationEntryFee(state.selection.imageKey);
 
   const [order, setOrder] = useState(null);
-  const [amount, setAmount] = useState({ currency: "KRW", value: 1 });
+  const [amount, setAmount] = useState({ currency: "KRW", value: entryFeeAmount });
   const [ready, setReady] = useState(false);
   const [widgets, setWidgets] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
@@ -31,7 +33,7 @@ export function WidgetCheckoutPage() {
         const resolvedOrder = {
           orderId: queryOrderId || state.orderId,
           orderName: t("widget.orderName"),
-          amount: 1,
+          amount: entryFeeAmount,
           customerEmail: state.applicantInfo.email,
           customerName: state.applicantInfo.name,
           draftId,
@@ -53,7 +55,7 @@ export function WidgetCheckoutPage() {
     }
 
     initializeOrderAndWidgets();
-  }, [searchParams, state, t]);
+  }, [entryFeeAmount, searchParams, state, t]);
 
   useEffect(() => {
     async function renderPaymentWidgets() {

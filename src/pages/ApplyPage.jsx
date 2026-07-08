@@ -8,6 +8,10 @@ import uploadIcon from "../assets/upload-icon.png";
 import { useApplicationFlow } from "../context/ApplicationFlowContext";
 import { useLanguage } from "../context/LanguageContext";
 import { getApplicationAdditionalInfo } from "../data/applicationAdditionalInfo";
+import {
+  formatApplicationEntryFee,
+  getApplicationEntryFee,
+} from "../data/applicationEntryFees";
 import { getWeightClassOptions } from "../data/applicationWeightClassOptions";
 import {
   buildApiUrl,
@@ -144,6 +148,7 @@ export function ApplyPage() {
   const additionalInfo = getApplicationAdditionalInfo(locale, selectedImageKey);
   const weightClassOptions = getWeightClassOptions(selectedImageKey);
   const hasWeightClassOptions = weightClassOptions.length > 0;
+  const entryFeeAmount = getApplicationEntryFee(selectedImageKey);
   const [additionalInfoTitlePrimary, additionalInfoTitleSecondary] =
     splitDisplayTitle(additionalInfo.title);
 
@@ -477,6 +482,10 @@ export function ApplyPage() {
                 {t("apply.imagePlaceholder")}
               </div>
             )}
+            <div className="site-apply-detail__price-box">
+              <span>{t("apply.entryFeeLabel")}</span>
+              <strong>{formatApplicationEntryFee(entryFeeAmount, locale)}</strong>
+            </div>
           </aside>
 
           <form

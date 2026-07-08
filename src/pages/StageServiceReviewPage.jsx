@@ -43,11 +43,6 @@ export function StageServiceReviewPage() {
     email: state.applicantInfo.email,
     phone: state.applicantInfo.phone,
   });
-  const paymentPathMap = {
-    widget: "/stage-services/widget/checkout",
-    payment: "/stage-services/payment/checkout",
-    brandpay: "/stage-services/brandpay/checkout",
-  };
   const videoTypeLabel =
     getVideoTypeOptions().find((option) => option.value === (draftSnapshot?.draft?.videoType || state.formData.videoType))
       ?.label || "-";
@@ -96,6 +91,12 @@ export function StageServiceReviewPage() {
     fetchDraft();
   }, [dispatch, state.draftId, t]);
 
+  useEffect(() => {
+    if (state.paymentMethod !== "payment") {
+      dispatch({ type: "SET_PAYMENT_METHOD", value: "payment" });
+    }
+  }, [dispatch, state.paymentMethod]);
+
   async function handleProceedPayment() {
     if (!state.draftId) {
       navigate(detailPath, { state: { source: "review" } });
@@ -131,7 +132,7 @@ export function StageServiceReviewPage() {
         value: stageServiceFlowSteps.CHECKOUT,
       });
 
-      navigate(`${paymentPathMap[state.paymentMethod]}?${params.toString()}`);
+      navigate(`/stage-services/payment/checkout?${params.toString()}`);
     } catch (error) {
       setErrorMessage(error.message || t("stageService.prepareOrderError"));
     } finally {
@@ -217,25 +218,11 @@ export function StageServiceReviewPage() {
             <h2 className="site-payment-methods__title">{t("review.paymentMethod")}</h2>
             <div className="site-chip-group">
               <button
-                className={`site-chip ${state.paymentMethod === "widget" ? "site-chip--active" : ""}`}
+                className="site-chip site-chip--active"
+                disabled
                 type="button"
-                onClick={() => dispatch({ type: "SET_PAYMENT_METHOD", value: "widget" })}
-              >
-                {t("review.widgetMethod")}
-              </button>
-              <button
-                className={`site-chip ${state.paymentMethod === "payment" ? "site-chip--active" : ""}`}
-                type="button"
-                onClick={() => dispatch({ type: "SET_PAYMENT_METHOD", value: "payment" })}
               >
                 {t("review.paymentMethodLabel")}
-              </button>
-              <button
-                className={`site-chip ${state.paymentMethod === "brandpay" ? "site-chip--active" : ""}`}
-                type="button"
-                onClick={() => dispatch({ type: "SET_PAYMENT_METHOD", value: "brandpay" })}
-              >
-                {t("review.brandpayMethod")}
               </button>
             </div>
           </div>

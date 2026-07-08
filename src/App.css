@@ -3201,6 +3201,30 @@ body {
   font-weight: 800;
 }
 
+.site-apply-detail__price-box {
+  display: grid;
+  gap: 6px;
+  width: min(100%, 430px);
+  margin-top: 22px;
+  padding: 18px 20px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.site-apply-detail__price-box span {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.site-apply-detail__price-box strong {
+  color: #fff;
+  font-size: clamp(1.5rem, 2.2vw, 2rem);
+  font-weight: 900;
+  line-height: 1.1;
+}
+
 .site-apply-detail__form {
   padding: 38px 42px 22px;
   border-radius: 26px;
