@@ -24,6 +24,11 @@ import { CompetitionIntroPage, MmkIntroPage } from "./pages/CompetitionIntroPage
 import { FailPage } from "./pages/Fail";
 import { HomePage } from "./pages/HomePage";
 import {
+  KcpTestPaymentFailPage,
+  KcpTestPaymentPage,
+  KcpTestPaymentSuccessPage,
+} from "./pages/KcpTestPaymentPage";
+import {
   HallOfFamePage,
   OrganizationCommitteePage,
   OrganizationPage,
@@ -198,6 +203,18 @@ const router = createBrowserRouter([
       {
         path: "terms",
         element: <TermsPage />,
+      },
+      {
+        path: "kcp-test",
+        element: <KcpTestPaymentPage />,
+      },
+      {
+        path: "kcp-test/success",
+        element: <KcpTestPaymentSuccessPage />,
+      },
+      {
+        path: "kcp-test/fail",
+        element: <KcpTestPaymentFailPage />,
       },
       {
         path: "widget",

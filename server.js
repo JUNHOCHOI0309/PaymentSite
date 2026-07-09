@@ -249,6 +249,8 @@ const kcpPaymentApproveUrl =
     ? "https://spl.kcp.co.kr/gw/enc/v1/payment"
     : "https://stg-spl.kcp.co.kr/gw/enc/v1/payment";
 const kcpSiteCode = normalizeText(process.env.KCP_SITE_CD) || "T0000";
+const kcpTestPaymentEnabled = process.env.KCP_TEST_PAYMENT_ENABLED === "true";
+const kcpTestPaymentToken = normalizeText(process.env.KCP_TEST_PAYMENT_TOKEN);
 const publicBaseUrl = normalizeBaseUrl(process.env.PUBLIC_BASE_URL);
 const publicApiBaseUrl = normalizeBaseUrl(process.env.PUBLIC_API_BASE_URL);
 
@@ -551,6 +553,51 @@ function buildKcpReturnUrl(req, params = {}) {
   });
 
   return url.toString();
+}
+
+function normalizeKcpPaymentContext(value) {
+  const normalized = normalizeText(value);
+
+  if (normalized === "stageService" || normalized === "kcpTest") {
+    return normalized;
+  }
+
+  return "application";
+}
+
+function getKcpSuccessPath(context) {
+  switch (context) {
+    case "stageService":
+      return "/stage-services/payment/success";
+    case "kcpTest":
+      return "/kcp-test/success";
+    default:
+      return "/payment/success";
+  }
+}
+
+function getKcpFailPath(context) {
+  switch (context) {
+    case "stageService":
+      return "/stage-services/fail";
+    case "kcpTest":
+      return "/kcp-test/fail";
+    default:
+      return "/fail";
+  }
+}
+
+function isKcpTestPaymentAuthorized(req) {
+  if (!kcpTestPaymentToken) {
+    return true;
+  }
+
+  const providedToken =
+    normalizeText(req.body?.token) ||
+    normalizeText(req.query?.token) ||
+    normalizeText(req.headers["x-kcp-test-token"]);
+
+  return providedToken === kcpTestPaymentToken;
 }
 
 function resolveKcpRegType(userAgent) {
@@ -2724,10 +2771,100 @@ async function verifyDepositCallbackSecret({ paymentKey, orderId, secret }) {
   }
 }
 
+app.post("/kcp/test/orders", async function (req, res) {
+  if (!kcpTestPaymentEnabled) {
+    return res.status(404).json({
+      ok: false,
+      code: "KCP_TEST_PAYMENT_DISABLED",
+      message: "KCP test payment is disabled",
+    });
+  }
+
+  if (!isKcpTestPaymentAuthorized(req)) {
+    return res.status(403).json({
+      ok: false,
+      code: "KCP_TEST_PAYMENT_FORBIDDEN",
+      message: "Invalid KCP test payment token",
+    });
+  }
+
+  const amount = 100;
+  const providerResolution = resolvePaymentProvider({
+    requestedProvider: paymentProviders.KCP,
+    amount,
+  });
+
+  if (!providerResolution.ok) {
+    return res.status(providerResolution.status).json({
+      ok: false,
+      message: providerResolution.message,
+    });
+  }
+
+  try {
+    const customerName = normalizeText(req.body.customerName) || "KCP 테스트";
+    const customerEmail = normalizeEmail(req.body.customerEmail);
+    const orderId = generateOrderId();
+    const orderName = "KCP 100원 테스트 결제";
+    const result = await pool.query(
+      `
+        INSERT INTO orders (
+          order_id,
+          order_name,
+          amount,
+          customer_name,
+          customer_email,
+          payment_provider,
+          status
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'READY')
+        RETURNING
+          order_id,
+          order_name,
+          amount,
+          customer_name,
+          customer_email,
+          payment_provider,
+          status,
+          created_at
+      `,
+      [
+        orderId,
+        orderName,
+        amount,
+        customerName,
+        customerEmail,
+        providerResolution.provider,
+      ]
+    );
+    const order = result.rows[0];
+
+    return res.status(201).json({
+      ok: true,
+      order: {
+        orderId: order.order_id,
+        orderName: order.order_name,
+        amount: order.amount,
+        customerName: order.customer_name,
+        customerEmail: order.customer_email,
+        paymentProvider: order.payment_provider,
+        status: order.status,
+        createdAt: order.created_at,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to create KCP test order:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to create KCP test order",
+    });
+  }
+});
+
 app.post("/kcp/trade/register", async function (req, res) {
   const orderId = normalizeText(req.body.orderId);
   const draftId = normalizeText(req.body.draftId);
-  const context = normalizeText(req.body.context) === "stageService" ? "stageService" : "application";
+  const context = normalizeKcpPaymentContext(req.body.context);
   const requestedPaymentMethod = normalizeText(req.body.paymentMethod) || "CARD";
   const kcpMethod = mapClientPaymentMethodToKcp(requestedPaymentMethod);
 
@@ -2736,6 +2873,24 @@ app.post("/kcp/trade/register", async function (req, res) {
       ok: false,
       message: "Missing orderId",
     });
+  }
+
+  if (context === "kcpTest") {
+    if (!kcpTestPaymentEnabled) {
+      return res.status(404).json({
+        ok: false,
+        code: "KCP_TEST_PAYMENT_DISABLED",
+        message: "KCP test payment is disabled",
+      });
+    }
+
+    if (!isKcpTestPaymentAuthorized(req)) {
+      return res.status(403).json({
+        ok: false,
+        code: "KCP_TEST_PAYMENT_FORBIDDEN",
+        message: "Invalid KCP test payment token",
+      });
+    }
   }
 
   if (!kcpMethod) {
@@ -2809,6 +2964,14 @@ app.post("/kcp/trade/register", async function (req, res) {
       });
     }
 
+    if (context === "kcpTest" && (order.order_name !== "KCP 100원 테스트 결제" || amount !== 100)) {
+      return res.status(409).json({
+        ok: false,
+        code: "KCP_TEST_ORDER_MISMATCH",
+        message: "Order is not a KCP test payment order",
+      });
+    }
+
     const regType = resolveKcpRegType(req.headers["user-agent"]);
     const signatureSource = [
       kcpSiteCode,
@@ -2827,7 +2990,7 @@ app.post("/kcp/trade/register", async function (req, res) {
       draftId,
       orderId: order.order_id,
     });
-    const failPath = context === "stageService" ? "/stage-services/fail" : "/fail";
+    const failPath = getKcpFailPath(context);
     const failUrl = buildKcpRedirectUrl(req, failPath, {
       code: "KCP_AUTH_FAILED",
       message: "KCP 결제 인증에 실패했습니다.",
@@ -2888,7 +3051,7 @@ app.post("/kcp/trade/register", async function (req, res) {
 });
 
 app.post("/kcp/return", async function (req, res) {
-  const context = normalizeText(req.query.context) === "stageService" ? "stageService" : "application";
+  const context = normalizeKcpPaymentContext(req.query.context);
   const draftId = normalizeText(req.query.draftId);
   const orderId =
     normalizeText(req.query.orderId) ||
@@ -2898,8 +3061,8 @@ app.post("/kcp/return", async function (req, res) {
   const encData = normalizeText(req.body.enc_data);
   const encInfo = normalizeText(req.body.enc_info);
   const tranCd = normalizeText(req.body.tran_cd);
-  const failPath = context === "stageService" ? "/stage-services/fail" : "/fail";
-  const successPath = context === "stageService" ? "/stage-services/payment/success" : "/payment/success";
+  const failPath = getKcpFailPath(context);
+  const successPath = getKcpSuccessPath(context);
 
   function redirectFailure(code, message) {
     return res.redirect(
@@ -2931,6 +3094,7 @@ app.post("/kcp/return", async function (req, res) {
       `
         SELECT
           order_id,
+          order_name,
           amount,
           payment_provider,
           payment_method,
@@ -2998,6 +3162,11 @@ app.post("/kcp/return", async function (req, res) {
     if (amount === null) {
       await client.query("ROLLBACK");
       return redirectFailure("INVALID_ORDER_AMOUNT", "주문 금액이 올바르지 않습니다.");
+    }
+
+    if (context === "kcpTest" && (order.order_name !== "KCP 100원 테스트 결제" || amount !== 100)) {
+      await client.query("ROLLBACK");
+      return redirectFailure("KCP_TEST_ORDER_MISMATCH", "KCP 테스트 결제 주문이 아닙니다.");
     }
 
     const approveBody = {

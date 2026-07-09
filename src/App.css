@@ -151,6 +151,114 @@ html {
   background-color: rgb(229 239 255);
 }
 
+.kcp-test-page {
+  min-height: 100vh;
+  padding: 48px 20px;
+  background: #f6f8fb;
+  color: #191f28;
+}
+
+.kcp-test-panel {
+  width: min(100%, 560px);
+  margin: 0 auto;
+  padding: 32px;
+  background: #fff;
+  border: 1px solid #e5e8eb;
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgba(0, 27, 55, 0.08);
+}
+
+.kcp-test-eyebrow {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1b64da;
+}
+
+.kcp-test-panel h1 {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.25;
+}
+
+.kcp-test-description {
+  margin: 14px 0 24px;
+  color: #4e5968;
+  line-height: 1.6;
+}
+
+.kcp-test-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px;
+  margin-bottom: 20px;
+  background: #f2f4f6;
+  border-radius: 8px;
+}
+
+.kcp-test-summary span,
+.kcp-test-result-row span {
+  color: #6b7684;
+  font-size: 14px;
+}
+
+.kcp-test-summary strong {
+  font-size: 24px;
+}
+
+.kcp-test-field {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #333d4b;
+}
+
+.kcp-test-field input {
+  width: 100%;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid #d1d6db;
+  border-radius: 6px;
+  font-size: 15px;
+}
+
+.kcp-test-error {
+  margin: 18px 0 0;
+  color: #d14343;
+  line-height: 1.5;
+}
+
+.kcp-test-button {
+  width: 100%;
+  margin: 24px 0 0;
+}
+
+.kcp-test-link {
+  display: inline-block;
+}
+
+.kcp-test-result {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.kcp-test-result-row {
+  display: grid;
+  gap: 6px;
+  padding: 14px 0;
+  border-bottom: 1px solid #e5e8eb;
+}
+
+.kcp-test-result-row strong {
+  overflow-wrap: anywhere;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
 .button:hover {
   color: #fff;
   background-color: #1b64da;
