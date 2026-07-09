@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, useState } from "react";
 import { applicationFlowSteps } from "../lib/applicationFlowAccess";
+import { normalizeApplicationSelection } from "../data/applicationDisciplines";
 import { getDefaultSnsPlatform } from "../lib/applicationSns";
 
 const STORAGE_KEY = "application-flow-state";
@@ -120,7 +121,7 @@ function applicationFlowReducer(state, action) {
     case "SET_SELECTION":
       return {
         ...state,
-        selection: action.value,
+        selection: normalizeApplicationSelection(action.value),
       };
     case "SET_DRAFT_ID":
       return {
@@ -156,7 +157,7 @@ function applicationFlowReducer(state, action) {
         },
         selection: {
           ...initialState.selection,
-          ...(action.payload?.selection || {}),
+          ...normalizeApplicationSelection(action.payload?.selection || {}),
         },
         consents: {
           ...initialState.consents,

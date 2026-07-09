@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
+import { getApplicationDisciplineTitleByImageKey } from "../data/applicationDisciplines";
 import { buildApiUrl } from "../lib/applicationApi";
 
 const commonItems = [
-  { key: "register/common_1.png", title: "Model Korea" },
-  { key: "register/common_2.png", title: "Fitness Korea" },
-  { key: "register/common_3.png", title: "Danim Korea" },
-  { key: "register/common_4.png", title: "Transformation" },
+  { key: "register/common_1.png" },
+  { key: "register/common_2.png" },
+  { key: "register/common_3.png" },
+  { key: "register/common_4.png" },
 ];
 
 function getDisciplineGroups(t) {
@@ -16,19 +17,19 @@ function getDisciplineGroups(t) {
     man: {
       label: t("applySelect.men"),
       items: [
-        { key: "register/man_1.png", title: "Body Building" },
-        { key: "register/man_2.png", title: "Classic" },
-        { key: "register/man_3.png", title: "Physique" },
+        { key: "register/man_1.png" },
+        { key: "register/man_2.png" },
+        { key: "register/man_3.png" },
         ...commonItems,
-      ],
+      ].map((item) => ({ ...item, title: getApplicationDisciplineTitleByImageKey(item.key) })),
     },
     woman: {
       label: t("applySelect.women"),
       items: [
-        { key: "register/woman_1.png", title: "Ms. Bikini Korea" },
-        { key: "register/woman_2.png", title: "Figure Korea" },
+        { key: "register/woman_1.png" },
+        { key: "register/woman_2.png" },
         ...commonItems,
-      ],
+      ].map((item) => ({ ...item, title: getApplicationDisciplineTitleByImageKey(item.key) })),
     },
   };
 }

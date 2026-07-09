@@ -1,16 +1,19 @@
+import { normalizeApplicationSelection } from "../data/applicationDisciplines";
+
 export function buildApplyDetailPath(selection) {
+  const normalizedSelection = normalizeApplicationSelection(selection);
   const params = new URLSearchParams();
 
-  if (selection?.division) {
-    params.set("division", selection.division);
+  if (normalizedSelection?.division) {
+    params.set("division", normalizedSelection.division);
   }
 
-  if (selection?.discipline) {
-    params.set("discipline", selection.discipline);
+  if (normalizedSelection?.discipline) {
+    params.set("discipline", normalizedSelection.discipline);
   }
 
-  if (selection?.imageKey) {
-    params.set("imageKey", selection.imageKey);
+  if (normalizedSelection?.imageKey) {
+    params.set("imageKey", normalizedSelection.imageKey);
   }
 
   const query = params.toString();

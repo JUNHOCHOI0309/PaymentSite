@@ -327,7 +327,7 @@ const localizedAdditionalInfo = {
         ],
       },
       "register/common_3.png": {
-        title: "Danim Korea",
+        title: "데님\n\n(DENIM)",
         sections: [
           {
             title: "준비중",
@@ -336,7 +336,7 @@ const localizedAdditionalInfo = {
         ],
       },
       "register/common_4.png": {
-        title: "Transformation",
+        title: "트랜스포메이션\n\n(TRANSFORMATION)",
         sections: [
           {
             title: "준비중",
@@ -778,7 +778,7 @@ Accessories are allowed.`,
         ],
       },
       "register/common_3.png": {
-        title: "Danim Korea",
+        title: "DENIM",
         sections: [
           {
             title: "Coming Soon",
@@ -787,7 +787,7 @@ Accessories are allowed.`,
         ],
       },
       "register/common_4.png": {
-        title: "Transformation",
+        title: "TRANSFORMATION",
         sections: [
           {
             title: "Coming Soon",
@@ -796,11 +796,11 @@ Accessories are allowed.`,
         ],
       },
       "register/woman_1.png": {
-        title: "Ms. Bikini",
+        title: "Ms.Bikini",
         sections: [
           {
             title: "Overview",
-            body: `The Ms. Bikini division focuses on body lines, condition, and overall appeal.
+            body: `The Ms.Bikini division focuses on body lines, condition, and overall appeal.
 
 Classic and Open run 2 rounds, while Novice runs 1 round.`,
           },
@@ -824,7 +824,7 @@ Open & Novice (Short, Medium, Tall)
 Round 2 Bikini
 1. Physical condition 2. Overall appearance 3. Aesthetic score 4. Posing and presentation
 
-- Ms. Bikini Novice is judged on the bikini round only.`,
+- Ms.Bikini Novice is judged on the bikini round only.`,
           },
           {
             title: "Stage Flow",
@@ -861,10 +861,10 @@ Excessively sexual, disorderly, or provocative poses, behavior, or attitude may 
         sections: [
           {
             title: "Overview",
-            body: `This division began in 2005 and sits between the Musclemania women's division and Ms. Bikini in concept.
+            body: `This division began in 2005 and sits between the Musclemania women's division and Ms.Bikini in concept.
 It is conducted in a single-round format.
 
-Compared with Ms. Bikini, it favors higher muscle mass and sharper condition, while still emphasizing femininity and a well-defined feminine body line.`,
+Compared with Ms.Bikini, it favors higher muscle mass and sharper condition, while still emphasizing femininity and a well-defined feminine body line.`,
           },
           {
             title: "Eligibility",

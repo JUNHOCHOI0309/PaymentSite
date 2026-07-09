@@ -16,6 +16,7 @@ const {
 } = require("@aws-sdk/client-s3");
 const refundPolicy = require("./src/data/refundPolicy.json");
 const stageServiceConfig = require("./src/data/stageServiceConfig.json");
+const applicationDisciplineCatalog = require("./src/data/applicationDisciplineCatalog.json");
 const app = express();
 const port = Number(process.env.PORT || 4000);
 const corsAllowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || "")
@@ -172,6 +173,23 @@ const stageVideoAdditionalOptionDefinitions = stageVideoTypeDefinitions.flatMap(
 const stageVideoAdditionalOptionMap = new Map(
   stageVideoAdditionalOptionDefinitions.map((definition) => [definition.value, definition])
 );
+const applicationDisciplineDefinitions = Array.isArray(applicationDisciplineCatalog.items)
+  ? applicationDisciplineCatalog.items
+  : [];
+const applicationDisciplineDefinitionByImageKey = new Map(
+  applicationDisciplineDefinitions.map((definition) => [definition.imageKey, definition])
+);
+const applicationDisciplineDefinitionByAlias = new Map();
+
+applicationDisciplineDefinitions.forEach((definition) => {
+  [definition.title, ...(definition.aliases || [])].forEach((alias) => {
+    const normalizedAlias = normalizeDisciplineAlias(alias);
+
+    if (normalizedAlias) {
+      applicationDisciplineDefinitionByAlias.set(normalizedAlias, definition);
+    }
+  });
+});
 const hairOptionDefinitions = Array.isArray(stageServiceDefinitions["hair-makeup"]?.hairOptions)
   ? stageServiceDefinitions["hair-makeup"].hairOptions
   : [];
@@ -696,6 +714,37 @@ function normalizeText(value) {
 
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+function normalizeDisciplineAlias(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function getCanonicalApplicationDisciplineTitle({ imageKey, discipline } = {}) {
+  if (imageKey && applicationDisciplineDefinitionByImageKey.has(imageKey)) {
+    return applicationDisciplineDefinitionByImageKey.get(imageKey).title;
+  }
+
+  const normalizedAlias = normalizeDisciplineAlias(discipline);
+
+  if (normalizedAlias && applicationDisciplineDefinitionByAlias.has(normalizedAlias)) {
+    return applicationDisciplineDefinitionByAlias.get(normalizedAlias).title;
+  }
+
+  return discipline || null;
+}
+
+function normalizeApplicationSelection(selection = {}) {
+  return {
+    ...selection,
+    discipline: getCanonicalApplicationDisciplineTitle({
+      imageKey: selection.imageKey,
+      discipline: selection.discipline,
+    }),
+  };
 }
 
 function normalizeEmail(value) {
@@ -1937,7 +1986,10 @@ function mapDraftRow(row) {
     introduction: row.introduction,
     weightClass: row.weight_class,
     division: row.division,
-    discipline: row.discipline,
+    discipline: getCanonicalApplicationDisciplineTitle({
+      imageKey: row.image_key,
+      discipline: row.discipline,
+    }),
     imageKey: row.image_key,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -1961,7 +2013,10 @@ function mapApplicationRow(row) {
     introduction: row.introduction,
     weightClass: row.weight_class,
     division: row.division,
-    discipline: row.discipline,
+    discipline: getCanonicalApplicationDisciplineTitle({
+      imageKey: row.image_key,
+      discipline: row.discipline,
+    }),
     imageKey: row.image_key,
     submittedAt: row.submitted_at,
     updatedAt: row.updated_at,
@@ -2042,7 +2097,9 @@ function mapStageServiceDraftRow(row) {
     phone: row.phone,
     email: row.email,
     linkedApplicationNumber: row.linked_application_number,
-    linkedDiscipline: row.linked_discipline,
+    linkedDiscipline: getCanonicalApplicationDisciplineTitle({
+      discipline: row.linked_discipline,
+    }),
     photoHasAdditionalDiscipline: row.photo_has_additional_discipline ? "O" : "X",
     photoAdditionalDiscipline: row.photo_additional_discipline,
     videoType: row.video_type,
@@ -2067,7 +2124,9 @@ function mapStageServiceOrderRow(row) {
     phone: maskPhone(row.phone),
     email: maskEmail(row.email),
     linkedApplicationNumber: row.linked_application_number,
-    linkedDiscipline: row.linked_discipline,
+    linkedDiscipline: getCanonicalApplicationDisciplineTitle({
+      discipline: row.linked_discipline,
+    }),
     photoHasAdditionalDiscipline: row.photo_has_additional_discipline ? "O" : "X",
     photoAdditionalDiscipline: row.photo_additional_discipline,
     videoType: row.video_type,
@@ -2280,7 +2339,8 @@ async function findEligibleCompletedApplicationForStageService({
       SELECT
         id,
         application_number,
-        discipline
+        discipline,
+        image_key
       FROM applications
       WHERE name = $1
         AND phone = $2
@@ -2292,7 +2352,17 @@ async function findEligibleCompletedApplicationForStageService({
     [name, phone, email]
   );
 
-  return result.rows[0] || null;
+  if (result.rowCount === 0) {
+    return null;
+  }
+
+  return {
+    ...result.rows[0],
+    discipline: getCanonicalApplicationDisciplineTitle({
+      imageKey: result.rows[0].image_key,
+      discipline: result.rows[0].discipline,
+    }),
+  };
 }
 
 async function hasPurchasedStageService({
@@ -2330,11 +2400,11 @@ function validateDraftPayload(body) {
   const introduction = normalizeText(body.introduction);
   const weightClass = normalizeText(body.weightClass);
   const paymentMethod = normalizeText(body.paymentMethod) || "widget";
-  const selection = {
+  const selection = normalizeApplicationSelection({
     division: normalizeText(body.selection?.division),
     discipline: normalizeText(body.selection?.discipline),
     imageKey: normalizeText(body.selection?.imageKey),
-  };
+  });
 
   const consents = {
     privacy: normalizeBoolean(body.consents?.privacy),
@@ -4145,7 +4215,9 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
         introduction: row.introduction,
         weightClass: row.weight_class,
         division: row.division,
-        discipline: row.discipline,
+        discipline: getCanonicalApplicationDisciplineTitle({
+          discipline: row.discipline,
+        }),
         paymentStatus: row.payment_status,
         submittedAt: row.submitted_at,
         documentOriginalFilename: row.document_original_filename,
@@ -4214,7 +4286,9 @@ app.get("/admin/stage-services", requireAdminAuth, async function (req, res) {
         phone: row.phone,
         email: row.email,
         linkedApplicationNumber: row.linked_application_number,
-        linkedDiscipline: row.linked_discipline,
+        linkedDiscipline: getCanonicalApplicationDisciplineTitle({
+          discipline: row.linked_discipline,
+        }),
         photoHasAdditionalDiscipline: row.photo_has_additional_discipline ? "O" : "X",
         photoAdditionalDiscipline: row.photo_additional_discipline,
         videoType: row.video_type,
@@ -4399,7 +4473,9 @@ app.get("/admin/refunds", requireAdminAuth, async function (req, res) {
         phone: row.application_phone,
         email: row.application_email,
         division: row.division,
-        discipline: row.discipline,
+        discipline: getCanonicalApplicationDisciplineTitle({
+          discipline: row.discipline,
+        }),
         paymentStatus: row.payment_status,
       })),
       refunds: canceledPaymentResult.rows.map((row) => ({
@@ -4410,7 +4486,9 @@ app.get("/admin/refunds", requireAdminAuth, async function (req, res) {
         phone: row.phone,
         email: row.email || row.customer_email,
         division: row.division,
-        discipline: row.discipline,
+        discipline: getCanonicalApplicationDisciplineTitle({
+          discipline: row.discipline,
+        }),
         paymentStatus: row.status,
         totalAmount: row.total_amount,
         approvedAt: row.approved_at,

@@ -1,50 +1,49 @@
 {
-  "defaultAmount": 200000,
   "items": [
     {
       "imageKey": "register/man_1.png",
       "title": "Bodybuilding",
-      "amount": 200000
+      "aliases": ["Body Building", "Bodybuilding"]
     },
     {
       "imageKey": "register/man_2.png",
       "title": "Classic",
-      "amount": 200000
+      "aliases": ["Classic"]
     },
     {
       "imageKey": "register/man_3.png",
       "title": "Physique",
-      "amount": 200000
+      "aliases": ["Physique"]
     },
     {
       "imageKey": "register/common_1.png",
       "title": "Model",
-      "amount": 200000
+      "aliases": ["Model", "Model Korea"]
     },
     {
       "imageKey": "register/common_2.png",
       "title": "Fitness",
-      "amount": 200000
+      "aliases": ["Fitness", "Fitness Korea"]
     },
     {
       "imageKey": "register/common_3.png",
       "title": "Denim",
-      "amount": 200000
+      "aliases": ["Denim", "Danim Korea"]
     },
     {
       "imageKey": "register/common_4.png",
       "title": "Transformation",
-      "amount": 200000
+      "aliases": ["Transformation"]
     },
     {
       "imageKey": "register/woman_1.png",
       "title": "Ms.Bikini",
-      "amount": 200000
+      "aliases": ["Ms.Bikini", "Ms. Bikini", "Ms. Bikini Korea"]
     },
     {
       "imageKey": "register/woman_2.png",
       "title": "Figure",
-      "amount": 200000
+      "aliases": ["Figure", "Figure Korea"]
     }
   ]
 }

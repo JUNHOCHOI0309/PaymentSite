@@ -9,6 +9,10 @@ import { useApplicationFlow } from "../context/ApplicationFlowContext";
 import { useLanguage } from "../context/LanguageContext";
 import { getApplicationAdditionalInfo } from "../data/applicationAdditionalInfo";
 import {
+  getCanonicalApplicationDisciplineTitle,
+  normalizeApplicationSelection,
+} from "../data/applicationDisciplines";
+import {
   formatApplicationEntryFee,
   getApplicationEntryFee,
 } from "../data/applicationEntryFees";
@@ -148,8 +152,12 @@ export function ApplyPage() {
   const [fieldErrors, setFieldErrors] = useState(getInitialFieldErrors);
 
   const selectedDivision = searchParams.get("division") || "";
-  const competitionName = searchParams.get("discipline") || t("apply.fallbackCompetition");
   const selectedImageKey = searchParams.get("imageKey") || "";
+  const competitionName =
+    getCanonicalApplicationDisciplineTitle({
+      imageKey: selectedImageKey,
+      discipline: searchParams.get("discipline") || "",
+    }) || t("apply.fallbackCompetition");
   const additionalInfo = getApplicationAdditionalInfo(locale, selectedImageKey);
   const weightClassOptions = getWeightClassOptions(selectedImageKey);
   const hasWeightClassOptions = weightClassOptions.length > 0;
@@ -163,11 +171,11 @@ export function ApplyPage() {
       return;
     }
 
-    const incomingSelection = {
+    const incomingSelection = normalizeApplicationSelection({
       division: selectedDivision,
       discipline: searchParams.get("discipline") || "",
       imageKey: selectedImageKey,
-    };
+    });
 
     const hasSavedSelection = Object.values(state.selection || {}).some(Boolean);
     const isSameSelection =
