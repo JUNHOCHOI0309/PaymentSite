@@ -19,7 +19,6 @@ import { ApplySelectPage } from "./pages/ApplySelectPage";
 import { StageServiceSelectPage } from "./pages/StageServiceSelectPage";
 import { AdminDashboardPage } from "./pages/admin/AdminDashboardPage";
 import { AdminLoginPage } from "./pages/admin/AdminLoginPage";
-import { BrandpayCheckoutPage } from "./pages/brandpay/BrandpayCheckout";
 import { CompetitionIntroPage, MmkIntroPage } from "./pages/CompetitionIntroPage";
 import { FailPage } from "./pages/Fail";
 import { HomePage } from "./pages/HomePage";
@@ -38,20 +37,12 @@ import { LookupPage } from "./pages/LookupPage";
 import { StageServiceCompletePage } from "./pages/StageServiceCompletePage";
 import { StageServiceDetailPage } from "./pages/StageServiceDetailPage";
 import { StageServiceReviewPage } from "./pages/StageServiceReviewPage";
-import { PaymentBillingPage } from "./pages/payment/PaymentBilling";
 import { PaymentCheckoutPage } from "./pages/payment/PaymentCheckout";
 import { PaymentSuccessPage } from "./pages/payment/PaymentSuccess";
-import { BrandpaySuccessPage } from "./pages/brandpay/BrandpaySuccess";
 import { PrivacyPage } from "./pages/PrivacyPage";
 import { TermsPage } from "./pages/TermsPage";
-import { StageServiceBrandpayCheckoutPage } from "./pages/stageService/StageServiceBrandpayCheckout";
-import { StageServiceBrandpaySuccessPage } from "./pages/stageService/StageServiceBrandpaySuccess";
 import { StageServicePaymentCheckoutPage } from "./pages/stageService/StageServicePaymentCheckout";
 import { StageServicePaymentSuccessPage } from "./pages/stageService/StageServicePaymentSuccess";
-import { StageServiceWidgetCheckoutPage } from "./pages/stageService/StageServiceWidgetCheckout";
-import { StageServiceWidgetSuccessPage } from "./pages/stageService/StageServiceWidgetSuccess";
-import { WidgetCheckoutPage } from "./pages/widget/WidgetCheckout";
-import { WidgetSuccessPage } from "./pages/widget/WidgetSuccess";
 
 const adminHosts = new Set(["admin.mmkorea.com", "mmkorea-admin.pages.dev"]);
 
@@ -217,147 +208,6 @@ const router = createBrowserRouter([
         element: <KcpTestPaymentFailPage />,
       },
       {
-        path: "widget",
-        children: [
-          {
-            path: "checkout",
-            element: (
-              <ApplicationFlowRouteGuard
-                minStep={applicationFlowSteps.CHECKOUT}
-                requireDraftId
-                requireOrderId
-                requirePaymentMethod="widget"
-              >
-                <WidgetCheckoutPage />
-              </ApplicationFlowRouteGuard>
-            ),
-          },
-          {
-            path: "success",
-            element: (
-              <ApplicationFlowRouteGuard
-                minStep={applicationFlowSteps.CHECKOUT}
-                requireDraftId
-                requireOrderId
-                requirePaymentMethod="widget"
-                requireSearchParams={["orderId", "amount", "paymentKey"]}
-              >
-                <WidgetSuccessPage />
-              </ApplicationFlowRouteGuard>
-            ),
-          },
-        ],
-      },
-      {
-        path: "stage-services/widget",
-        children: [
-          {
-            path: "checkout",
-            element: (
-              <StageServiceFlowRouteGuard
-                minStep={stageServiceFlowSteps.CHECKOUT}
-                requireDraftId
-                requireOrderId
-                requirePaymentMethod="widget"
-              >
-                <StageServiceWidgetCheckoutPage />
-              </StageServiceFlowRouteGuard>
-            ),
-          },
-          {
-            path: "success",
-            element: (
-              <StageServiceFlowRouteGuard
-                minStep={stageServiceFlowSteps.CHECKOUT}
-                requireDraftId
-                requireOrderId
-                requirePaymentMethod="widget"
-                requireSearchParams={["orderId", "amount", "paymentKey"]}
-              >
-                <StageServiceWidgetSuccessPage />
-              </StageServiceFlowRouteGuard>
-            ),
-          },
-        ],
-      },
-      {
-        path: "checkout",
-        element: (
-          <ApplicationFlowRouteGuard
-            minStep={applicationFlowSteps.CHECKOUT}
-            requireDraftId
-            requireOrderId
-            requirePaymentMethod="widget"
-          >
-            <WidgetCheckoutPage />
-          </ApplicationFlowRouteGuard>
-        ),
-      },
-      {
-        path: "brandpay",
-        children: [
-          {
-            path: "checkout",
-            element: (
-              <ApplicationFlowRouteGuard
-                minStep={applicationFlowSteps.CHECKOUT}
-                requireDraftId
-                requireOrderId
-                requirePaymentMethod="brandpay"
-              >
-                <BrandpayCheckoutPage />
-              </ApplicationFlowRouteGuard>
-            ),
-          },
-          {
-            path: "success",
-            element: (
-              <ApplicationFlowRouteGuard
-                minStep={applicationFlowSteps.CHECKOUT}
-                requireDraftId
-                requireOrderId
-                requirePaymentMethod="brandpay"
-                requireSearchParams={["orderId", "amount", "paymentKey", "customerKey"]}
-              >
-                <BrandpaySuccessPage />
-              </ApplicationFlowRouteGuard>
-            ),
-          },
-        ],
-      },
-      {
-        path: "stage-services/brandpay",
-        children: [
-          {
-            path: "checkout",
-            element: (
-              <StageServiceFlowRouteGuard
-                minStep={stageServiceFlowSteps.CHECKOUT}
-                requireDraftId
-                requireOrderId
-                requirePaymentMethod="brandpay"
-              >
-                <StageServiceBrandpayCheckoutPage />
-              </StageServiceFlowRouteGuard>
-            ),
-          },
-          {
-            path: "success",
-            element: (
-              <StageServiceFlowRouteGuard
-                minStep={stageServiceFlowSteps.CHECKOUT}
-                requireDraftId
-                requireOrderId
-                requirePaymentMethod="brandpay"
-                requireSearchParams={["orderId", "amount", "paymentKey", "customerKey"]}
-              >
-                <StageServiceBrandpaySuccessPage />
-              </StageServiceFlowRouteGuard>
-            ),
-          },
-        ],
-      },
-      {
         path: "payment",
         children: [
           {
@@ -372,10 +222,6 @@ const router = createBrowserRouter([
                 <PaymentCheckoutPage />
               </ApplicationFlowRouteGuard>
             ),
-          },
-          {
-            path: "billing",
-            element: <PaymentBillingPage />,
           },
           {
             path: "success",

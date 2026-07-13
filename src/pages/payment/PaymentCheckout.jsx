@@ -1,47 +1,19 @@
-import { loadTossPayments } from "@tosspayments/tosspayments-sdk";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApplicationFlow } from "../../context/ApplicationFlowContext";
 import { useLanguage } from "../../context/LanguageContext";
-import { getApplicationEntryFee } from "../../data/applicationEntryFees";
 import { prepareKcpPayment } from "../../lib/applicationApi";
-
-const clientKey = import.meta.env.VITE_TOSS_API_CLIENT_KEY;
-const customerKey = generateRandomString();
 
 export function PaymentCheckoutPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { state } = useApplicationFlow();
   const { t } = useLanguage();
-  const [payment, setPayment] = useState(null);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("CARD");
   const [errorMessage, setErrorMessage] = useState("");
 
   const orderId = searchParams.get("orderId") || state.orderId;
   const draftId = searchParams.get("draftId") || state.draftId;
-  const amount = {
-    currency: "KRW",
-    value: getApplicationEntryFee(state.selection.imageKey),
-  };
-
-  useEffect(() => {
-    async function fetchPayment() {
-      if (!clientKey) {
-        return;
-      }
-
-      try {
-        const tossPayments = await loadTossPayments(clientKey);
-        setPayment(tossPayments.payment({ customerKey }));
-      } catch (error) {
-        setErrorMessage(error.message || t("payment.prepareError"));
-      }
-    }
-
-    fetchPayment();
-  }, [t]);
-
   async function requestPayment() {
     if (!orderId) {
       setErrorMessage(t("payment.missingOrder"));
@@ -57,29 +29,9 @@ export function PaymentCheckoutPage() {
       });
 
       submitKcpPayment(kcpPayment.payUrl, kcpPayment.formFields);
-      return;
     } catch (error) {
-      if (error.code !== "PAYMENT_PROVIDER_MISMATCH") {
-        setErrorMessage(error.message || t("payment.prepareError"));
-        return;
-      }
+      setErrorMessage(error.message || t("payment.prepareError"));
     }
-
-    if (!payment) {
-      setErrorMessage(t("payment.prepareError"));
-      return;
-    }
-
-    await payment.requestPayment({
-      method: selectedPaymentMethod,
-      amount,
-      orderId,
-      orderName: t("payment.orderName"),
-      successUrl: `${window.location.origin}/payment/success?draftId=${encodeURIComponent(draftId || "")}`,
-      failUrl: window.location.origin + "/fail",
-      customerEmail: state.applicantInfo.email || "customer@example.com",
-      customerName: state.applicantInfo.name || t("payment.applicant"),
-    });
   }
 
   return (
@@ -114,10 +66,6 @@ export function PaymentCheckoutPage() {
       </div>
     </div>
   );
-}
-
-function generateRandomString() {
-  return window.btoa(Math.random().toString()).slice(0, 20);
 }
 
 function submitKcpPayment(payUrl, formFields = {}) {

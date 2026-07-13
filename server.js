@@ -253,12 +253,10 @@ const pool = new Pool({
 });
 
 const paymentProviders = Object.freeze({
-  TOSS: "toss",
   KCP: "kcp",
 });
 const validPaymentProviders = new Set(Object.values(paymentProviders));
-const defaultPaymentProvider =
-  normalizePaymentProvider(process.env.DEFAULT_PAYMENT_PROVIDER) || paymentProviders.KCP;
+const defaultPaymentProvider = paymentProviders.KCP;
 const kcpEnabled = process.env.KCP_ENABLED !== "false";
 const kcpMaxAmount = Math.max(0, Number(process.env.KCP_MAX_AMOUNT || 0));
 const kcpMode = normalizeText(process.env.KCP_MODE) === "production" ? "production" : "test";
@@ -308,7 +306,7 @@ async function ensurePaymentProviderColumnsReady() {
     `);
     await pool.query(`
       UPDATE orders
-      SET payment_provider = 'toss'
+      SET payment_provider = 'kcp'
       WHERE payment_provider IS NULL
     `);
     await pool.query(`
@@ -335,7 +333,7 @@ async function ensurePaymentProviderColumnsReady() {
     `);
     await pool.query(`
       UPDATE payments
-      SET payment_provider = 'toss'
+      SET payment_provider = 'kcp'
       WHERE payment_provider IS NULL
     `);
     await pool.query(`
@@ -385,7 +383,7 @@ async function ensurePaymentProviderColumnsReady() {
       `);
       await pool.query(`
         UPDATE payment_webhook_events
-        SET payment_provider = 'toss'
+        SET payment_provider = 'kcp'
         WHERE payment_provider IS NULL
       `);
       await pool.query(`
@@ -422,15 +420,11 @@ function resolvePaymentProvider({ requestedProvider, amount }) {
 
   if (provider === paymentProviders.KCP) {
     if (!kcpEnabled) {
-      if (hasExplicitProvider) {
-        return {
-          ok: false,
-          status: 503,
-          message: "KCP payment is disabled",
-        };
-      }
-
-      provider = paymentProviders.TOSS;
+      return {
+        ok: false,
+        status: 503,
+        message: "KCP payment is disabled",
+      };
     } else if (kcpMaxAmount > 0 && amount > kcpMaxAmount) {
       return {
         ok: false,
@@ -2771,7 +2765,7 @@ function validateDraftPayload(body) {
   const instagramId = normalizeText(body.instagramId) || "없음";
   const introduction = normalizeText(body.introduction);
   const weightClass = normalizeText(body.weightClass);
-  const paymentMethod = normalizeText(body.paymentMethod) || "widget";
+  const paymentMethod = normalizeText(body.paymentMethod) || "payment";
   const selection = normalizeApplicationSelection({
     division: normalizeText(body.selection?.division),
     discipline: normalizeText(body.selection?.discipline),
@@ -2815,41 +2809,6 @@ function validateDraftPayload(body) {
       selection,
       consents,
     },
-  };
-}
-
-// 웹훅 복제 헬퍼
-function buildWebhookEventId(payload) {
-  const explicitEventId =
-    payload?.eventId || payload?.event_id || payload?.data?.eventId || null;
-
-  if (explicitEventId) {
-    return explicitEventId;
-  }
-
-  const fingerprintSource = {
-    eventType: payload?.eventType || payload?.type || payload?.event_type || "UNKNOWN",
-    createdAt: payload?.createdAt || payload?.created_at || null,
-    paymentKey: payload?.data?.paymentKey || payload?.paymentKey || null,
-    orderId: payload?.data?.orderId || payload?.orderId || null,
-    status: payload?.data?.status || payload?.status || null,
-    secret: payload?.data?.secret || payload?.secret || null,
-    data: payload?.data || null,
-  };
-
-  return crypto
-    .createHash("sha256")
-    .update(JSON.stringify(fingerprintSource))
-    .digest("hex");
-}
-
-function extractWebhookFields(payload) {
-  return {
-    eventType: payload?.eventType || payload?.type || payload?.event_type || "UNKNOWN",
-    eventId: buildWebhookEventId(payload),
-    paymentKey: payload?.data?.paymentKey || payload?.paymentKey || null,
-    orderId: payload?.data?.orderId || payload?.orderId || null,
-    secret: payload?.data?.secret || payload?.secret || null,
   };
 }
 
@@ -2921,21 +2880,6 @@ async function markWebhookEventStatus(eventId, status) {
   );
 }
 
-// 결제 취소 상태 이벤트 발생 시
-function extractWebhookPaymentStatus(eventType, payload) {
-  if (eventType === "CANCEL_STATUS_CHANGED") {
-    return (
-      payload?.data?.cancelStatus ||
-      payload?.cancelStatus ||
-      payload?.data?.status ||
-      payload?.status ||
-      null
-    );
-  }
-
-  return payload?.data?.status || payload?.status || null;
-}
-
 // Payment의 status에 따른 Order status 변경
 function mapPaymentStatusToOrderStatus(paymentStatus) {
   switch (paymentStatus) {
@@ -2952,288 +2896,6 @@ function mapPaymentStatusToOrderStatus(paymentStatus) {
       return "FAILED";
     default:
       return null;
-  }
-}
-
-// 최소 결제 스냅샷 추출 후 업데이트
-function extractWebhookPaymentSnapshot(payload, paymentStatus) {
-  const source = payload?.data || payload || {};
-
-  return {
-    method: source.method || null,
-    paymentType: source.type || source.paymentType || null,
-    approvedAt: source.approvedAt || null,
-    totalAmount:
-      typeof source.totalAmount === "number" ? source.totalAmount : null,
-    paymentStatus,
-  };
-}
-
-// Webhook 처리가 중복으로 왔을 때 오류 방지
-async function findProcessedEquivalentWebhookEvent(client, {
-  eventId,
-  eventType,
-  paymentKey,
-  orderId,
-  paymentStatus,
-}) {
-  if (!paymentStatus || (!paymentKey && !orderId)) {
-    return false;
-  }
-
-  const equivalentEventTypes =
-    eventType === "CANCEL_STATUS_CHANGED"
-      ? ["CANCEL_STATUS_CHANGED"]
-      : ["PAYMENT_STATUS_CHANGED", "DEPOSIT_CALLBACK"];
-
-  const result = await client.query(
-    `
-      SELECT 1
-      FROM payment_webhook_events
-      WHERE event_id <> $1
-        AND processing_status = 'PROCESSED'
-        AND event_type = ANY($4)
-        AND (
-          ($2 IS NOT NULL AND payment_key = $2)
-          OR ($3 IS NOT NULL AND order_id = $3)
-        )
-        AND COALESCE(
-          payload_json->'data'->>'cancelStatus',
-          payload_json->>'cancelStatus',
-          payload_json->'data'->>'status',
-          payload_json->>'status'
-        ) = $5
-      LIMIT 1
-    `,
-    [eventId, paymentKey, orderId, equivalentEventTypes, paymentStatus]
-  );
-
-  return result.rowCount > 0;
-}
-
-// Webhook으로부터 데이터 업데이트 및 삽입
-async function upsertPaymentFromWebhook(client, {
-  orderId,
-  paymentKey,
-  payload,
-  paymentStatus,
-}) {
-  if (!orderId && !paymentKey) {
-    return null;
-  }
-
-  const paymentResult = await client.query(
-    `
-      SELECT
-        order_id,
-        payment_key,
-        status
-      FROM payments
-      WHERE payment_key = $1
-         OR order_id = $2
-      ORDER BY updated_at DESC
-      LIMIT 1
-      FOR UPDATE
-    `,
-    [paymentKey, orderId]
-  );
-
-  const snapshot = extractWebhookPaymentSnapshot(payload, paymentStatus);
-
-  if (paymentResult.rowCount > 0) {
-    await client.query(
-      `
-        UPDATE payments
-        SET
-          payment_provider = COALESCE(payment_provider, $9),
-          provider_payment_id = COALESCE(provider_payment_id, $1),
-          status = COALESCE($3, status),
-          method = COALESCE($4, method),
-          payment_type = COALESCE($5, payment_type),
-          approved_at = COALESCE($6, approved_at),
-          total_amount = COALESCE($7, total_amount),
-          raw_response_json = $8::jsonb,
-          updated_at = NOW()
-        WHERE payment_key = $1
-           OR order_id = $2
-      `,
-      [
-        paymentKey,
-        orderId,
-        snapshot.paymentStatus,
-        snapshot.method,
-        snapshot.paymentType,
-        snapshot.approvedAt,
-        snapshot.totalAmount,
-        JSON.stringify(payload),
-        paymentProviders.TOSS,
-      ]
-    );
-
-    return paymentResult.rows[0];
-  }
-
-  if (!orderId || !paymentKey) {
-    return null;
-  }
-
-  await client.query(
-    `
-      INSERT INTO payments (
-        order_id,
-        payment_key,
-        payment_provider,
-        provider_payment_id,
-        method,
-        payment_type,
-        status,
-        approved_at,
-        total_amount,
-        raw_response_json,
-        updated_at
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, NOW())
-    `,
-    [
-      orderId,
-      paymentKey,
-      paymentProviders.TOSS,
-      paymentKey,
-      snapshot.method,
-      snapshot.paymentType,
-      snapshot.paymentStatus,
-      snapshot.approvedAt,
-      snapshot.totalAmount,
-      JSON.stringify(payload),
-    ]
-  );
-
-  return {
-    order_id: orderId,
-    payment_key: paymentKey,
-    status: snapshot.paymentStatus,
-  };
-}
-
-// Webhook을 통한 BEGIN 응답을 COMMIT 또는 ROLLBACK 처리
-async function applyWebhookBusinessState({
-  eventId,
-  eventType,
-  paymentKey,
-  orderId,
-  payload,
-}) {
-  const paymentStatus = extractWebhookPaymentStatus(eventType, payload);
-
-  if (!paymentKey && !orderId) {
-    return;
-  }
-
-  const client = await pool.connect();
-
-  try {
-    await client.query("BEGIN");
-
-    const alreadyApplied = await findProcessedEquivalentWebhookEvent(client, {
-      eventId,
-      eventType,
-      paymentKey,
-      orderId,
-      paymentStatus,
-    });
-
-    if (alreadyApplied) {
-      await client.query("COMMIT");
-      return;
-    }
-
-    await upsertPaymentFromWebhook(client, {
-      orderId,
-      paymentKey,
-      payload,
-      paymentStatus,
-    });
-
-    if (orderId) {
-      const orderResult = await client.query(
-        `
-          SELECT status, payment_provider
-          FROM orders
-          WHERE order_id = $1
-          FOR UPDATE
-        `,
-        [orderId]
-      );
-
-      if (orderResult.rowCount > 0) {
-        const orderProvider =
-          orderResult.rows[0].payment_provider || paymentProviders.TOSS;
-
-        if (orderProvider !== paymentProviders.TOSS) {
-          throw new Error(`Toss webhook received for ${orderProvider} order`);
-        }
-
-        const targetOrderStatus = mapPaymentStatusToOrderStatus(paymentStatus);
-        const currentOrderStatus = orderResult.rows[0].status;
-
-        if (targetOrderStatus && currentOrderStatus !== targetOrderStatus) {
-          await client.query(
-            `
-              UPDATE orders
-              SET status = $2, updated_at = NOW()
-              WHERE order_id = $1
-            `,
-            [orderId, targetOrderStatus]
-          );
-        }
-      }
-    }
-
-    await client.query("COMMIT");
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
-// 가상계좌 secret 확인
-async function verifyDepositCallbackSecret({ paymentKey, orderId, secret }) {
-  if (!secret) {
-    const error = new Error("Missing secret in DEPOSIT_CALLBACK payload");
-    error.statusCode = 400;
-    throw error;
-  }
-
-  const paymentResult = await pool.query(
-    `
-      SELECT
-        payment_key,
-        raw_response_json->>'secret' AS stored_secret
-      FROM payments
-      WHERE payment_key = $1
-         OR order_id = $2
-      ORDER BY updated_at DESC
-      LIMIT 1
-    `,
-    [paymentKey, orderId]
-  );
-
-  if (paymentResult.rowCount === 0) {
-    throw new Error("Payment record not found for DEPOSIT_CALLBACK");
-  }
-
-  const storedSecret = paymentResult.rows[0].stored_secret;
-
-  if (!storedSecret) {
-    throw new Error("Stored payment secret is missing for DEPOSIT_CALLBACK");
-  }
-
-  if (storedSecret !== secret) {
-    const error = new Error("Invalid DEPOSIT_CALLBACK secret");
-    error.statusCode = 400;
-    throw error;
   }
 }
 
@@ -3570,7 +3232,7 @@ app.post("/kcp/trade/register", async function (req, res) {
 
     const order = orderResult.rows[0];
 
-    if ((order.payment_provider || paymentProviders.TOSS) !== paymentProviders.KCP) {
+    if (order.payment_provider !== paymentProviders.KCP) {
       return res.status(409).json({
         ok: false,
         code: "PAYMENT_PROVIDER_MISMATCH",
@@ -3743,7 +3405,7 @@ app.post("/kcp/return", async function (req, res) {
 
     const order = orderResult.rows[0];
 
-    if ((order.payment_provider || paymentProviders.TOSS) !== paymentProviders.KCP) {
+    if (order.payment_provider !== paymentProviders.KCP) {
       await client.query("ROLLBACK");
       return redirectFailure("PAYMENT_PROVIDER_MISMATCH", "KCP 결제 주문이 아닙니다.");
     }
@@ -3918,433 +3580,6 @@ app.post("/kcp/return", async function (req, res) {
   } finally {
     client.release();
   }
-});
-
-// TODO: 개발자센터에 로그인해서 내 결제위젯 연동 키 > 시크릿 키를 입력하세요. 시크릿 키는 외부에 공개되면 안돼요.
-// @docs https://docs.tosspayments.com/reference/using-api/api-keys
-const widgetSecretKey = process.env.TOSS_WIDGET_SECRET_KEY;
-const apiSecretKey = process.env.TOSS_API_SECRET_KEY;
-
-// 토스페이먼츠 API는 시크릿 키를 사용자 ID로 사용하고, 비밀번호는 사용하지 않습니다.
-// 비밀번호가 없다는 것을 알리기 위해 시크릿 키 뒤에 콜론을 추가합니다.
-// @docs https://docs.tosspayments.com/reference/using-api/authorization#%EC%9D%B8%EC%A6%9D
-const encryptedWidgetSecretKey = widgetSecretKey
-  ? "Basic " + Buffer.from(widgetSecretKey + ":").toString("base64")
-  : null;
-const encryptedApiSecretKey = apiSecretKey
-  ? "Basic " + Buffer.from(apiSecretKey + ":").toString("base64")
-  : null;
-
-// 결제위젯 승인
-async function confirmPaymentAndPersist(req, res, options) {
-  const { paymentKey, orderId, amount, customerKey } = req.body;
-  const { authorization, confirmUrl, includeCustomerKey = false, logLabel } = options;
-
-  if(!paymentKey || !orderId || amount == null) {
-    return res.status(400).json({
-      ok: false,
-      message: "Missing paymentKey, orderId, or amount",
-    });
-  }
-
-  const normalizedAmount = Number(amount);
-
-  if(!Number.isInteger(normalizedAmount) || normalizedAmount <=0) {
-    return res.status(400).json({
-      ok: false,
-      message: "Invalid amount",
-    });
-  }
-
-  if (includeCustomerKey && !customerKey) {
-    return res.status(400).json({
-      ok: false,
-      message: "Missing customerKey",
-    });
-  }
-
-  const client = await pool.connect();
-
-  try {
-    await client.query("BEGIN");
-
-    const orderResult = await client.query(
-      `
-        SELECT
-          id,
-          order_id,
-          order_name,
-          amount,
-          payment_provider,
-          status
-        FROM orders
-        WHERE order_id = $1
-        FOR UPDATE
-      `,
-      [orderId]
-    );
-
-    if(orderResult.rowCount === 0){
-      await client.query("ROLLBACK");
-      return res.status(404).json({
-        ok:false,
-        message: "Order not found",
-      });
-    }
-
-    const order = orderResult.rows[0];
-
-    if ((order.payment_provider || paymentProviders.TOSS) !== paymentProviders.TOSS) {
-      await client.query("ROLLBACK");
-      return res.status(409).json({
-        ok: false,
-        code: "PAYMENT_PROVIDER_MISMATCH",
-        message: `Order is locked to ${order.payment_provider} payment provider`,
-      });
-    }
-
-    const paymentResult = await client.query(
-      `
-        SELECT
-          payment_key,
-          status,
-          raw_response_json
-        FROM payments
-        WHERE order_id = $1
-        ORDER BY updated_at DESC
-        LIMIT 1
-      `,
-      [orderId]
-    );
-
-    if (paymentResult.rowCount > 0) {
-      const savedPayment = paymentResult.rows[0];
-
-      if (savedPayment.payment_key !== paymentKey) {
-        await client.query("ROLLBACK");
-        return res.status(409).json({
-          ok: false,
-          message: "Order already confirmed with a different paymentKey",
-        });
-      }
-
-      await client.query("ROLLBACK");
-      return res.status(200).json({
-        ok: true,
-        idempotent: true,
-        payment: savedPayment.raw_response_json,
-      });
-    }
-
-    if(order.status !== "READY"){
-      await client.query("ROLLBACK");
-      return res.status(400).json({
-        ok:false,
-        message: `Order is not in READY status. Current status: ${order.status}`,
-      });
-    }
-
-    if(Number(order.amount) !== normalizedAmount){
-      await client.query("ROLLBACK");
-      return res.status(400).json({
-        ok:false,
-        message: "Amount mismatch",
-      });
-    }
-
-    // 결제 승인 API를 호출하세요.
-    // 결제를 승인하면 결제수단에서 금액이 차감돼요.
-    // @docs https://docs.tosspayments.com/guides/v2/payment-widget/integration#3-결제-승인하기
-    const confirmBody = {
-      orderId,
-      amount: normalizedAmount,
-      paymentKey,
-    };
-
-    if (includeCustomerKey) {
-      confirmBody.customerKey = customerKey;
-    }
-
-    const tossResponse = await fetch(confirmUrl, {
-      method: "POST",
-      headers: {
-        Authorization: authorization,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(confirmBody),
-    });
-
-    const tossResult = await tossResponse.json();
-    console.log(`${logLabel} confirm result:`, tossResult);
- 
-    if (!tossResponse.ok) {
-      await client.query(
-        `
-          UPDATE orders
-          SET status = 'FAILED', updated_at = NOW()
-          WHERE order_id = $1
-        `,
-        [orderId]
-      );
-
-      await client.query("COMMIT");
-
-      return res.status(tossResponse.status).json({
-        ok:false,
-        ...tossResult,
-      });
-    }
-
-    await client.query(
-      `
-        INSERT INTO payments (
-          order_id,
-          payment_key,
-          payment_provider,
-          provider_payment_id,
-          method,
-          payment_type,
-          status,
-          approved_at,
-          total_amount,
-          raw_response_json,
-          updated_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, NOW())
-      `,
-      [
-        orderId,
-        tossResult.paymentKey || paymentKey,
-        paymentProviders.TOSS,
-        tossResult.paymentKey || paymentKey,
-        tossResult.method || null,
-        tossResult.type || null,
-        tossResult.status || "DONE",
-        tossResult.approvedAt || null,
-        tossResult.totalAmount || normalizedAmount,
-        JSON.stringify(tossResult),
-      ]
-    );
-
-    await client.query(
-      `
-        UPDATE orders
-        SET status = $2, updated_at = NOW()
-        WHERE order_id = $1
-      `,
-      [orderId, mapPaymentStatusToOrderStatus(tossResult.status) || "PAID"]
-    );
-
-    await client.query("COMMIT");
-
-    return res.status(200).json({
-      ok:true,
-      payment: tossResult,
-    });
-  } catch (error) {
-    await client.query("ROLLBACK");
-    console.error(`Failed to confirm ${logLabel} payment:`, error);
-
-    if (error.code === "23505") {
-      return res.status(409).json({
-        ok: false,
-        message: "Duplicate paymentKey detected",
-      });
-    }
-
-    return res.status(500).json({
-      ok: false,
-      message: "Failed to confirm payment",
-    });
-  } finally {
-    client.release();
-  }
-}
-
-app.post("/confirm/widget", async function (req, res) {
-  if (!encryptedWidgetSecretKey) {
-    return res.status(503).json({
-      ok: false,
-      message: "Toss payment widget is not configured",
-    });
-  }
-
-  await confirmPaymentAndPersist(req, res, {
-    authorization: encryptedWidgetSecretKey,
-    confirmUrl: "https://api.tosspayments.com/v1/payments/confirm",
-    logLabel: "widget",
-  });
-});
-
-// 결제창 승인
-app.post("/confirm/payment", async function (req, res) {
-  if (!encryptedApiSecretKey) {
-    return res.status(503).json({
-      ok: false,
-      message: "Toss payment is not configured",
-    });
-  }
-
-  return confirmPaymentAndPersist(req, res, {
-    authorization: encryptedApiSecretKey,
-    confirmUrl: "https://api.tosspayments.com/v1/payments/confirm",
-    logLabel: "payment",
-  });
-});
-
-// 브랜드페이 승인
-app.post("/confirm/brandpay", async function (req, res) {
-  if (!encryptedApiSecretKey) {
-    return res.status(503).json({
-      ok: false,
-      message: "Toss brandpay is not configured",
-    });
-  }
-
-  return confirmPaymentAndPersist(req, res, {
-    authorization: encryptedApiSecretKey,
-    confirmUrl: "https://api.tosspayments.com/v1/brandpay/payments/confirm",
-    includeCustomerKey: true,
-    logLabel: "brandpay",
-  });
-});
-
-// 브랜드페이 Access Token 발급
-app.get("/callback-auth", function (req, res) {
-  if (!encryptedApiSecretKey) {
-    return res.status(503).json({
-      ok: false,
-      message: "Toss brandpay is not configured",
-    });
-  }
-
-  const { customerKey, code } = req.query;
-
-  // 요청으로 받은 customerKey 와 요청한 주체가 동일인인지 검증 후 Access Token 발급 API 를 호출하세요.
-  // @docs https://docs.tosspayments.com/reference/brandpay#access-token-발급
-  fetch(
-    "https://api.tosspayments.com/v1/brandpay/authorizations/access-token",
-    {
-      method: "POST",
-      headers: {
-        Authorization: encryptedApiSecretKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        grantType: "AuthorizationCode",
-        customerKey,
-        code,
-      }),
-    },
-  ).then(async function (response) {
-    const result = await response.json();
-    console.log(result);
-
-    if (!response.ok) {
-      // TODO: 발급 실패 비즈니스 로직을 구현하세요.
-      res.status(response.status).json(result);
-
-      return;
-    }
-
-    // TODO: 발급 성공 비즈니스 로직을 구현하세요.
-    res.status(response.status).json(result);
-  });
-});
-
-const billingKeyMap = new Map();
-
-// 빌링키 발급
-app.post("/issue-billing-key", function (req, res) {
-  if (!encryptedApiSecretKey) {
-    return res.status(503).json({
-      ok: false,
-      message: "Toss billing is not configured",
-    });
-  }
-
-  const { customerKey, authKey } = req.body;
-
-  // AuthKey 로 빌링키 발급 API 를 호출하세요
-  // @docs https://docs.tosspayments.com/guides/v2/billing/integration
-  fetch(`https://api.tosspayments.com/v1/billing/authorizations/issue`, {
-    method: "POST",
-    headers: {
-      Authorization: encryptedApiSecretKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      customerKey,
-      authKey,
-    }),
-  }).then(async function (response) {
-    const result = await response.json();
-    console.log(result);
-
-    if (!response.ok) {
-      // TODO: 빌링키 발급 실패 비즈니스 로직을 구현하세요.
-      res.status(response.status).json(result);
-
-      return;
-    }
-
-    // TODO: 빌링키 발급 성공 비즈니스 로직을 구현하세요.
-    // TODO: 발급된 빌링키를 구매자 정보로 찾을 수 있도록 저장해두고, 결제가 필요한 시점에 조회하여 자동결제 승인 API 를 호출합니다.
-    billingKeyMap.set(customerKey, result.billingKey);
-    res.status(response.status).json(result);
-  });
-});
-
-// 자동결제 승인
-app.post("/confirm-billing", function (req, res) {
-  if (!encryptedApiSecretKey) {
-    return res.status(503).json({
-      ok: false,
-      message: "Toss billing is not configured",
-    });
-  }
-
-  const {
-    customerKey,
-    amount,
-    orderId,
-    orderName,
-    customerEmail,
-    customerName,
-  } = req.body;
-
-  // 저장해두었던 빌링키로 자동결제 승인 API 를 호출하세요.
-  fetch(
-    `https://api.tosspayments.com/v1/billing/${billingKeyMap.get(customerKey)}`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: encryptedApiSecretKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        customerKey,
-        amount,
-        orderId,
-        orderName,
-        customerEmail,
-        customerName,
-      }),
-    },
-  ).then(async function (response) {
-    const result = await response.json();
-    console.log(result);
-
-    if (!response.ok) {
-      // TODO: 자동결제 승인 실패 비즈니스 로직을 구현하세요.
-      res.status(response.status).json(result);
-
-      return;
-    }
-
-    // TODO: 자동결제 승인 성공 비즈니스 로직을 구현하세요.
-    res.status(response.status).json(result);
-  });
 });
 
 //db health 케어 진단
@@ -6120,125 +5355,7 @@ async function startServer() {
   }
 }
 
-//웹훅 처리 API
-app.post("/webhooks/toss", async function (req,res) {
-  const payload = req.body;
-  const { eventType, eventId, paymentKey, orderId, secret } = extractWebhookFields(payload);
-
-  try {
-    try {
-      await pool.query(
-        `
-          INSERT INTO payment_webhook_events (
-            event_type,
-            event_id,
-            payment_key,
-            order_id,
-            payment_provider,
-            payload_json,
-            processing_status
-          )
-          VALUES ($1, $2, $3, $4, $5, $6::jsonb, 'RECEIVED')
-        `,
-        [
-          eventType,
-          eventId,
-          paymentKey,
-          orderId,
-          paymentProviders.TOSS,
-          JSON.stringify(payload),
-        ]
-      );
-    } catch (insertError) {
-      if (insertError.code !== "23505") {
-        throw insertError;
-      }
-
-      const existingEventResult = await pool.query(
-        `
-          SELECT processing_status
-          FROM payment_webhook_events
-          WHERE event_id = $1
-          LIMIT 1
-        `,
-        [eventId]
-      );
-
-      if (
-        existingEventResult.rowCount > 0 &&
-        existingEventResult.rows[0].processing_status === "PROCESSED"
-      ) {
-        return res.status(200).json({
-          ok: true,
-          duplicated: true,
-        });
-      }
-
-      await pool.query(
-        `
-          UPDATE payment_webhook_events
-          SET
-            event_type = $2,
-            payment_key = $3,
-            order_id = $4,
-            payment_provider = $5,
-            payload_json = $6::jsonb,
-            processing_status = 'RECEIVED',
-            processed_at = NULL,
-            received_at = NOW()
-          WHERE event_id = $1
-        `,
-        [
-          eventId,
-          eventType,
-          paymentKey,
-          orderId,
-          paymentProviders.TOSS,
-          JSON.stringify(payload),
-        ]
-      );
-    }
-
-    if (eventType === "DEPOSIT_CALLBACK") {
-      await verifyDepositCallbackSecret({
-        paymentKey,
-        orderId,
-        secret,
-      });
-    }
-
-    await applyWebhookBusinessState({
-      eventId,
-      eventType,
-      paymentKey,
-      orderId,
-      payload,
-    });
-
-    await markWebhookEventStatus(eventId, "PROCESSED");
-
-    return res.status(200).json({
-      ok:true,
-      received: true,
-    });
-  } catch (error){
-    if (eventId) {
-      try {
-        await markWebhookEventStatus(eventId, "FAILED");
-      } catch (updateError) {
-        console.error("Failed to update webhook event status:", updateError);
-      }
-    }
-
-    console.error("Failed to store webhook event:", error);
-
-    return res.status(error.statusCode || 500).json({
-      ok: false,
-      message: "Failed to store webhook event",
-    });
-  }
-});
-
+// KCP 웹훅 처리 API
 app.post("/webhooks/kcp", async function (req, res) {
   const payload = req.body || {};
   const validation = validateKcpWebhookPayload(payload);
@@ -7969,38 +7086,24 @@ app.post("/applications/refund/request", async function (req, res) {
 
     const refundPaymentProvider =
       application.latest_payment_provider ||
-      application.order_payment_provider ||
-      paymentProviders.TOSS;
+      application.order_payment_provider;
 
-    if (
-      refundPaymentProvider !== paymentProviders.TOSS &&
-      refundPaymentProvider !== paymentProviders.KCP
-    ) {
+    if (refundPaymentProvider !== paymentProviders.KCP) {
       return res.status(409).json({
         ok: false,
         code: "PAYMENT_PROVIDER_MISMATCH",
-        message: "지원하지 않는 결제사의 환불 요청입니다.",
+        message: "KCP 결제 건만 환불할 수 있습니다.",
       });
     }
 
-    if (refundPaymentProvider === paymentProviders.TOSS && !encryptedApiSecretKey) {
-      return res.status(503).json({
+    try {
+      assertKcpConfigured();
+    } catch (error) {
+      return res.status(error.statusCode || 503).json({
         ok: false,
-        code: "TOSS_NOT_CONFIGURED",
-        message: "Toss 결제 취소 설정이 준비되지 않았습니다.",
+        code: "KCP_NOT_CONFIGURED",
+        message: error.message,
       });
-    }
-
-    if (refundPaymentProvider === paymentProviders.KCP) {
-      try {
-        assertKcpConfigured();
-      } catch (error) {
-        return res.status(error.statusCode || 503).json({
-          ok: false,
-          code: "KCP_NOT_CONFIGURED",
-          message: error.message,
-        });
-      }
     }
 
     const providerIdempotencyKey = generateRefundIdempotencyKey();
@@ -8083,47 +7186,21 @@ app.post("/applications/refund/request", async function (req, res) {
     let providerErrorCode = null;
     let providerErrorMessage = null;
 
-    if (refundPaymentProvider === paymentProviders.KCP) {
-      const originalAmount =
-        application.total_amount ?? application.order_amount;
-      const kcpCancellation = await requestKcpCancellation({
-        paymentKey: application.payment_key,
-        cancelAmount: refundQuote.refundAmount,
-        remainingAmount: originalAmount,
-        originalAmount,
-        reason: requestReason,
-      });
+    const originalAmount =
+      application.total_amount ?? application.order_amount;
+    const kcpCancellation = await requestKcpCancellation({
+      paymentKey: application.payment_key,
+      cancelAmount: refundQuote.refundAmount,
+      remainingAmount: originalAmount,
+      originalAmount,
+      reason: requestReason,
+    });
 
-      providerResponseOk = kcpCancellation.ok;
-      providerCancelResult = kcpCancellation.result;
-      providerCancelStatusCode = kcpCancellation.httpStatus;
-      providerErrorCode = kcpCancellation.errorCode;
-      providerErrorMessage = kcpCancellation.errorMessage;
-    } else {
-      const cancelBody = {
-        cancelReason: requestReason,
-        cancelAmount: refundQuote.refundAmount,
-      };
-      const tossResponse = await fetch(
-        `https://api.tosspayments.com/v1/payments/${encodeURIComponent(application.payment_key)}/cancel`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: encryptedApiSecretKey,
-            "Content-Type": "application/json",
-            "Idempotency-Key": providerIdempotencyKey,
-          },
-          body: JSON.stringify(cancelBody),
-        }
-      );
-      const tossResult = await tossResponse.json();
-
-      providerResponseOk = tossResponse.ok;
-      providerCancelResult = tossResult;
-      providerCancelStatusCode = tossResponse.status;
-      providerErrorCode = tossResult.code || null;
-      providerErrorMessage = tossResult.message || null;
-    }
+    providerResponseOk = kcpCancellation.ok;
+    providerCancelResult = kcpCancellation.result;
+    providerCancelStatusCode = kcpCancellation.httpStatus;
+    providerErrorCode = kcpCancellation.errorCode;
+    providerErrorMessage = kcpCancellation.errorMessage;
 
     client = await pool.connect();
     await client.query("BEGIN");

@@ -1,74 +1,47 @@
-# 토스페이먼츠 Express + React 샘플 프로젝트
+# MMKorea KCP Payment
 
-토스페이먼츠 JavaScript SDK로 결제 과정을 구현한 Express + React 샘플 프로젝트입니다. 자세한 연동 방법과 결제 과정은 [공식 연동 문서](https://docs.tosspayments.com/guides/v2/get-started)에서 확인하세요.
+MMKorea 참가 신청과 무대 서비스 신청의 NHN KCP 결제 애플리케이션입니다. 결제 준비, 승인 결과 처리, 웹훅, 거래 후검증, 취소를 KCP 단일 결제 경로로 처리합니다.
 
-## 준비하기
+## 실행
 
-샘플 프로젝트를 사용하려면 [Node.js](https://nodejs.org/ko/) 18.0.0 이상의 버전이 필요합니다. 먼저 내 컴퓨터의 Node.js 버전을 확인하세요. Node.js가 없다면 [Node.js 홈페이지](https://nodejs.org/ko/download/)에서 다운로드하거나 [nvm](https://github.com/nvm-sh/nvm#about)(Node Version Manager)을 사용해서 설치하세요.
-
-```sh
-$ node -v
-$ v18.18.2
+```bash
+npm install
+npm run dev
 ```
 
-## 실행하기
+- 프런트엔드: `http://localhost:3000`
+- API 서버: `http://localhost:4000`
+- 프로덕션 빌드: `npm run build`
 
-1. 샘플 프로젝트 레포지토리를 클론(Clone)하고 express-react 폴더로 진입하세요.
+## KCP 환경변수
 
-   ```sh
-   $ git clone https://github.com/tosspayments/tosspayments-sample # 샘플 프로젝트 클론
-   $ cd tosspayments-sample/express-react
-   ```
+실제 값과 인증서 파일은 저장소에 커밋하지 않습니다.
 
-2. 의존성 패키지를 다운로드하고 서버를 실행합니다.
+```dotenv
+KCP_ENABLED=true
+KCP_MODE=production
+KCP_SITE_CD=
+KCP_CERT_INFO_PATH=
+KCP_PRIVATE_KEY_PATH=
+KCP_PRIVATE_KEY_PASSPHRASE=
+KCP_MAX_AMOUNT=
+PUBLIC_BASE_URL=https://www.mmkorea.com
+PUBLIC_API_BASE_URL=https://api.mmkorea.com
+VITE_API_BASE_URL=https://api.mmkorea.com
+```
 
-   ```sh
-   $ npm install # 의존성 패키지 다운로드
-   $ npm run dev # 클라이언트 및 서버 실행
-   ```
+인증서는 애플리케이션 코드와 분리된 서버 전용 디렉터리에 두고, Node.js 프로세스 사용자에게 읽기 권한만 부여합니다. 인라인 인증정보가 필요한 환경에서는 `KCP_CERT_INFO`, `KCP_PRIVATE_KEY`를 사용할 수 있습니다.
 
-3. 로컬 환경에서 샘플 프로젝트를 확인하세요.
+## 결제 경로
 
-| 제품                      | 링크                                    |
-| ------------------------- | --------------------------------------- |
-| 결제위젯                  | http://localhost:3000/widget/checkout   |
-| 결제창(일반결제/정기결제) | http://localhost:3000/payment/checkout  |
-| 브랜드페이                | http://localhost:3000/brandpay/checkout |
+- 참가 신청: `/payment/checkout` -> KCP 결제창 -> `/payment/success`
+- 무대 서비스: `/stage-services/payment/checkout` -> KCP 결제창 -> `/stage-services/payment/success`
+- KCP 승인 결과 수신: `POST /kcp/return`
+- KCP 웹훅: `POST /webhooks/kcp`
+- 운영 후검증: `POST /admin/kcp/payments/:orderId/reconcile`
 
-## 인증하기
+KCP 상점 관리자 웹훅 URL은 `https://api.mmkorea.com/webhooks/kcp`입니다. Nginx가 `/webhooks/kcp`를 API 서버로 전달하므로 외부 URL에는 `/api`를 붙이지 않습니다.
 
-샘플에 있는 키로 연동이 가능하지만, 내 테스트 연동 키를 사용하면 테스트 결제내역, 웹훅 기능을 사용할 수 있어요. 내 테스트 연동 키는 [개발자센터](https://developers.tosspayments.com/my/api-keys)에서 확인할 수 있습니다. 더 자세한 내용은 [API 키 가이드](https://docs.tosspayments.com/reference/using-api/api-keys)를 참고하세요.
+## 테스트 결제
 
-- **클라이언트 키**
-
-  - `pages/Checkout.jsx` 파일에 있는 `clientKey`를 내 결제위젯 연동 클라이언트 키로 수정하세요.
-  - `pages/payment/PaymentCheckout.jsx`, `pages/brandpay/BrandpayCheckout.jsx` 파일에 있는 `clientKey`를 내 API 개별 연동 클라이언트 키로 수정하세요.
-
-- **시크릿 키**
-
-  - **결제위젯**: `server.js` 파일에 있는 `widgetSecretKey`를 내 결제위젯 시크릿 키로 수정하세요.
-  - **결제창 및 브랜드페이**: `server.js` 파일에 있는 `apiSecretKey`를 내 API 개별 연동 시크릿 키로 수정하세요.
-
-  \* 시크릿 키는 외부에 절대 노출되면 안 됩니다.
-
-- **브랜드페이**
-
-  - 브랜드페이를 테스트하고 싶다면 반드시 클라이언트 키, 시크릿 키를 내 키로 바꿔주세요.
-  - 개발자센터의 브랜드페이 메뉴에서 리다이렉트 URL도 반드시 등록해야 됩니다. `pages/brandpay/BrandpayCheckout.jsx` 파일을 참고해주세요.
-
-## 계좌자동결제(퀵계좌이체 빌링) 테스트
-
-정기 결제 화면에서 `카드 자동결제`, `계좌 자동결제`를 선택해 `requestBillingAuth()`를 테스트할 수 있습니다.
-
-- `CARD` 또는 `TRANSFER`를 선택한 뒤 자동결제 수단 등록을 진행하세요.
-- 성공 URL 쿼리의 `customerKey`, `authKey`, `billingMethod`를 사용해 서버에서 빌링키 발급을 호출하세요.
-- 빌링키 발급/승인 응답에서 `method`와 `card` 또는 `transfers`(혹은 `transfer`) 필드를 확인하세요.
-- `NOT_SUPPORTED_METHOD` 오류가 발생하면 자동결제 계약된 MID/키인지 확인하세요.
-- 이번 샘플에는 `BILLING_DELETED` 웹훅 엔드포인트가 포함되지 않습니다. 운영에서는 별도 웹훅 연동을 권장합니다.
-
-관련 문서: [자동결제(빌링) 이해하기](https://docs.tosspayments.com/guides/v2/billing/integration), [자동결제 API 레퍼런스](https://docs.tosspayments.com/reference/billing)
-
-## 더 알아보기
-
-- [토스페이먼츠 공식 문서](https://docs.tosspayments.com/guides/v2/get-started)
-- [1:1 채팅(Discord)](https://discord.com/invite/VdkfJnknD9)
+테스트 전용 주문 API와 화면은 `KCP_TEST_PAYMENT_ENABLED=true`일 때만 활성화합니다. 운영 확인 후에는 해당 값을 `false`로 전환하고 서버를 재시작합니다. 테스트 거래 취소는 사이트의 KCP 취소 API 또는 KCP 상점 관리자에서 처리한 뒤 후검증으로 DB 상태를 동기화합니다.

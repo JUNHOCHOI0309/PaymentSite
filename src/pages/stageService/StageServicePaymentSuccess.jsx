@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "../../context/LanguageContext";
 import { useStageServiceFlow } from "../../context/StageServiceFlowContext";
-import { apiFetch, completeStageService } from "../../lib/applicationApi";
+import { completeStageService } from "../../lib/applicationApi";
 import { stageServiceFlowSteps } from "../../lib/stageServiceFlowAccess";
 
 export function StageServicePaymentSuccessPage() {
@@ -10,41 +10,16 @@ export function StageServicePaymentSuccessPage() {
   const [searchParams] = useSearchParams();
   const { dispatch } = useStageServiceFlow();
   const { t } = useLanguage();
-  const [responseData, setResponseData] = useState(null);
-
   useEffect(() => {
     async function confirmAndComplete() {
       const isKcpConfirmed =
         searchParams.get("provider") === "kcp" && searchParams.get("confirmed") === "1";
 
-      let json = {
-        ok: true,
-        payment: {
-          paymentKey: searchParams.get("paymentKey"),
-          orderId: searchParams.get("orderId"),
-          totalAmount: Number(searchParams.get("amount") || 0),
-          provider: "kcp",
-        },
-      };
-
       if (!isKcpConfirmed) {
-        const requestData = {
-          orderId: searchParams.get("orderId"),
-          amount: searchParams.get("amount"),
-          paymentKey: searchParams.get("paymentKey"),
+        throw {
+          code: "KCP_CONFIRMATION_REQUIRED",
+          message: t("payment.confirmFailed"),
         };
-
-        const response = await apiFetch("/api/confirm/payment", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestData),
-        });
-
-        json = await response.json();
-
-        if (!response.ok) {
-          throw { message: json.message, code: json.code };
-        }
       }
 
       const completeResult = await completeStageService({
@@ -61,11 +36,9 @@ export function StageServicePaymentSuccessPage() {
           completeResult.serviceOrder.serviceOrderNumber,
         )}`,
       );
-      return json;
     }
 
     confirmAndComplete()
-      .then((data) => setResponseData(data))
       .catch((error) => {
         navigate(
           `/stage-services/fail?code=${error.code || "STAGE_SERVICE"}&message=${encodeURIComponent(
@@ -75,31 +48,5 @@ export function StageServicePaymentSuccessPage() {
       });
   }, [dispatch, navigate, searchParams, t]);
 
-  return (
-    <>
-      <div className="box_section" style={{ width: "600px" }}>
-        <img
-          width="100px"
-          src="https://static.toss.im/illusts/check-blue-spot-ending-frame.png"
-          alt={t("payment.successAlt")}
-        />
-        <h2>{t("payment.successTitle")}</h2>
-        <div className="p-grid typography--p" style={{ marginTop: "50px" }}>
-          <div className="p-grid-col text--left"><b>{t("payment.orderId")}</b></div>
-          <div className="p-grid-col text--right" id="orderId">{searchParams.get("orderId")}</div>
-        </div>
-        <div className="p-grid-col">
-          <Link to="/apply/stage-services/complete">
-            <button className="button p-grid-col5">{t("payment.completePage")}</button>
-          </Link>
-        </div>
-      </div>
-      <div className="box_section" style={{ width: "600px", textAlign: "left" }}>
-        <b>{t("common.debugResponseData")}:</b>
-        <div id="response" style={{ whiteSpace: "initial" }}>
-          {responseData && <pre>{JSON.stringify(responseData, null, 4)}</pre>}
-        </div>
-      </div>
-    </>
-  );
+  return <div className="box_section"><h2>{t("payment.successTitle")}</h2></div>;
 }
