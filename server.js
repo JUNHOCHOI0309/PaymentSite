@@ -266,6 +266,10 @@ const kcpPaymentApproveUrl =
   kcpMode === "production"
     ? "https://spl.kcp.co.kr/gw/enc/v1/payment"
     : "https://stg-spl.kcp.co.kr/gw/enc/v1/payment";
+const kcpPaymentCancelUrl =
+  kcpMode === "production"
+    ? "https://spl.kcp.co.kr/gw/mod/v1/cancel"
+    : "https://stg-spl.kcp.co.kr/gw/mod/v1/cancel";
 const kcpSiteCode = normalizeText(process.env.KCP_SITE_CD) || "T0000";
 const kcpTestPaymentEnabled = process.env.KCP_TEST_PAYMENT_ENABLED === "true";
 const kcpTestPaymentToken = normalizeText(process.env.KCP_TEST_PAYMENT_TOKEN);
@@ -647,6 +651,81 @@ async function postKcpJson(url, body) {
   return {
     response,
     json,
+  };
+}
+
+async function requestKcpCancellation({
+  paymentKey,
+  cancelAmount,
+  remainingAmount,
+  originalAmount,
+  reason,
+}) {
+  const normalizedCancelAmount = normalizeAmount(cancelAmount);
+  const normalizedRemainingAmount = normalizeAmount(remainingAmount);
+  const normalizedOriginalAmount = normalizeAmount(originalAmount);
+
+  if (
+    !paymentKey ||
+    normalizedCancelAmount === null ||
+    normalizedRemainingAmount === null ||
+    normalizedOriginalAmount === null ||
+    normalizedCancelAmount > normalizedRemainingAmount
+  ) {
+    const error = new Error("Invalid KCP cancellation parameters");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const kcpConfig = assertKcpConfigured();
+  const modType =
+    normalizedCancelAmount === normalizedRemainingAmount ? "STSC" : "STPC";
+  const signatureSource = [kcpSiteCode, paymentKey, modType].join("^");
+  const cancelBody = {
+    site_cd: kcpSiteCode,
+    kcp_cert_info: kcpConfig.certInfo,
+    kcp_sign_data: createKcpSignature(
+      signatureSource,
+      kcpConfig.privateKey,
+      kcpConfig.privateKeyPassphrase
+    ),
+    mod_type: modType,
+    tno: paymentKey,
+    ...(modType === "STPC"
+      ? {
+          mod_mny: String(normalizedCancelAmount),
+          rem_mny: String(normalizedRemainingAmount),
+          mod_desc: normalizeText(reason) || "사용자 요청 환불",
+        }
+      : {}),
+  };
+  const { response, json } = await postKcpJson(kcpPaymentCancelUrl, cancelBody);
+  const responseCode = getKcpResponseCode(json);
+  const responseMessage = getKcpResponseMessage(json);
+  const ok = response.ok && responseCode === "0000";
+  const nextRemainingAmount =
+    modType === "STSC"
+      ? 0
+      : Number.isInteger(Number(json.rem_mny))
+        ? Number(json.rem_mny)
+        : normalizedRemainingAmount - normalizedCancelAmount;
+
+  return {
+    ok,
+    httpStatus: response.status,
+    errorCode: ok ? null : responseCode || "KCP_CANCEL_FAILED",
+    errorMessage: ok ? null : responseMessage || "KCP 결제 취소에 실패했습니다.",
+    result: {
+      provider: paymentProviders.KCP,
+      status: ok ? (modType === "STSC" ? "CANCELED" : "PARTIAL_CANCELED") : null,
+      totalAmount: normalizedOriginalAmount,
+      cancelAmount: normalizedCancelAmount,
+      remainingAmount: nextRemainingAmount,
+      cancelReason: normalizeText(reason),
+      canceledAt: json.canc_time || null,
+      modificationType: modType,
+      kcp: json,
+    },
   };
 }
 
@@ -1249,7 +1328,9 @@ function hasValidEmail(value) {
 }
 
 function isVirtualAccountPaymentMethod(value) {
-  return ["VIRTUAL_ACCOUNT", "가상계좌"].includes(String(value || "").trim());
+  return ["VIRTUAL_ACCOUNT", "PAVC", "가상계좌"].includes(
+    String(value || "").trim()
+  );
 }
 
 function getDatePartsInTimeZone(date, timeZone) {
@@ -2511,6 +2592,30 @@ function extractKcpWebhookFields(payload) {
   };
 }
 
+function validateKcpWebhookPayload(payload) {
+  const siteCode = normalizeText(payload?.site_cd);
+  const transactionNo = normalizeText(payload?.tno);
+  const orderNo = normalizeText(payload?.order_no || payload?.ordr_idxx);
+  const transactionCode = normalizeText(payload?.tx_cd);
+  const transactionTime = normalizeText(payload?.tx_tm);
+
+  if (!siteCode || siteCode !== kcpSiteCode) {
+    return {
+      ok: false,
+      message: "Invalid KCP webhook site code",
+    };
+  }
+
+  if (!transactionNo || !orderNo || !transactionCode || !transactionTime) {
+    return {
+      ok: false,
+      message: "Missing KCP webhook fields",
+    };
+  }
+
+  return { ok: true };
+}
+
 // 웹훅 Event 상태 업데이트
 async function markWebhookEventStatus(eventId, status) {
   await pool.query(
@@ -2928,6 +3033,170 @@ app.post("/kcp/test/orders", async function (req, res) {
       ok: false,
       message: "Failed to create KCP test order",
     });
+  }
+});
+
+app.post("/kcp/test/orders/:orderId/cancel", async function (req, res) {
+  if (!kcpTestPaymentEnabled) {
+    return res.status(404).json({
+      ok: false,
+      code: "KCP_TEST_PAYMENT_DISABLED",
+      message: "KCP test payment is disabled",
+    });
+  }
+
+  if (!isKcpTestPaymentAuthorized(req)) {
+    return res.status(403).json({
+      ok: false,
+      code: "KCP_TEST_PAYMENT_FORBIDDEN",
+      message: "Invalid KCP test payment token",
+    });
+  }
+
+  const orderId = normalizeText(req.params.orderId);
+
+  if (!orderId) {
+    return res.status(400).json({
+      ok: false,
+      message: "Missing orderId",
+    });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const result = await client.query(
+      `
+        SELECT
+          orders.order_id,
+          orders.order_name,
+          orders.amount,
+          orders.status AS order_status,
+          orders.payment_provider AS order_payment_provider,
+          payments.payment_key,
+          payments.status AS payment_status,
+          payments.total_amount,
+          payments.payment_provider AS payment_provider
+        FROM orders
+        JOIN payments
+          ON payments.order_id = orders.order_id
+        WHERE orders.order_id = $1
+        ORDER BY payments.updated_at DESC
+        LIMIT 1
+        FOR UPDATE OF orders, payments
+      `,
+      [orderId]
+    );
+
+    if (result.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({
+        ok: false,
+        code: "KCP_TEST_PAYMENT_NOT_FOUND",
+        message: "KCP 테스트 결제 정보를 찾을 수 없습니다.",
+      });
+    }
+
+    const payment = result.rows[0];
+    const amount = normalizeAmount(payment.amount);
+
+    if (
+      payment.order_name !== "KCP 100원 테스트 결제" ||
+      amount !== 100 ||
+      payment.order_payment_provider !== paymentProviders.KCP ||
+      payment.payment_provider !== paymentProviders.KCP
+    ) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        code: "KCP_TEST_ORDER_MISMATCH",
+        message: "KCP 100원 테스트 결제 주문이 아닙니다.",
+      });
+    }
+
+    if (payment.order_status === "CANCELED" || payment.payment_status === "CANCELED") {
+      await client.query("COMMIT");
+      return res.status(200).json({
+        ok: true,
+        duplicated: true,
+        orderId: payment.order_id,
+        paymentKey: payment.payment_key,
+        paymentStatus: "CANCELED",
+      });
+    }
+
+    if (payment.order_status !== "PAID" || payment.payment_status !== "DONE") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        code: "KCP_TEST_PAYMENT_NOT_CANCELABLE",
+        message: "현재 상태에서는 테스트 결제를 취소할 수 없습니다.",
+      });
+    }
+
+    const cancellation = await requestKcpCancellation({
+      paymentKey: payment.payment_key,
+      cancelAmount: amount,
+      remainingAmount: amount,
+      originalAmount: amount,
+      reason: "KCP 100원 테스트 결제 취소",
+    });
+
+    if (!cancellation.ok) {
+      await client.query("ROLLBACK");
+      return res.status(cancellation.httpStatus >= 400 ? cancellation.httpStatus : 502).json({
+        ok: false,
+        code: cancellation.errorCode,
+        message: cancellation.errorMessage,
+        kcp: cancellation.result.kcp,
+      });
+    }
+
+    await client.query(
+      `
+        UPDATE payments
+        SET
+          status = 'CANCELED',
+          raw_response_json = jsonb_build_object(
+            'approval', raw_response_json,
+            'cancellations', jsonb_build_array($2::jsonb)
+          ),
+          updated_at = NOW()
+        WHERE order_id = $1
+          AND payment_provider = 'kcp'
+      `,
+      [payment.order_id, JSON.stringify(cancellation.result)]
+    );
+
+    await client.query(
+      `
+        UPDATE orders
+        SET status = 'CANCELED', updated_at = NOW()
+        WHERE order_id = $1
+      `,
+      [payment.order_id]
+    );
+
+    await client.query("COMMIT");
+
+    return res.status(200).json({
+      ok: true,
+      orderId: payment.order_id,
+      paymentKey: payment.payment_key,
+      paymentStatus: "CANCELED",
+      cancellation: cancellation.result,
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("Failed to cancel KCP test payment:", error);
+    return res.status(error.statusCode || 500).json({
+      ok: false,
+      message: error.message || "Failed to cancel KCP test payment",
+    });
+  } finally {
+    client.release();
   }
 });
 
@@ -4591,7 +4860,13 @@ app.post("/admin/refunds/:refundRequestId/retry-sync", requireAdminAuth, async f
           status = $5,
           approved_at = COALESCE($6, approved_at),
           total_amount = COALESCE($7, total_amount),
-          raw_response_json = COALESCE($8::jsonb, raw_response_json),
+          raw_response_json = CASE
+            WHEN payment_provider = 'kcp' AND $8::jsonb IS NOT NULL THEN jsonb_build_object(
+              'approval', raw_response_json,
+              'cancellations', jsonb_build_array($8::jsonb)
+            )
+            ELSE COALESCE($8::jsonb, raw_response_json)
+          END,
           updated_at = NOW()
         WHERE payment_key = $1
            OR order_id = $2
@@ -4929,6 +5204,15 @@ app.post("/webhooks/toss", async function (req,res) {
 
 app.post("/webhooks/kcp", async function (req, res) {
   const payload = req.body || {};
+  const validation = validateKcpWebhookPayload(payload);
+
+  if (!validation.ok) {
+    return res.status(400).json({
+      result: "9999",
+      message: validation.message,
+    });
+  }
+
   const { eventType, eventId, paymentKey, orderId } = extractKcpWebhookFields(payload);
 
   try {
@@ -6566,8 +6850,8 @@ app.post("/applications/refund/quote", async function (req, res) {
 app.post("/applications/refund/request", async function (req, res) {
   let client = null;
   let refundRequestId = null;
-  let tossCancelResult = null;
-  let tossCancelStatusCode = null;
+  let providerCancelResult = null;
+  let providerCancelStatusCode = null;
 
   try {
     await ensureLookupVerificationStoreReady();
@@ -6651,12 +6935,35 @@ app.post("/applications/refund/request", async function (req, res) {
       application.order_payment_provider ||
       paymentProviders.TOSS;
 
-    if (refundPaymentProvider !== paymentProviders.TOSS) {
+    if (
+      refundPaymentProvider !== paymentProviders.TOSS &&
+      refundPaymentProvider !== paymentProviders.KCP
+    ) {
       return res.status(409).json({
         ok: false,
         code: "PAYMENT_PROVIDER_MISMATCH",
-        message: "해당 결제사의 자동 환불 처리가 아직 준비되지 않았습니다.",
+        message: "지원하지 않는 결제사의 환불 요청입니다.",
       });
+    }
+
+    if (refundPaymentProvider === paymentProviders.TOSS && !encryptedApiSecretKey) {
+      return res.status(503).json({
+        ok: false,
+        code: "TOSS_NOT_CONFIGURED",
+        message: "Toss 결제 취소 설정이 준비되지 않았습니다.",
+      });
+    }
+
+    if (refundPaymentProvider === paymentProviders.KCP) {
+      try {
+        assertKcpConfigured();
+      } catch (error) {
+        return res.status(error.statusCode || 503).json({
+          ok: false,
+          code: "KCP_NOT_CONFIGURED",
+          message: error.message,
+        });
+      }
     }
 
     const providerIdempotencyKey = generateRefundIdempotencyKey();
@@ -6735,32 +7042,56 @@ app.post("/applications/refund/request", async function (req, res) {
     client.release();
     client = null;
 
-    const cancelBody = {
-      cancelReason: requestReason,
-      cancelAmount: refundQuote.refundAmount,
-    };
+    let providerResponseOk = false;
+    let providerErrorCode = null;
+    let providerErrorMessage = null;
 
-    const tossResponse = await fetch(
-      `https://api.tosspayments.com/v1/payments/${encodeURIComponent(application.payment_key)}/cancel`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: encryptedApiSecretKey,
-          "Content-Type": "application/json",
-          "Idempotency-Key": providerIdempotencyKey,
-        },
-        body: JSON.stringify(cancelBody),
-      }
-    );
+    if (refundPaymentProvider === paymentProviders.KCP) {
+      const originalAmount =
+        application.total_amount ?? application.order_amount;
+      const kcpCancellation = await requestKcpCancellation({
+        paymentKey: application.payment_key,
+        cancelAmount: refundQuote.refundAmount,
+        remainingAmount: originalAmount,
+        originalAmount,
+        reason: requestReason,
+      });
 
-    const tossResult = await tossResponse.json();
-    tossCancelResult = tossResult;
-    tossCancelStatusCode = tossResponse.status;
+      providerResponseOk = kcpCancellation.ok;
+      providerCancelResult = kcpCancellation.result;
+      providerCancelStatusCode = kcpCancellation.httpStatus;
+      providerErrorCode = kcpCancellation.errorCode;
+      providerErrorMessage = kcpCancellation.errorMessage;
+    } else {
+      const cancelBody = {
+        cancelReason: requestReason,
+        cancelAmount: refundQuote.refundAmount,
+      };
+      const tossResponse = await fetch(
+        `https://api.tosspayments.com/v1/payments/${encodeURIComponent(application.payment_key)}/cancel`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: encryptedApiSecretKey,
+            "Content-Type": "application/json",
+            "Idempotency-Key": providerIdempotencyKey,
+          },
+          body: JSON.stringify(cancelBody),
+        }
+      );
+      const tossResult = await tossResponse.json();
+
+      providerResponseOk = tossResponse.ok;
+      providerCancelResult = tossResult;
+      providerCancelStatusCode = tossResponse.status;
+      providerErrorCode = tossResult.code || null;
+      providerErrorMessage = tossResult.message || null;
+    }
 
     client = await pool.connect();
     await client.query("BEGIN");
 
-    if (!tossResponse.ok) {
+    if (!providerResponseOk) {
       const failedRequestResult = await client.query(
         `
           UPDATE application_refund_requests
@@ -6777,24 +7108,27 @@ app.post("/applications/refund/request", async function (req, res) {
         `,
         [
           refundRequestId,
-          tossResponse.status,
-          tossResult.code || null,
-          tossResult.message || "환불 처리에 실패했습니다.",
-          JSON.stringify(tossResult),
+          providerCancelStatusCode,
+          providerErrorCode,
+          providerErrorMessage || "환불 처리에 실패했습니다.",
+          JSON.stringify(providerCancelResult),
         ]
       );
 
       await client.query("COMMIT");
 
-      return res.status(tossResponse.status).json({
+      const responseStatus =
+        providerCancelStatusCode >= 400 ? providerCancelStatusCode : 502;
+
+      return res.status(responseStatus).json({
         ok: false,
-        code: tossResult.code || "REFUND_REQUEST_FAILED",
-        message: tossResult.message || "환불 처리에 실패했습니다.",
+        code: providerErrorCode || "REFUND_REQUEST_FAILED",
+        message: providerErrorMessage || "환불 처리에 실패했습니다.",
         refundRequest: mapRefundRequestRow(failedRequestResult.rows[0]),
       });
     }
 
-    const nextPaymentStatus = tossResult.status || "CANCELED";
+    const nextPaymentStatus = providerCancelResult.status || "CANCELED";
     const nextApplicationStatus =
       nextPaymentStatus === "PARTIAL_CANCELED" ? "PARTIAL_REFUNDED" : "REFUNDED";
 
@@ -6807,7 +7141,13 @@ app.post("/applications/refund/request", async function (req, res) {
           status = $5,
           approved_at = COALESCE($6, approved_at),
           total_amount = COALESCE($7, total_amount),
-          raw_response_json = $8::jsonb,
+          raw_response_json = CASE
+            WHEN $9 = 'kcp' THEN jsonb_build_object(
+              'approval', raw_response_json,
+              'cancellations', jsonb_build_array($8::jsonb)
+            )
+            ELSE $8::jsonb
+          END,
           updated_at = NOW()
         WHERE payment_key = $1
            OR order_id = $2
@@ -6815,12 +7155,13 @@ app.post("/applications/refund/request", async function (req, res) {
       [
         application.payment_key,
         application.order_id,
-        tossResult.method || null,
-        tossResult.type || null,
+        providerCancelResult.method || null,
+        providerCancelResult.type || null,
         nextPaymentStatus,
-        tossResult.approvedAt || null,
-        tossResult.totalAmount ?? application.total_amount ?? application.order_amount,
-        JSON.stringify(tossResult),
+        providerCancelResult.approvedAt || null,
+        providerCancelResult.totalAmount ?? application.total_amount ?? application.order_amount,
+        JSON.stringify(providerCancelResult),
+        refundPaymentProvider,
       ]
     );
 
@@ -6875,7 +7216,7 @@ app.post("/applications/refund/request", async function (req, res) {
         WHERE id = $1
         RETURNING *
       `,
-      [refundRequestId, tossResponse.status, JSON.stringify(tossResult)]
+      [refundRequestId, providerCancelStatusCode, JSON.stringify(providerCancelResult)]
     );
 
     await client.query("COMMIT");
@@ -6917,9 +7258,9 @@ app.post("/applications/refund/request", async function (req, res) {
           [
             refundRequestId,
             error.message || "Failed to process refund request",
-            Boolean(tossCancelResult),
-            tossCancelStatusCode,
-            tossCancelResult ? JSON.stringify(tossCancelResult) : null,
+            Boolean(providerCancelResult),
+            providerCancelStatusCode,
+            providerCancelResult ? JSON.stringify(providerCancelResult) : null,
           ]
         )
         .catch(() => {});

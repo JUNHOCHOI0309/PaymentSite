@@ -231,6 +231,13 @@ html {
   line-height: 1.5;
 }
 
+.kcp-test-success {
+  margin: 18px 0 0;
+  color: #087a55;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
 .kcp-test-button {
   width: 100%;
   margin: 24px 0 0;

@@ -1,12 +1,19 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { createKcpTestOrder, prepareKcpPayment } from "../lib/applicationApi";
+import {
+  cancelKcpTestOrder,
+  createKcpTestOrder,
+  prepareKcpPayment,
+} from "../lib/applicationApi";
 
 const testAmount = 100;
 
 export function KcpTestPaymentPage() {
   const [searchParams] = useSearchParams();
-  const token = searchParams.get("token") || "";
+  const token =
+    searchParams.get("token") ||
+    window.sessionStorage.getItem("kcpTestPaymentToken") ||
+    "";
   const [customerName, setCustomerName] = useState("KCP 테스트");
   const [customerEmail, setCustomerEmail] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -29,6 +36,7 @@ export function KcpTestPaymentPage() {
         token,
       });
 
+      window.sessionStorage.setItem("kcpTestPaymentToken", token);
       submitKcpPayment(paymentResult.payUrl, paymentResult.formFields);
     } catch (error) {
       setErrorMessage(error.message || "KCP 테스트 결제를 준비하지 못했습니다.");
@@ -87,15 +95,39 @@ export function KcpTestPaymentPage() {
 
 export function KcpTestPaymentSuccessPage() {
   const [searchParams] = useSearchParams();
+  const orderId = searchParams.get("orderId");
+  const token = window.sessionStorage.getItem("kcpTestPaymentToken") || "";
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancellationResult, setCancellationResult] = useState(null);
+  const [errorMessage, setErrorMessage] = useState("");
   const rows = useMemo(
     () => [
-      ["주문번호", searchParams.get("orderId")],
+      ["주문번호", orderId],
       ["결제금액", formatAmount(searchParams.get("amount"))],
       ["KCP 거래번호", searchParams.get("paymentKey")],
       ["결제대행사", searchParams.get("provider")],
     ],
-    [searchParams]
+    [orderId, searchParams]
   );
+
+  async function cancelTestPayment() {
+    if (!orderId) {
+      setErrorMessage("주문번호를 확인할 수 없습니다.");
+      return;
+    }
+
+    setIsCancelling(true);
+    setErrorMessage("");
+
+    try {
+      const result = await cancelKcpTestOrder(orderId, { token });
+      setCancellationResult(result);
+    } catch (error) {
+      setErrorMessage(error.message || "KCP 테스트 결제를 취소하지 못했습니다.");
+    } finally {
+      setIsCancelling(false);
+    }
+  }
 
   return (
     <main className="kcp-test-page">
@@ -103,7 +135,7 @@ export function KcpTestPaymentSuccessPage() {
         <p className="kcp-test-eyebrow">KCP 테스트 결과</p>
         <h1>결제 승인 완료</h1>
         <p className="kcp-test-description">
-          DB에서 주문 상태와 결제 레코드를 확인한 뒤, KCP 관리자에서 테스트 거래를 수동 취소하세요.
+          DB에서 승인 상태를 확인한 뒤 아래 버튼으로 KCP 전체취소와 DB 상태 동기화를 테스트하세요.
         </p>
         <div className="kcp-test-result">
           {rows.map(([label, value]) => (
@@ -113,6 +145,22 @@ export function KcpTestPaymentSuccessPage() {
             </div>
           ))}
         </div>
+        {cancellationResult ? (
+          <p className="kcp-test-success">100원 결제가 취소되었고 DB 상태도 CANCELED로 변경되었습니다.</p>
+        ) : null}
+        {errorMessage ? <p className="kcp-test-error">{errorMessage}</p> : null}
+        <button
+          className="button kcp-test-button"
+          type="button"
+          onClick={cancelTestPayment}
+          disabled={isCancelling || Boolean(cancellationResult)}
+        >
+          {isCancelling
+            ? "결제 취소 중"
+            : cancellationResult
+              ? "100원 결제 취소 완료"
+              : "100원 결제 취소"}
+        </button>
         <Link className="button kcp-test-button kcp-test-link" to="/kcp-test">
           다시 테스트
         </Link>
