@@ -19,6 +19,7 @@ import {
   getAdminRefunds,
   getAdminRegisterAssets,
   getAdminStageServices,
+  reconcileAdminKcpPayment,
   retryAdminRefundSync,
 } from "../../lib/applicationApi";
 
@@ -546,6 +547,9 @@ export function AdminDashboardPage() {
   const [auditSearch, setAuditSearch] = useState("");
   const [auditActionFilter, setAuditActionFilter] = useState("all");
   const [retryingRefundRequestId, setRetryingRefundRequestId] = useState(null);
+  const [kcpReconcileOrderId, setKcpReconcileOrderId] = useState("");
+  const [isReconcilingKcp, setIsReconcilingKcp] = useState(false);
+  const [kcpReconcileMessage, setKcpReconcileMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
 
@@ -834,6 +838,34 @@ export function AdminDashboardPage() {
       setErrorMessage(error.message || "환불 재동기화에 실패했습니다.");
     } finally {
       setRetryingRefundRequestId(null);
+    }
+  }
+
+  async function handleKcpReconciliation(event) {
+    event.preventDefault();
+
+    const orderId = kcpReconcileOrderId.trim();
+
+    if (!orderId) {
+      setErrorMessage("KCP 후검증을 실행할 주문번호를 입력해 주세요.");
+      return;
+    }
+
+    setIsReconcilingKcp(true);
+    setErrorMessage("");
+    setKcpReconcileMessage("");
+
+    try {
+      const response = await reconcileAdminKcpPayment(orderId);
+      const result = response.reconciliation;
+      setKcpReconcileMessage(
+        `${result.orderId} / ${result.paymentStatus} / 잔액 ${formatAmount(result.remainingAmount)}`,
+      );
+      await loadAdminData({ silent: true });
+    } catch (error) {
+      setErrorMessage(error.message || "KCP 결제 후검증에 실패했습니다.");
+    } finally {
+      setIsReconcilingKcp(false);
     }
   }
 
@@ -1285,6 +1317,32 @@ export function AdminDashboardPage() {
 
           {activeSection === "refunds" ? (
             <>
+              <form className="site-admin-reconciliation" onSubmit={handleKcpReconciliation}>
+                <label className="site-admin-reconciliation__field" htmlFor="kcp-reconcile-order-id">
+                  <span>KCP 거래 후검증</span>
+                  <input
+                    id="kcp-reconcile-order-id"
+                    onChange={(event) => setKcpReconcileOrderId(event.target.value)}
+                    placeholder="order_..."
+                    spellCheck="false"
+                    type="text"
+                    value={kcpReconcileOrderId}
+                  />
+                </label>
+                <button
+                  className="site-admin-action-button site-admin-reconciliation__button"
+                  disabled={isReconcilingKcp}
+                  type="submit"
+                >
+                  {isReconcilingKcp ? "조회 중..." : "조회 및 동기화"}
+                </button>
+                {kcpReconcileMessage ? (
+                  <p className="site-admin-reconciliation__result" role="status">
+                    {kcpReconcileMessage}
+                  </p>
+                ) : null}
+              </form>
+
               <div className="site-admin-mini-summary">
                 <SummaryCard label="전체 요청" value={refundRequests.length} />
                 <SummaryCard label="처리 중/동기화 필요" value={refundProcessingCount} />

@@ -341,6 +341,17 @@ export async function retryAdminRefundSync(refundRequestId) {
   return readJson(response);
 }
 
+export async function reconcileAdminKcpPayment(orderId) {
+  const response = await adminApiFetch(
+    `/api/admin/kcp/payments/${encodeURIComponent(orderId)}/reconcile`,
+    {
+      method: "POST",
+    },
+  );
+
+  return readJson(response);
+}
+
 export async function getAdminRegisterAssets() {
   const response = await adminApiFetch("/api/admin/assets/register");
   return readJson(response);

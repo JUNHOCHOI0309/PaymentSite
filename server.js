@@ -270,6 +270,10 @@ const kcpPaymentCancelUrl =
   kcpMode === "production"
     ? "https://spl.kcp.co.kr/gw/mod/v1/cancel"
     : "https://stg-spl.kcp.co.kr/gw/mod/v1/cancel";
+const kcpPaymentInquiryUrl =
+  kcpMode === "production"
+    ? "https://spl.kcp.co.kr/std/inquery"
+    : "https://stg-spl.kcp.co.kr/std/inquery";
 const kcpSiteCode = normalizeText(process.env.KCP_SITE_CD) || "T0000";
 const kcpTestPaymentEnabled = process.env.KCP_TEST_PAYMENT_ENABLED === "true";
 const kcpTestPaymentToken = normalizeText(process.env.KCP_TEST_PAYMENT_TOKEN);
@@ -726,6 +730,234 @@ async function requestKcpCancellation({
       modificationType: modType,
       kcp: json,
     },
+  };
+}
+
+function normalizeKcpInquiryPayType(...values) {
+  for (const value of values) {
+    switch (String(value || "").trim().toUpperCase()) {
+      case "PACA":
+      case "CARD":
+        return "PACA";
+      case "PABK":
+      case "BANK":
+      case "TRANSFER":
+        return "PABK";
+      case "PAMC":
+      case "MOBX":
+      case "MOBILE_PHONE":
+        return "PAMC";
+      default:
+        break;
+    }
+  }
+
+  return null;
+}
+
+function parseKcpNonNegativeAmount(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const amount = Number(value);
+  return Number.isInteger(amount) && amount >= 0 ? amount : null;
+}
+
+function getKcpInquiryTransactionStatus(payload, payType) {
+  switch (payType) {
+    case "PACA":
+      return normalizeText(payload?.stat_ca_cd) || normalizeText(payload?.shop_status);
+    case "PABK":
+      return normalizeText(payload?.stat_bk_cd) || normalizeText(payload?.shop_status);
+    case "PAMC":
+      return normalizeText(payload?.stat_hp_cd) || normalizeText(payload?.shop_status);
+    default:
+      return null;
+  }
+}
+
+function interpretKcpInquiryResult(payload, payType) {
+  const amount = parseKcpNonNegativeAmount(payload?.amount);
+  const reportedRemainingAmount = parseKcpNonNegativeAmount(payload?.rem_mny);
+  const transactionStatus = getKcpInquiryTransactionStatus(payload, payType);
+  const isFullyCanceled =
+    transactionStatus === "STSC" ||
+    normalizeText(payload?.canc_card_yn) === "Y" ||
+    normalizeText(payload?.canc_bk_yn) === "Y" ||
+    reportedRemainingAmount === 0;
+  const isPartiallyCanceled =
+    transactionStatus === "STPC" ||
+    (amount !== null &&
+      reportedRemainingAmount !== null &&
+      reportedRemainingAmount > 0 &&
+      reportedRemainingAmount < amount);
+
+  if (amount === null || amount <= 0) {
+    return {
+      ok: false,
+      code: "KCP_INQUIRY_AMOUNT_INVALID",
+      message: "KCP 거래조회 금액을 확인할 수 없습니다.",
+    };
+  }
+
+  if (isFullyCanceled) {
+    return {
+      ok: true,
+      paymentStatus: "CANCELED",
+      transactionStatus,
+      amount,
+      remainingAmount: 0,
+      canceledAt: normalizeText(payload?.can_time),
+    };
+  }
+
+  if (isPartiallyCanceled) {
+    if (reportedRemainingAmount === null) {
+      return {
+        ok: false,
+        code: "KCP_INQUIRY_REMAINING_AMOUNT_INVALID",
+        message: "부분취소 후 KCP 취소 가능 금액을 확인할 수 없습니다.",
+        transactionStatus,
+        amount,
+        remainingAmount: null,
+      };
+    }
+
+    return {
+      ok: true,
+      paymentStatus: "PARTIAL_CANCELED",
+      transactionStatus,
+      amount,
+      remainingAmount: reportedRemainingAmount,
+      canceledAt: normalizeText(payload?.can_time),
+    };
+  }
+
+  if (transactionStatus === "STSR") {
+    return {
+      ok: true,
+      paymentStatus: "DONE",
+      transactionStatus,
+      amount,
+      remainingAmount: reportedRemainingAmount ?? amount,
+      canceledAt: null,
+    };
+  }
+
+  return {
+    ok: false,
+    code: "KCP_INQUIRY_STATUS_UNSUPPORTED",
+    message: `자동 동기화할 수 없는 KCP 거래상태입니다: ${transactionStatus || "UNKNOWN"}`,
+    transactionStatus,
+    amount,
+    remainingAmount: reportedRemainingAmount,
+  };
+}
+
+function isSafeKcpReconciliationTransition(currentStatus, nextStatus) {
+  const normalizedCurrentStatus =
+    currentStatus === "PAID" ? "DONE" : normalizeText(currentStatus);
+
+  if (normalizedCurrentStatus === nextStatus) {
+    return true;
+  }
+
+  if (normalizedCurrentStatus === "DONE") {
+    return nextStatus === "PARTIAL_CANCELED" || nextStatus === "CANCELED";
+  }
+
+  return normalizedCurrentStatus === "PARTIAL_CANCELED" && nextStatus === "CANCELED";
+}
+
+async function requestKcpTransactionInquiry({ paymentKey, payType }) {
+  const normalizedPaymentKey = normalizeText(paymentKey);
+  const normalizedPayType = normalizeKcpInquiryPayType(payType);
+
+  if (!normalizedPaymentKey || !normalizedPayType) {
+    const error = new Error("Invalid KCP inquiry parameters");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const kcpConfig = assertKcpConfigured();
+  const signatureSource = [kcpSiteCode, normalizedPaymentKey, normalizedPayType].join("^");
+  const inquiryBody = {
+    site_cd: kcpSiteCode,
+    kcp_cert_info: kcpConfig.certInfo,
+    kcp_sign_data: createKcpSignature(
+      signatureSource,
+      kcpConfig.privateKey,
+      kcpConfig.privateKeyPassphrase
+    ),
+    tno: normalizedPaymentKey,
+    pay_type: normalizedPayType,
+  };
+  const { response, json } = await postKcpJson(kcpPaymentInquiryUrl, inquiryBody);
+  const responseCode = getKcpResponseCode(json);
+  const responseMessage = getKcpResponseMessage(json);
+  const ok = response.ok && responseCode === "0000";
+
+  return {
+    ok,
+    httpStatus: response.status,
+    errorCode: ok ? null : responseCode || "KCP_INQUIRY_FAILED",
+    errorMessage: ok ? null : responseMessage || "KCP 거래조회에 실패했습니다.",
+    result: json,
+  };
+}
+
+async function getKcpReconciliationSnapshot(db, orderId, { lock = false } = {}) {
+  const lockClause = lock ? "FOR UPDATE" : "";
+  const orderResult = await db.query(
+    `
+      SELECT
+        order_id,
+        amount,
+        status,
+        payment_provider,
+        payment_method
+      FROM orders
+      WHERE order_id = $1
+      LIMIT 1
+      ${lockClause}
+    `,
+    [orderId]
+  );
+
+  if (orderResult.rowCount === 0) {
+    return {
+      order: null,
+      payment: null,
+    };
+  }
+
+  const paymentResult = await db.query(
+    `
+      SELECT
+        order_id,
+        payment_key,
+        provider_payment_id,
+        payment_provider,
+        method,
+        payment_type,
+        status,
+        total_amount,
+        approved_at,
+        updated_at
+      FROM payments
+      WHERE order_id = $1
+        AND payment_provider = 'kcp'
+      ORDER BY updated_at DESC
+      LIMIT 1
+      ${lockClause}
+    `,
+    [orderId]
+  );
+
+  return {
+    order: orderResult.rows[0],
+    payment: paymentResult.rows[0] || null,
   };
 }
 
@@ -4773,6 +5005,389 @@ app.get("/admin/refunds", requireAdminAuth, async function (req, res) {
     });
   }
 });
+
+app.post(
+  "/admin/kcp/payments/:orderId/reconcile",
+  requireAdminAuth,
+  async function (req, res) {
+    if (!hasTrustedAdminOrigin(req)) {
+      return res.status(403).json({
+        ok: false,
+        code: "UNTRUSTED_ADMIN_ORIGIN",
+        message: "허용되지 않은 관리자 요청 출처입니다.",
+      });
+    }
+
+    const orderId = normalizeText(req.params.orderId);
+
+    if (!orderId) {
+      return res.status(400).json({
+        ok: false,
+        code: "ORDER_ID_REQUIRED",
+        message: "주문번호를 입력해 주세요.",
+      });
+    }
+
+    let snapshot;
+
+    try {
+      snapshot = await getKcpReconciliationSnapshot(pool, orderId);
+    } catch (error) {
+      console.error("Failed to load KCP payment for reconciliation:", error);
+      return res.status(500).json({
+        ok: false,
+        message: "KCP 결제정보를 불러오지 못했습니다.",
+      });
+    }
+
+    if (!snapshot.order) {
+      return res.status(404).json({
+        ok: false,
+        code: "ORDER_NOT_FOUND",
+        message: "주문정보를 찾을 수 없습니다.",
+      });
+    }
+
+    if (snapshot.order.payment_provider !== paymentProviders.KCP || !snapshot.payment) {
+      return res.status(409).json({
+        ok: false,
+        code: "KCP_PAYMENT_NOT_FOUND",
+        message: "해당 주문의 KCP 결제정보를 찾을 수 없습니다.",
+      });
+    }
+
+    const paymentKey =
+      normalizeText(snapshot.payment.provider_payment_id) ||
+      normalizeText(snapshot.payment.payment_key);
+    const storedPaymentKey = normalizeText(snapshot.payment.payment_key);
+    const orderAmount = normalizeAmount(snapshot.order.amount);
+    const paymentAmount = normalizeAmount(snapshot.payment.total_amount);
+    const payType = normalizeKcpInquiryPayType(
+      snapshot.payment.payment_type,
+      snapshot.payment.method,
+      snapshot.order.payment_method
+    );
+
+    if (
+      !paymentKey ||
+      !storedPaymentKey ||
+      paymentKey !== storedPaymentKey ||
+      !orderAmount ||
+      (paymentAmount !== null && paymentAmount !== orderAmount)
+    ) {
+      return res.status(409).json({
+        ok: false,
+        code: "KCP_STORED_PAYMENT_MISMATCH",
+        message: "DB의 주문금액 또는 KCP 거래번호가 일치하지 않습니다.",
+      });
+    }
+
+    if (!payType) {
+      return res.status(409).json({
+        ok: false,
+        code: "KCP_PAY_TYPE_UNSUPPORTED",
+        message: "KCP 거래조회가 지원되지 않는 결제수단입니다.",
+      });
+    }
+
+    let inquiryResponse;
+
+    try {
+      inquiryResponse = await requestKcpTransactionInquiry({ paymentKey, payType });
+    } catch (error) {
+      console.error("Failed to request KCP transaction inquiry:", error);
+      return res.status(error.statusCode || 502).json({
+        ok: false,
+        code: "KCP_INQUIRY_UNAVAILABLE",
+        message: error.message || "KCP 거래조회 요청에 실패했습니다.",
+      });
+    }
+
+    if (!inquiryResponse.ok) {
+      return res.status(502).json({
+        ok: false,
+        code: inquiryResponse.errorCode,
+        message: inquiryResponse.errorMessage,
+      });
+    }
+
+    const inquiryPayload = inquiryResponse.result;
+    const inquiryPaymentKey = normalizeText(inquiryPayload?.tno);
+    const interpretedInquiry = interpretKcpInquiryResult(inquiryPayload, payType);
+
+    if (!inquiryPaymentKey || inquiryPaymentKey !== paymentKey) {
+      return res.status(409).json({
+        ok: false,
+        code: "KCP_INQUIRY_TRANSACTION_MISMATCH",
+        message: "KCP에서 조회된 거래번호가 DB의 거래번호와 일치하지 않습니다.",
+      });
+    }
+
+    if (!interpretedInquiry.ok) {
+      return res.status(409).json({
+        ok: false,
+        code: interpretedInquiry.code,
+        message: interpretedInquiry.message,
+        inquiry: {
+          transactionStatus: interpretedInquiry.transactionStatus || null,
+          amount: interpretedInquiry.amount ?? null,
+          remainingAmount: interpretedInquiry.remainingAmount ?? null,
+        },
+      });
+    }
+
+    if (interpretedInquiry.amount !== orderAmount) {
+      return res.status(409).json({
+        ok: false,
+        code: "KCP_INQUIRY_AMOUNT_MISMATCH",
+        message: "KCP에서 조회된 결제금액이 DB의 주문금액과 일치하지 않습니다.",
+      });
+    }
+
+    if (
+      !isSafeKcpReconciliationTransition(
+        snapshot.payment.status,
+        interpretedInquiry.paymentStatus
+      )
+    ) {
+      return res.status(409).json({
+        ok: false,
+        code: "KCP_RECONCILIATION_TRANSITION_BLOCKED",
+        message: "결제상태를 이전 단계로 되돌리는 동기화는 자동 처리하지 않습니다.",
+        currentPaymentStatus: snapshot.payment.status,
+        kcpPaymentStatus: interpretedInquiry.paymentStatus,
+      });
+    }
+
+    let client = null;
+
+    try {
+      client = await pool.connect();
+      await client.query("BEGIN");
+
+      const lockedSnapshot = await getKcpReconciliationSnapshot(client, orderId, {
+        lock: true,
+      });
+      const lockedPaymentKey =
+        normalizeText(lockedSnapshot.payment?.provider_payment_id) ||
+        normalizeText(lockedSnapshot.payment?.payment_key);
+      const lockedOrderAmount = normalizeAmount(lockedSnapshot.order?.amount);
+      const lockedPaymentAmount = normalizeAmount(lockedSnapshot.payment?.total_amount);
+      const lockedPayType = normalizeKcpInquiryPayType(
+        lockedSnapshot.payment?.payment_type,
+        lockedSnapshot.payment?.method,
+        lockedSnapshot.order?.payment_method
+      );
+
+      if (
+        !lockedSnapshot.order ||
+        !lockedSnapshot.payment ||
+        lockedSnapshot.order.payment_provider !== paymentProviders.KCP ||
+        lockedPaymentKey !== paymentKey ||
+        lockedOrderAmount !== orderAmount ||
+        (lockedPaymentAmount !== null && lockedPaymentAmount !== orderAmount) ||
+        lockedPayType !== payType
+      ) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          ok: false,
+          code: "KCP_PAYMENT_CHANGED_DURING_RECONCILIATION",
+          message: "후검증 중 결제정보가 변경되어 동기화를 중단했습니다.",
+        });
+      }
+
+      if (
+        !isSafeKcpReconciliationTransition(
+          lockedSnapshot.payment.status,
+          interpretedInquiry.paymentStatus
+        )
+      ) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          ok: false,
+          code: "KCP_RECONCILIATION_TRANSITION_BLOCKED",
+          message: "후검증 중 결제상태가 변경되어 동기화를 중단했습니다.",
+        });
+      }
+
+      const nextPaymentStatus = interpretedInquiry.paymentStatus;
+      const nextOrderStatus = mapPaymentStatusToOrderStatus(nextPaymentStatus);
+      const inquiryPayloadJson = JSON.stringify(inquiryPayload);
+      const paymentUpdateResult = await client.query(
+        `
+          UPDATE payments
+          SET
+            provider_payment_id = COALESCE(provider_payment_id, $2),
+            status = $3,
+            raw_response_json = jsonb_set(
+              CASE
+                WHEN raw_response_json IS NULL THEN '{}'::jsonb
+                WHEN jsonb_typeof(raw_response_json) = 'object' THEN raw_response_json
+                ELSE jsonb_build_object('previous', raw_response_json)
+              END,
+              '{latestInquiry}',
+              $4::jsonb,
+              true
+            ),
+            updated_at = NOW()
+          WHERE order_id = $1
+            AND payment_key = $2
+            AND payment_provider = 'kcp'
+        `,
+        [orderId, paymentKey, nextPaymentStatus, inquiryPayloadJson]
+      );
+
+      if (paymentUpdateResult.rowCount !== 1 || !nextOrderStatus) {
+        throw new Error("KCP payment reconciliation target mismatch");
+      }
+
+      await client.query(
+        `
+          UPDATE orders
+          SET status = $2, updated_at = NOW()
+          WHERE order_id = $1
+        `,
+        [orderId, nextOrderStatus]
+      );
+
+      const applicationUpdateResult = await client.query(
+        `
+          UPDATE applications
+          SET
+            status = CASE
+              WHEN $2 = 'CANCELED' THEN 'REFUNDED'
+              WHEN $2 = 'PARTIAL_CANCELED' THEN 'PARTIAL_REFUNDED'
+              ELSE status
+            END,
+            payment_status = $2,
+            updated_at = NOW()
+          WHERE order_id = $1
+        `,
+        [orderId, nextPaymentStatus]
+      );
+
+      let stageServiceCount = 0;
+      const stageServiceTableResult = await client.query(
+        "SELECT to_regclass('public.stage_service_orders') AS table_name"
+      );
+
+      if (stageServiceTableResult.rows[0]?.table_name) {
+        const stageServiceUpdateResult = await client.query(
+          `
+            UPDATE stage_service_orders
+            SET payment_status = $2, updated_at = NOW()
+            WHERE order_id = $1
+          `,
+          [orderId, nextPaymentStatus]
+        );
+        stageServiceCount = stageServiceUpdateResult.rowCount;
+      }
+
+      let refundRequestSynced = false;
+
+      if (
+        nextPaymentStatus !== "DONE" &&
+        interpretedInquiry.remainingAmount !== null
+      ) {
+        const refundRequestTableResult = await client.query(
+          "SELECT to_regclass('public.application_refund_requests') AS table_name"
+        );
+
+        if (refundRequestTableResult.rows[0]?.table_name) {
+          const refundRequestUpdateResult = await client.query(
+            `
+              WITH target_request AS (
+                SELECT id
+                FROM application_refund_requests
+                WHERE order_id = $1
+                  AND request_status IN ('PROCESSING', 'FAILED', 'SYNC_FAILED')
+                  AND original_amount = $2
+                  AND original_amount - refund_amount = $3
+                ORDER BY created_at DESC
+                LIMIT 1
+                FOR UPDATE
+              )
+              UPDATE application_refund_requests AS requests
+              SET
+                request_status = 'COMPLETED',
+                provider_status_code = $4,
+                provider_error_code = NULL,
+                provider_error_message = NULL,
+                provider_response_json = $5::jsonb,
+                processed_at = NOW(),
+                updated_at = NOW()
+              FROM target_request
+              WHERE requests.id = target_request.id
+            `,
+            [
+              orderId,
+              orderAmount,
+              interpretedInquiry.remainingAmount,
+              inquiryResponse.httpStatus,
+              inquiryPayloadJson,
+            ]
+          );
+          refundRequestSynced = refundRequestUpdateResult.rowCount > 0;
+        }
+      }
+
+      await client.query("COMMIT");
+
+      await writeAdminAuditLog({
+        adminUserId: req.adminUser.id,
+        action: "ADMIN_RECONCILE_KCP_PAYMENT",
+        targetType: "payment",
+        targetId: orderId,
+        ipAddress: getRequestIp(req),
+        userAgent: getRequestUserAgent(req),
+        metadata: {
+          paymentKey,
+          payType,
+          previousPaymentStatus: lockedSnapshot.payment.status,
+          nextPaymentStatus,
+          transactionStatus: interpretedInquiry.transactionStatus,
+          amount: interpretedInquiry.amount,
+          remainingAmount: interpretedInquiry.remainingAmount,
+          applicationCount: applicationUpdateResult.rowCount,
+          stageServiceCount,
+          refundRequestSynced,
+        },
+      });
+
+      return res.status(200).json({
+        ok: true,
+        reconciliation: {
+          orderId,
+          paymentKey,
+          payType,
+          previousPaymentStatus: lockedSnapshot.payment.status,
+          paymentStatus: nextPaymentStatus,
+          orderStatus: nextOrderStatus,
+          transactionStatus: interpretedInquiry.transactionStatus,
+          amount: interpretedInquiry.amount,
+          remainingAmount: interpretedInquiry.remainingAmount,
+          canceledAt: interpretedInquiry.canceledAt,
+          applicationCount: applicationUpdateResult.rowCount,
+          stageServiceCount,
+          refundRequestSynced,
+        },
+      });
+    } catch (error) {
+      if (client) {
+        await client.query("ROLLBACK").catch(() => {});
+      }
+      console.error("Failed to reconcile KCP payment:", error);
+      return res.status(500).json({
+        ok: false,
+        message: "KCP 결제 후검증 결과를 DB에 반영하지 못했습니다.",
+      });
+    } finally {
+      if (client) {
+        client.release();
+      }
+    }
+  }
+);
 
 app.post("/admin/refunds/:refundRequestId/retry-sync", requireAdminAuth, async function (req, res) {
   const refundRequestId = Number(req.params.refundRequestId);
