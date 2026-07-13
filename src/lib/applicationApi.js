@@ -315,8 +315,74 @@ export async function getAdminMe() {
   return readJson(response);
 }
 
+export async function keepAliveAdminSession() {
+  const response = await adminApiFetch("/api/admin/keep-alive", {
+    method: "POST",
+  });
+
+  return readJson(response);
+}
+
 export async function getAdminApplications() {
   const response = await adminApiFetch("/api/admin/applications");
+  return readJson(response);
+}
+
+export async function updateAdminApplication(applicationNumber, payload) {
+  const response = await adminApiFetch(
+    `/api/admin/applications/${encodeURIComponent(applicationNumber)}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  return readJson(response);
+}
+
+export async function deleteAdminApplication(applicationNumber) {
+  const response = await adminApiFetch(
+    `/api/admin/applications/${encodeURIComponent(applicationNumber)}`,
+    {
+      method: "DELETE",
+    },
+  );
+
+  return readJson(response);
+}
+
+export async function getAdminUsers() {
+  const response = await adminApiFetch("/api/admin/users");
+  return readJson(response);
+}
+
+export async function createAdminUser(payload) {
+  const response = await adminApiFetch("/api/admin/users", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
+export async function updateAdminUser(adminUserId, payload) {
+  const response = await adminApiFetch(
+    `/api/admin/users/${encodeURIComponent(adminUserId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
   return readJson(response);
 }
 
@@ -349,11 +415,6 @@ export async function reconcileAdminKcpPayment(orderId) {
     },
   );
 
-  return readJson(response);
-}
-
-export async function getAdminRegisterAssets() {
-  const response = await adminApiFetch("/api/admin/assets/register");
   return readJson(response);
 }
 

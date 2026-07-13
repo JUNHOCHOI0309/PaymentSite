@@ -32,6 +32,10 @@ const adminSessionTtlHours = Math.max(
   1,
   Number(process.env.ADMIN_SESSION_TTL_HOURS || 12)
 );
+const adminSessionIdleMinutes = Math.max(
+  1,
+  Number(process.env.ADMIN_SESSION_IDLE_TIMEOUT_MINUTES || 15)
+);
 const adminBootstrapEmail = normalizeEmail(process.env.ADMIN_BOOTSTRAP_EMAIL);
 const adminBootstrapPassword = normalizeText(process.env.ADMIN_BOOTSTRAP_PASSWORD);
 const adminBootstrapDisplayName = normalizeText(process.env.ADMIN_BOOTSTRAP_DISPLAY_NAME) || "MMK Admin";
@@ -1442,6 +1446,7 @@ async function resolveAdminSession(req) {
         sessions.id AS session_id,
         sessions.admin_user_id,
         sessions.expires_at,
+        sessions.last_seen_at,
         users.id,
         users.email,
         users.display_name,
@@ -1467,6 +1472,7 @@ async function resolveAdminSession(req) {
 
   const row = sessionResult.rows[0];
   const expiresAt = row.expires_at ? new Date(row.expires_at) : null;
+  const lastSeenAt = row.last_seen_at ? new Date(row.last_seen_at) : null;
 
   if (!row.is_active) {
     await pool.query(
@@ -1497,6 +1503,21 @@ async function resolveAdminSession(req) {
     };
   }
 
+  if (!lastSeenAt || Date.now() - lastSeenAt.getTime() >= adminSessionIdleMinutes * 60 * 1000) {
+    await pool.query(
+      `
+        DELETE FROM admin_sessions
+        WHERE id = $1
+      `,
+      [row.session_id]
+    );
+
+    return {
+      status: "idle_expired",
+      lastSeenAt,
+    };
+  }
+
   await pool.query(
     `
       UPDATE admin_sessions
@@ -1520,26 +1541,36 @@ async function requireAdminAuth(req, res, next) {
     const session = await resolveAdminSession(req);
 
     if (session.status !== "active") {
-      if (session.status === "expired") {
+      if (session.status === "expired" || session.status === "idle_expired") {
         await writeAdminAuditLog({
-          action: "ADMIN_SESSION_EXPIRED",
+          action:
+            session.status === "idle_expired"
+              ? "ADMIN_SESSION_IDLE_EXPIRED"
+              : "ADMIN_SESSION_EXPIRED",
           targetType: "admin_session",
           ipAddress: getRequestIp(req),
           userAgent: getRequestUserAgent(req),
         });
       }
 
-      if (session.status === "expired" || session.status === "inactive") {
+      if (session.status === "expired" || session.status === "idle_expired" || session.status === "inactive") {
         res.setHeader("Set-Cookie", clearCookie(adminSessionCookieName));
       }
 
       return res.status(401).json({
         ok: false,
-        code: session.status === "expired" ? "ADMIN_SESSION_EXPIRED" : "ADMIN_AUTH_REQUIRED",
+        code:
+          session.status === "expired"
+            ? "ADMIN_SESSION_EXPIRED"
+            : session.status === "idle_expired"
+              ? "ADMIN_SESSION_IDLE_EXPIRED"
+              : "ADMIN_AUTH_REQUIRED",
         message:
           session.status === "expired"
             ? "Admin session has expired"
-            : "Admin authentication is required",
+            : session.status === "idle_expired"
+              ? "Admin session expired due to inactivity"
+              : "Admin authentication is required",
       });
     }
 
@@ -1553,6 +1584,32 @@ async function requireAdminAuth(req, res, next) {
       message: "Failed to validate admin session",
     });
   }
+}
+
+function requireSuperAdmin(req, res, next) {
+  if (req.adminUser?.role === "superadmin") {
+    next();
+    return;
+  }
+
+  return res.status(403).json({
+    ok: false,
+    code: "ADMIN_SUPERADMIN_REQUIRED",
+    message: "Superadmin permission is required",
+  });
+}
+
+function normalizeAdminRole(value) {
+  const role = normalizeText(value).toLowerCase();
+  return ["admin", "superadmin"].includes(role) ? role : null;
+}
+
+function normalizeAdminDisplayName(value) {
+  return normalizeText(value).slice(0, 80);
+}
+
+function isValidAdminPassword(value) {
+  return String(value || "").length >= 12;
 }
 
 function hasValidEmail(value) {
@@ -1998,6 +2055,7 @@ async function findLookupOwnedApplication({ name, email, applicationNumber }) {
       WHERE applications.application_number = $1
         AND applications.name = $2
         AND LOWER(applications.email) = $3
+        AND applications.admin_deleted_at IS NULL
       LIMIT 1
     `,
     [applicationNumber, name, email]
@@ -2659,6 +2717,7 @@ async function findEligibleCompletedApplicationForStageService({
         AND phone = $2
         AND LOWER(email) = $3
         AND payment_status = 'DONE'
+        AND admin_deleted_at IS NULL
       ORDER BY submitted_at DESC NULLS LAST, updated_at DESC
       LIMIT 1
     `,
@@ -4649,6 +4708,215 @@ app.get("/admin/me", requireAdminAuth, async function (req, res) {
   });
 });
 
+app.post("/admin/keep-alive", requireAdminAuth, async function (req, res) {
+  if (!hasTrustedAdminOrigin(req)) {
+    return res.status(403).json({ ok: false, message: "Untrusted admin origin" });
+  }
+
+  return res.status(200).json({
+    ok: true,
+    session: {
+      expiresAt: req.adminSession.expiresAt,
+    },
+  });
+});
+
+app.get("/admin/users", requireAdminAuth, requireSuperAdmin, async function (req, res) {
+  try {
+    const result = await pool.query(
+      `
+        SELECT
+          id,
+          email,
+          display_name,
+          role,
+          is_active,
+          last_login_at,
+          created_at,
+          updated_at
+        FROM admin_users
+        ORDER BY is_active DESC, role DESC, created_at ASC
+      `,
+    );
+
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_VIEW_USERS",
+      targetType: "admin_users",
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+      metadata: { count: result.rowCount },
+    });
+
+    return res.status(200).json({
+      ok: true,
+      adminUsers: result.rows.map(normalizeAdminUser),
+    });
+  } catch (error) {
+    console.error("Failed to fetch admin users:", error);
+    return res.status(500).json({ ok: false, message: "Failed to fetch admin users" });
+  }
+});
+
+app.post("/admin/users", requireAdminAuth, requireSuperAdmin, async function (req, res) {
+  if (!hasTrustedAdminOrigin(req)) {
+    return res.status(403).json({ ok: false, message: "Untrusted admin origin" });
+  }
+
+  const email = normalizeEmail(req.body?.email);
+  const displayName = normalizeAdminDisplayName(req.body?.displayName);
+  const password = String(req.body?.password || "");
+  const role = normalizeAdminRole(req.body?.role) || "admin";
+
+  if (!hasValidEmail(email) || !displayName || !isValidAdminPassword(password)) {
+    return res.status(400).json({
+      ok: false,
+      message: "A valid email, display name, and password of at least 12 characters are required",
+    });
+  }
+
+  try {
+    const passwordHash = await hashAdminPassword(password);
+    const result = await pool.query(
+      `
+        INSERT INTO admin_users (email, password_hash, display_name, role, is_active)
+        VALUES ($1, $2, $3, $4, TRUE)
+        RETURNING id, email, display_name, role, is_active, last_login_at, created_at, updated_at
+      `,
+      [email, passwordHash, displayName, role],
+    );
+    const adminUser = normalizeAdminUser(result.rows[0]);
+
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_CREATE_USER",
+      targetType: "admin_user",
+      targetId: String(adminUser.id),
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+      metadata: { email: adminUser.email, role: adminUser.role },
+    });
+
+    return res.status(201).json({ ok: true, adminUser });
+  } catch (error) {
+    if (error?.code === "23505") {
+      return res.status(409).json({ ok: false, message: "An admin with this email already exists" });
+    }
+
+    console.error("Failed to create admin user:", error);
+    return res.status(500).json({ ok: false, message: "Failed to create admin user" });
+  }
+});
+
+app.patch("/admin/users/:adminUserId", requireAdminAuth, requireSuperAdmin, async function (req, res) {
+  if (!hasTrustedAdminOrigin(req)) {
+    return res.status(403).json({ ok: false, message: "Untrusted admin origin" });
+  }
+
+  const adminUserId = Number(req.params.adminUserId);
+
+  if (!Number.isInteger(adminUserId) || adminUserId <= 0) {
+    return res.status(400).json({ ok: false, message: "Invalid admin user id" });
+  }
+
+  try {
+    const existingResult = await pool.query(
+      `
+        SELECT id, email, display_name, role, is_active, last_login_at, created_at, updated_at
+        FROM admin_users
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [adminUserId],
+    );
+
+    if (existingResult.rowCount === 0) {
+      return res.status(404).json({ ok: false, message: "Admin user not found" });
+    }
+
+    const existing = existingResult.rows[0];
+    const displayName = req.body?.displayName === undefined
+      ? existing.display_name
+      : normalizeAdminDisplayName(req.body.displayName);
+    const role = req.body?.role === undefined
+      ? existing.role
+      : normalizeAdminRole(req.body.role);
+    const isActive = req.body?.isActive === undefined ? existing.is_active : Boolean(req.body.isActive);
+    const password = req.body?.password === undefined ? "" : String(req.body.password || "");
+
+    if (!displayName || !role || (req.body?.password !== undefined && !isValidAdminPassword(password))) {
+      return res.status(400).json({
+        ok: false,
+        message: "Display name, role, and a password of at least 12 characters are required",
+      });
+    }
+
+    if (existing.id === req.adminUser.id && (!isActive || role !== "superadmin")) {
+      return res.status(400).json({
+        ok: false,
+        message: "You cannot deactivate or demote your own superadmin account",
+      });
+    }
+
+    const removesActiveSuperAdmin = existing.role === "superadmin"
+      && existing.is_active
+      && (role !== "superadmin" || !isActive);
+
+    if (removesActiveSuperAdmin) {
+      const superAdminCountResult = await pool.query(
+        "SELECT COUNT(*)::int AS count FROM admin_users WHERE role = 'superadmin' AND is_active = TRUE",
+      );
+
+      if (Number(superAdminCountResult.rows[0]?.count || 0) <= 1) {
+        return res.status(409).json({
+          ok: false,
+          message: "At least one active superadmin account must remain",
+        });
+      }
+    }
+
+    const passwordHash = password ? await hashAdminPassword(password) : null;
+    const result = await pool.query(
+      `
+        UPDATE admin_users
+        SET
+          display_name = $2,
+          role = $3,
+          is_active = $4,
+          password_hash = COALESCE($5, password_hash),
+          updated_at = NOW()
+        WHERE id = $1
+        RETURNING id, email, display_name, role, is_active, last_login_at, created_at, updated_at
+      `,
+      [adminUserId, displayName, role, isActive, passwordHash],
+    );
+    const adminUser = normalizeAdminUser(result.rows[0]);
+
+    if (!isActive || passwordHash) {
+      await pool.query("DELETE FROM admin_sessions WHERE admin_user_id = $1", [adminUserId]);
+    }
+
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_UPDATE_USER",
+      targetType: "admin_user",
+      targetId: String(adminUser.id),
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+      metadata: {
+        role: adminUser.role,
+        isActive: adminUser.isActive,
+        passwordReset: Boolean(passwordHash),
+      },
+    });
+
+    return res.status(200).json({ ok: true, adminUser });
+  } catch (error) {
+    console.error("Failed to update admin user:", error);
+    return res.status(500).json({ ok: false, message: "Failed to update admin user" });
+  }
+});
+
 app.get("/admin/applications", requireAdminAuth, async function (req, res) {
   try {
     const result = await pool.query(
@@ -4656,6 +4924,7 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
         SELECT
           a.application_number,
           a.order_id,
+          a.status,
           a.name,
           a.phone,
           a.email,
@@ -4687,6 +4956,7 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
           ORDER BY af.uploaded_at DESC
           LIMIT 1
         ) audio_file ON TRUE
+        WHERE a.admin_deleted_at IS NULL
         ORDER BY a.submitted_at DESC
         LIMIT 200
       `
@@ -4706,6 +4976,7 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
       applications: result.rows.map((row) => ({
         applicationNumber: row.application_number,
         orderId: row.order_id,
+        status: row.status,
         name: row.name,
         phone: row.phone,
         email: row.email,
@@ -4731,6 +5002,210 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
       ok: false,
       message: "Failed to fetch admin applications",
     });
+  }
+});
+
+app.patch("/admin/applications/:applicationNumber", requireAdminAuth, async function (req, res) {
+  if (!hasTrustedAdminOrigin(req)) {
+    return res.status(403).json({ ok: false, message: "Untrusted admin origin" });
+  }
+
+  const applicationNumber = normalizeText(req.params.applicationNumber);
+  const name = normalizeText(req.body?.name).slice(0, 120);
+  const phone = normalizeText(req.body?.phone).slice(0, 40);
+  const email = normalizeEmail(req.body?.email);
+  const birthDate = normalizeText(req.body?.birthDate).slice(0, 20) || null;
+  const organization = normalizeText(req.body?.organization).slice(0, 160) || null;
+  const snsIdentity = normalizeText(req.body?.snsIdentity).slice(0, 500) || null;
+  const introduction = normalizeText(req.body?.introduction).slice(0, 100) || null;
+  const division = normalizeText(req.body?.division).slice(0, 80) || null;
+  const discipline = getCanonicalApplicationDisciplineTitle({
+    discipline: normalizeText(req.body?.discipline).slice(0, 100),
+  }) || null;
+  const weightClass = normalizeText(req.body?.weightClass).slice(0, 160) || null;
+
+  if (!applicationNumber || !name || !phone || !hasValidEmail(email) || !discipline) {
+    return res.status(400).json({
+      ok: false,
+      message: "Application number, name, phone, discipline, and a valid email are required",
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      `
+        UPDATE applications
+        SET
+          name = $2,
+          phone = $3,
+          email = $4,
+          birth_date = $5,
+          organization = $6,
+          instagram_id = $7,
+          introduction = $8,
+          division = $9,
+          discipline = $10,
+          weight_class = $11,
+          updated_at = NOW()
+        WHERE application_number = $1
+          AND admin_deleted_at IS NULL
+        RETURNING application_number, order_id, status, name, phone, email, birth_date, organization,
+          instagram_id, introduction, division, discipline, weight_class, payment_status, submitted_at
+      `,
+      [
+        applicationNumber,
+        name,
+        phone,
+        email,
+        birthDate,
+        organization,
+        snsIdentity,
+        introduction,
+        division,
+        discipline,
+        weightClass,
+      ],
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ ok: false, message: "Application not found" });
+    }
+
+    const application = result.rows[0];
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_UPDATE_APPLICATION",
+      targetType: "application",
+      targetId: applicationNumber,
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+      metadata: {
+        updatedFields: [
+          "name",
+          "phone",
+          "email",
+          "birthDate",
+          "organization",
+          "snsIdentity",
+          "introduction",
+          "division",
+          "discipline",
+          "weightClass",
+        ],
+      },
+    });
+
+    return res.status(200).json({
+      ok: true,
+      application: {
+        applicationNumber: application.application_number,
+        orderId: application.order_id,
+        status: application.status,
+        name: application.name,
+        phone: application.phone,
+        email: application.email,
+        birthDate: application.birth_date,
+        organization: application.organization,
+        snsIdentity: application.instagram_id,
+        introduction: application.introduction,
+        division: application.division,
+        discipline: getCanonicalApplicationDisciplineTitle({ discipline: application.discipline }),
+        weightClass: application.weight_class,
+        paymentStatus: application.payment_status,
+        submittedAt: application.submitted_at,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to update admin application:", error);
+    return res.status(500).json({ ok: false, message: "Failed to update application" });
+  }
+});
+
+app.delete("/admin/applications/:applicationNumber", requireAdminAuth, requireSuperAdmin, async function (req, res) {
+  if (!hasTrustedAdminOrigin(req)) {
+    return res.status(403).json({ ok: false, message: "Untrusted admin origin" });
+  }
+
+  const applicationNumber = normalizeText(req.params.applicationNumber);
+
+  if (!applicationNumber) {
+    return res.status(400).json({ ok: false, message: "Application number is required" });
+  }
+
+  try {
+    const applicationResult = await pool.query(
+      `
+        SELECT id, application_number, payment_status, status
+        FROM applications
+        WHERE application_number = $1
+          AND admin_deleted_at IS NULL
+        LIMIT 1
+      `,
+      [applicationNumber],
+    );
+
+    if (applicationResult.rowCount === 0) {
+      return res.status(404).json({ ok: false, message: "Application not found" });
+    }
+
+    const application = applicationResult.rows[0];
+    if (application.payment_status === "DONE") {
+      return res.status(409).json({
+        ok: false,
+        message: "Paid applications cannot be deleted. Use the refund flow instead.",
+      });
+    }
+
+    const [stageServiceResult, refundRequestResult] = await Promise.all([
+      pool.query(
+        "SELECT 1 FROM stage_service_orders WHERE linked_application_number = $1 LIMIT 1",
+        [applicationNumber],
+      ),
+      pool.query(
+        `
+          SELECT 1
+          FROM application_refund_requests
+          WHERE application_number = $1
+            AND request_status IN ('REQUESTED', 'PROCESSING', 'COMPLETED', 'SYNC_FAILED')
+          LIMIT 1
+        `,
+        [applicationNumber],
+      ),
+    ]);
+
+    if (stageServiceResult.rowCount > 0 || refundRequestResult.rowCount > 0) {
+      return res.status(409).json({
+        ok: false,
+        message: "Applications linked to stage services or refund records cannot be deleted",
+      });
+    }
+
+    await pool.query(
+      `
+        UPDATE applications
+        SET
+          admin_deleted_at = NOW(),
+          admin_deleted_by = $2,
+          updated_at = NOW()
+        WHERE id = $1
+      `,
+      [application.id, req.adminUser.id],
+    );
+
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_SOFT_DELETE_APPLICATION",
+      targetType: "application",
+      targetId: applicationNumber,
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+      metadata: { paymentStatus: application.payment_status },
+    });
+
+    return res.status(200).json({ ok: true, applicationNumber });
+  } catch (error) {
+    console.error("Failed to delete admin application:", error);
+    return res.status(500).json({ ok: false, message: "Failed to delete application" });
   }
 });
 
@@ -5568,59 +6043,6 @@ app.post("/admin/refunds/:refundRequestId/retry-sync", requireAdminAuth, async f
     });
   } finally {
     client.release();
-  }
-});
-
-app.get("/admin/assets/register", requireAdminAuth, async function (req, res) {
-  try {
-    if (!ensureR2ReadReady()) {
-      return res.status(500).json({
-        ok: false,
-        message: "R2 read is not configured",
-      });
-    }
-
-    const listResponse = await r2Client.send(
-      new ListObjectsV2Command({
-        Bucket: r2BucketName,
-        Prefix: "register/",
-      })
-    );
-
-    const assets = (listResponse.Contents || [])
-      .filter((item) => /\.(png|jpe?g)$/i.test(item.Key || ""))
-      .map((item) => ({
-        key: item.Key,
-        filename: path.basename(item.Key || ""),
-        sizeBytes: item.Size || 0,
-        sizeLabel: formatFileSizeLabel(item.Size || 0),
-        lastModified: item.LastModified || null,
-      }))
-      .sort((a, b) => {
-        const left = a.lastModified ? new Date(a.lastModified).getTime() : 0;
-        const right = b.lastModified ? new Date(b.lastModified).getTime() : 0;
-        return right - left;
-      });
-
-    await writeAdminAuditLog({
-      adminUserId: req.adminUser.id,
-      action: "ADMIN_VIEW_REGISTER_ASSETS",
-      targetType: "r2_assets",
-      ipAddress: getRequestIp(req),
-      userAgent: getRequestUserAgent(req),
-      metadata: { count: assets.length },
-    });
-
-    return res.status(200).json({
-      ok: true,
-      assets,
-    });
-  } catch (error) {
-    console.error("Failed to fetch admin register assets:", error);
-    return res.status(500).json({
-      ok: false,
-      message: "Failed to fetch admin register assets",
-    });
   }
 });
 

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import excelDownloadIcon from "../../assets/excel-download-icon.png";
 import { Button } from "../../components/common/Button";
+import applicationDisciplineCatalog from "../../data/applicationDisciplineCatalog.json";
 import {
   getHairOptionChoices,
   getHairOptionalChoices,
@@ -13,14 +14,19 @@ import { formatStoredSnsIdentity } from "../../lib/applicationSns";
 import {
   adminLogout,
   buildApiUrl,
+  createAdminUser,
+  deleteAdminApplication,
   getAdminApplications,
   getAdminAuditLogs,
   getAdminMe,
   getAdminRefunds,
-  getAdminRegisterAssets,
   getAdminStageServices,
+  getAdminUsers,
+  keepAliveAdminSession,
   reconcileAdminKcpPayment,
   retryAdminRefundSync,
+  updateAdminApplication,
+  updateAdminUser,
 } from "../../lib/applicationApi";
 
 function formatDateTime(value) {
@@ -63,6 +69,17 @@ function formatPercent(value) {
 
   return `${percent}%`;
 }
+
+function formatCountdown(seconds) {
+  const safeSeconds = Math.max(0, Math.ceil(Number(seconds) || 0));
+  const minutes = String(Math.floor(safeSeconds / 60)).padStart(2, "0");
+  const remainingSeconds = String(safeSeconds % 60).padStart(2, "0");
+  return `${minutes}:${remainingSeconds}`;
+}
+
+const ADMIN_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+const ADMIN_IDLE_WARNING_MS = 60 * 1000;
+const ADMIN_ACTIVITY_HEARTBEAT_MS = 60 * 1000;
 
 function formatBirthDate(value) {
   if (!value) {
@@ -524,6 +541,160 @@ function TableSection({
   );
 }
 
+function AdminDialog({ children, onClose, title }) {
+  return (
+    <div className="site-admin-dialog-backdrop" onMouseDown={onClose} role="presentation">
+      <section
+        aria-modal="true"
+        className="site-admin-dialog"
+        onMouseDown={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        <div className="site-admin-dialog__header">
+          <h2>{title}</h2>
+          <button aria-label="닫기" className="site-admin-dialog__close" onClick={onClose} type="button">
+            ×
+          </button>
+        </div>
+        {children}
+      </section>
+    </div>
+  );
+}
+
+function ApplicationEditor({ application, form, isSubmitting, onChange, onClose, onSubmit }) {
+  const disciplineItems = Array.isArray(applicationDisciplineCatalog.items)
+    ? applicationDisciplineCatalog.items
+    : [];
+
+  return (
+    <AdminDialog onClose={onClose} title={`신청 정보 수정 · ${application.applicationNumber}`}>
+      <form className="site-admin-form" onSubmit={onSubmit}>
+        <p className="site-admin-form__notice">
+          신청자 정보만 수정합니다. 결제 상태와 환불 이력은 이 화면에서 변경되지 않습니다.
+        </p>
+        <div className="site-admin-form__grid">
+          <label className="site-admin-form__field">
+            <span>성함</span>
+            <input name="name" onChange={onChange} required value={form.name} />
+          </label>
+          <label className="site-admin-form__field">
+            <span>연락처</span>
+            <input name="phone" onChange={onChange} required value={form.phone} />
+          </label>
+          <label className="site-admin-form__field">
+            <span>이메일</span>
+            <input name="email" onChange={onChange} required type="email" value={form.email} />
+          </label>
+          <label className="site-admin-form__field">
+            <span>생년월일</span>
+            <input name="birthDate" onChange={onChange} value={form.birthDate} />
+          </label>
+          <label className="site-admin-form__field">
+            <span>소속</span>
+            <input name="organization" onChange={onChange} value={form.organization} />
+          </label>
+          <label className="site-admin-form__field">
+            <span>SNS 저장값</span>
+            <input name="snsIdentity" onChange={onChange} value={form.snsIdentity} />
+          </label>
+          <label className="site-admin-form__field">
+            <span>부문</span>
+            <input name="division" onChange={onChange} value={form.division} />
+          </label>
+          <label className="site-admin-form__field">
+            <span>종목</span>
+            <select name="discipline" onChange={onChange} value={form.discipline}>
+              {disciplineItems.map((item) => (
+                <option key={item.title} value={item.title}>{item.title}</option>
+              ))}
+            </select>
+          </label>
+          <label className="site-admin-form__field">
+            <span>체급</span>
+            <input name="weightClass" onChange={onChange} value={form.weightClass} />
+          </label>
+          <label className="site-admin-form__field site-admin-form__field--wide">
+            <span>자기소개</span>
+            <textarea maxLength="100" name="introduction" onChange={onChange} value={form.introduction} />
+          </label>
+        </div>
+        <div className="site-admin-form__actions">
+          <button className="site-admin-action-button" onClick={onClose} type="button">취소</button>
+          <button className="site-admin-action-button site-admin-action-button--primary" disabled={isSubmitting} type="submit">
+            {isSubmitting ? "저장 중..." : "변경 저장"}
+          </button>
+        </div>
+      </form>
+    </AdminDialog>
+  );
+}
+
+function AdminUserEditor({ adminUser, form, isSubmitting, isCurrentUser, onChange, onClose, onSubmit }) {
+  const isCreate = !adminUser;
+
+  return (
+    <AdminDialog onClose={onClose} title={isCreate ? "관리자 계정 추가" : "관리자 계정 수정"}>
+      <form className="site-admin-form" onSubmit={onSubmit}>
+        <div className="site-admin-form__grid">
+          {isCreate ? (
+            <label className="site-admin-form__field site-admin-form__field--wide">
+              <span>이메일</span>
+              <input name="email" onChange={onChange} required type="email" value={form.email} />
+            </label>
+          ) : (
+            <label className="site-admin-form__field site-admin-form__field--wide">
+              <span>이메일</span>
+              <input disabled value={adminUser.email} />
+            </label>
+          )}
+          <label className="site-admin-form__field">
+            <span>표시 이름</span>
+            <input name="displayName" onChange={onChange} required value={form.displayName} />
+          </label>
+          <label className="site-admin-form__field">
+            <span>권한</span>
+            <select disabled={isCurrentUser} name="role" onChange={onChange} value={form.role}>
+              <option value="admin">admin</option>
+              <option value="superadmin">superadmin</option>
+            </select>
+          </label>
+          <label className="site-admin-form__field">
+            <span>{isCreate ? "초기 비밀번호" : "새 비밀번호"}</span>
+            <input
+              minLength="12"
+              name="password"
+              onChange={onChange}
+              placeholder={isCreate ? "12자 이상" : "변경할 때만 입력"}
+              required={isCreate}
+              type="password"
+              value={form.password}
+            />
+          </label>
+          {!isCreate ? (
+            <label className="site-admin-form__field">
+              <span>계정 상태</span>
+              <select disabled={isCurrentUser} name="isActive" onChange={onChange} value={String(form.isActive)}>
+                <option value="true">활성</option>
+                <option value="false">비활성</option>
+              </select>
+            </label>
+          ) : null}
+        </div>
+        <p className="site-admin-form__notice">
+          비밀번호 변경 또는 계정 비활성화 시 해당 계정의 기존 로그인 세션은 즉시 만료됩니다.
+        </p>
+        <div className="site-admin-form__actions">
+          <button className="site-admin-action-button" onClick={onClose} type="button">취소</button>
+          <button className="site-admin-action-button site-admin-action-button--primary" disabled={isSubmitting} type="submit">
+            {isSubmitting ? "저장 중..." : isCreate ? "계정 추가" : "변경 저장"}
+          </button>
+        </div>
+      </form>
+    </AdminDialog>
+  );
+}
+
 export function AdminDashboardPage() {
   const navigate = useNavigate();
   const [adminUser, setAdminUser] = useState(null);
@@ -532,7 +703,7 @@ export function AdminDashboardPage() {
   const [stageServices, setStageServices] = useState([]);
   const [refundRequests, setRefundRequests] = useState([]);
   const [refunds, setRefunds] = useState([]);
-  const [assets, setAssets] = useState([]);
+  const [adminUsers, setAdminUsers] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [activeSection, setActiveSection] = useState("overview");
   const [applicationSearch, setApplicationSearch] = useState("");
@@ -543,13 +714,43 @@ export function AdminDashboardPage() {
   const [refundRequestStatusFilter, setRefundRequestStatusFilter] = useState("all");
   const [refundPaymentSearch, setRefundPaymentSearch] = useState("");
   const [refundPaymentStatusFilter, setRefundPaymentStatusFilter] = useState("all");
-  const [assetSearch, setAssetSearch] = useState("");
   const [auditSearch, setAuditSearch] = useState("");
   const [auditActionFilter, setAuditActionFilter] = useState("all");
   const [retryingRefundRequestId, setRetryingRefundRequestId] = useState(null);
   const [kcpReconcileOrderId, setKcpReconcileOrderId] = useState("");
   const [isReconcilingKcp, setIsReconcilingKcp] = useState(false);
   const [kcpReconcileMessage, setKcpReconcileMessage] = useState("");
+  const [editingApplication, setEditingApplication] = useState(null);
+  const [applicationForm, setApplicationForm] = useState(null);
+  const [editingAdminUser, setEditingAdminUser] = useState(null);
+  const [adminUserForm, setAdminUserForm] = useState(null);
+  const [isSavingApplication, setIsSavingApplication] = useState(false);
+  const [isSavingAdminUser, setIsSavingAdminUser] = useState(false);
+  const [isIdleWarningOpen, setIsIdleWarningOpen] = useState(false);
+  const [idleSecondsRemaining, setIdleSecondsRemaining] = useState(60);
+  const [isExtendingAdminSession, setIsExtendingAdminSession] = useState(false);
+  const lastAdminActivityAtRef = useRef(Date.now());
+  const lastAdminHeartbeatAtRef = useRef(Date.now());
+  const lastAdminMouseMoveAtRef = useRef(0);
+  const isIdleWarningOpenRef = useRef(false);
+  const isAutoLogoutRunningRef = useRef(false);
+  const resetIdleTimersRef = useRef(null);
+
+  const forceAdminLogout = useCallback(async () => {
+    if (isAutoLogoutRunningRef.current) {
+      return;
+    }
+
+    isAutoLogoutRunningRef.current = true;
+
+    try {
+      await adminLogout();
+    } catch (_error) {
+      // The local session may already have expired on the API server.
+    } finally {
+      navigate("/admin/login", { replace: true });
+    }
+  }, [navigate]);
   const [errorMessage, setErrorMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
 
@@ -560,20 +761,21 @@ export function AdminDashboardPage() {
     setErrorMessage("");
 
     try {
+      const meResponse = await getAdminMe();
       const [
-        meResponse,
         applicationsResponse,
         stageServicesResponse,
         refundsResponse,
-        assetsResponse,
         auditLogsResponse,
+        adminUsersResponse,
       ] = await Promise.all([
-        getAdminMe(),
         getAdminApplications(),
         getAdminStageServices(),
         getAdminRefunds(),
-        getAdminRegisterAssets(),
         getAdminAuditLogs(),
+        meResponse.adminUser?.role === "superadmin"
+          ? getAdminUsers()
+          : Promise.resolve({ adminUsers: [] }),
       ]);
 
       setAdminUser(meResponse.adminUser);
@@ -582,11 +784,15 @@ export function AdminDashboardPage() {
       setStageServices(stageServicesResponse.stageServices || []);
       setRefundRequests(refundsResponse.refundRequests || []);
       setRefunds(refundsResponse.refunds || []);
-      setAssets(assetsResponse.assets || []);
       setAuditLogs(auditLogsResponse.auditLogs || []);
+      setAdminUsers(adminUsersResponse.adminUsers || []);
     } catch (error) {
-      if (error.code === "ADMIN_AUTH_REQUIRED" || error.code === "ADMIN_SESSION_EXPIRED") {
-        navigate("/admin/login", { replace: true });
+      if (
+        error.code === "ADMIN_AUTH_REQUIRED"
+        || error.code === "ADMIN_SESSION_EXPIRED"
+        || error.code === "ADMIN_SESSION_IDLE_EXPIRED"
+      ) {
+        forceAdminLogout();
         return;
       }
 
@@ -596,11 +802,172 @@ export function AdminDashboardPage() {
         setIsLoading(false);
       }
     }
-  }, [navigate]);
+  }, [forceAdminLogout]);
 
   useEffect(() => {
     loadAdminData();
   }, [loadAdminData]);
+
+  useEffect(() => {
+    let warningTimerId = null;
+    let logoutTimerId = null;
+    let warningCountdownIntervalId = null;
+
+    const clearIdleTimers = () => {
+      if (warningTimerId) {
+        window.clearTimeout(warningTimerId);
+        warningTimerId = null;
+      }
+
+      if (logoutTimerId) {
+        window.clearTimeout(logoutTimerId);
+        logoutTimerId = null;
+      }
+
+      if (warningCountdownIntervalId) {
+        window.clearInterval(warningCountdownIntervalId);
+        warningCountdownIntervalId = null;
+      }
+    };
+
+    const runAutoLogout = () => {
+      clearIdleTimers();
+      forceAdminLogout();
+    };
+
+    const updateWarningCountdown = () => {
+      const remainingMs = Math.max(
+        0,
+        lastAdminActivityAtRef.current + ADMIN_IDLE_TIMEOUT_MS - Date.now(),
+      );
+      setIdleSecondsRemaining(Math.ceil(remainingMs / 1000));
+
+      if (remainingMs <= 0) {
+        runAutoLogout();
+      }
+    };
+
+    const openIdleWarning = () => {
+      const elapsedMs = Date.now() - lastAdminActivityAtRef.current;
+
+      if (elapsedMs >= ADMIN_IDLE_TIMEOUT_MS) {
+        runAutoLogout();
+        return;
+      }
+
+      isIdleWarningOpenRef.current = true;
+      setIsIdleWarningOpen(true);
+      updateWarningCountdown();
+
+      if (!warningCountdownIntervalId) {
+        warningCountdownIntervalId = window.setInterval(updateWarningCountdown, 250);
+      }
+    };
+
+    const scheduleIdleTimers = () => {
+      clearIdleTimers();
+
+      const elapsedMs = Date.now() - lastAdminActivityAtRef.current;
+      const remainingMs = ADMIN_IDLE_TIMEOUT_MS - elapsedMs;
+
+      if (remainingMs <= 0) {
+        runAutoLogout();
+        return;
+      }
+
+      if (elapsedMs >= ADMIN_IDLE_TIMEOUT_MS - ADMIN_IDLE_WARNING_MS) {
+        openIdleWarning();
+      } else {
+        warningTimerId = window.setTimeout(
+          openIdleWarning,
+          ADMIN_IDLE_TIMEOUT_MS - ADMIN_IDLE_WARNING_MS - elapsedMs,
+        );
+      }
+
+      logoutTimerId = window.setTimeout(runAutoLogout, remainingMs);
+    };
+
+    const sendActivityHeartbeat = async () => {
+      if (Date.now() - lastAdminHeartbeatAtRef.current < ADMIN_ACTIVITY_HEARTBEAT_MS) {
+        return;
+      }
+
+      lastAdminHeartbeatAtRef.current = Date.now();
+
+      try {
+        await keepAliveAdminSession();
+      } catch (_error) {
+        runAutoLogout();
+      }
+    };
+
+    const recordActivity = () => {
+      if (isIdleWarningOpenRef.current || isAutoLogoutRunningRef.current) {
+        return;
+      }
+
+      lastAdminActivityAtRef.current = Date.now();
+      scheduleIdleTimers();
+      sendActivityHeartbeat();
+    };
+
+    const recordMouseActivity = () => {
+      const now = Date.now();
+
+      if (now - lastAdminMouseMoveAtRef.current < 5000) {
+        return;
+      }
+
+      lastAdminMouseMoveAtRef.current = now;
+      recordActivity();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+
+      if (isIdleWarningOpenRef.current) {
+        updateWarningCountdown();
+        return;
+      }
+
+      const elapsedMs = Date.now() - lastAdminActivityAtRef.current;
+
+      if (elapsedMs >= ADMIN_IDLE_TIMEOUT_MS) {
+        runAutoLogout();
+      } else if (elapsedMs >= ADMIN_IDLE_TIMEOUT_MS - ADMIN_IDLE_WARNING_MS) {
+        openIdleWarning();
+      } else {
+        scheduleIdleTimers();
+      }
+    };
+
+    resetIdleTimersRef.current = () => {
+      isIdleWarningOpenRef.current = false;
+      setIsIdleWarningOpen(false);
+      lastAdminActivityAtRef.current = Date.now();
+      lastAdminHeartbeatAtRef.current = Date.now();
+      scheduleIdleTimers();
+    };
+
+    ["pointerdown", "keydown", "touchstart", "scroll"].forEach((eventName) => {
+      window.addEventListener(eventName, recordActivity, { passive: true });
+    });
+    window.addEventListener("mousemove", recordMouseActivity, { passive: true });
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    scheduleIdleTimers();
+
+    return () => {
+      clearIdleTimers();
+      resetIdleTimersRef.current = null;
+      ["pointerdown", "keydown", "touchstart", "scroll"].forEach((eventName) => {
+        window.removeEventListener(eventName, recordActivity);
+      });
+      window.removeEventListener("mousemove", recordMouseActivity);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [forceAdminLogout]);
 
   const paidApplicationCount = useMemo(
     () => applications.filter((item) => item.paymentStatus === "DONE").length,
@@ -609,7 +976,6 @@ export function AdminDashboardPage() {
   const latestApplications = useMemo(() => applications.slice(0, 5), [applications]);
   const latestStageServices = useMemo(() => stageServices.slice(0, 5), [stageServices]);
   const latestRefunds = useMemo(() => refundRequests.slice(0, 5), [refundRequests]);
-  const latestAssets = useMemo(() => assets.slice(0, 4), [assets]);
   const latestAuditLogs = useMemo(() => auditLogs.slice(0, 5), [auditLogs]);
   const refundProcessingCount = useMemo(
     () =>
@@ -782,10 +1148,6 @@ export function AdminDashboardPage() {
       }),
     [refundPaymentSearch, refundPaymentStatusFilter, refunds],
   );
-  const filteredAssets = useMemo(
-    () => assets.filter((row) => matchesSearch(assetSearch, row.filename, row.key, row.sizeLabel)),
-    [assetSearch, assets],
-  );
   const filteredAuditLogs = useMemo(
     () =>
       auditLogs.filter((row) => {
@@ -812,11 +1174,11 @@ export function AdminDashboardPage() {
 
   const dashboardSections = [
     { id: "overview", label: "개요" },
-    { id: "applications", label: "대회 신청" },
-    { id: "stageServices", label: "무대 서비스" },
-    { id: "refunds", label: "환불 현황" },
-    { id: "assets", label: "R2 자산" },
+    { id: "applications", label: "등록 현황" },
+    { id: "stageServices", label: "무대 서비스 관리" },
+    { id: "refunds", label: "환불 / 취소 현황" },
     { id: "audit", label: "감사 로그" },
+    ...(adminUser?.role === "superadmin" ? [{ id: "accounts", label: "관리자 계정" }] : []),
   ];
 
   async function handleLogout() {
@@ -824,6 +1186,19 @@ export function AdminDashboardPage() {
       await adminLogout();
     } finally {
       navigate("/admin/login", { replace: true });
+    }
+  }
+
+  async function handleExtendAdminSession() {
+    setIsExtendingAdminSession(true);
+
+    try {
+      await keepAliveAdminSession();
+      resetIdleTimersRef.current?.();
+    } catch (_error) {
+      await forceAdminLogout();
+    } finally {
+      setIsExtendingAdminSession(false);
     }
   }
 
@@ -869,6 +1244,111 @@ export function AdminDashboardPage() {
     }
   }
 
+  function openApplicationEditor(application) {
+    setEditingApplication(application);
+    setApplicationForm({
+      name: application.name || "",
+      phone: application.phone || "",
+      email: application.email || "",
+      birthDate: application.birthDate || "",
+      organization: application.organization || "",
+      snsIdentity: application.snsIdentity || application.instagramId || "",
+      introduction: application.introduction || "",
+      division: application.division || "",
+      discipline: application.discipline || "",
+      weightClass: application.weightClass || "",
+    });
+  }
+
+  async function handleApplicationSave(event) {
+    event.preventDefault();
+
+    if (!editingApplication || !applicationForm) {
+      return;
+    }
+
+    setIsSavingApplication(true);
+    setErrorMessage("");
+
+    try {
+      await updateAdminApplication(editingApplication.applicationNumber, applicationForm);
+      setEditingApplication(null);
+      setApplicationForm(null);
+      await loadAdminData({ silent: true });
+    } catch (error) {
+      setErrorMessage(error.message || "신청 정보 수정에 실패했습니다.");
+    } finally {
+      setIsSavingApplication(false);
+    }
+  }
+
+  async function handleApplicationDelete(application) {
+    const shouldDelete = window.confirm(
+      `${application.applicationNumber} 신청을 삭제 처리할까요? 결제 완료, 환불 또는 무대 서비스 연동 건은 삭제할 수 없습니다.`,
+    );
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    setErrorMessage("");
+
+    try {
+      await deleteAdminApplication(application.applicationNumber);
+      await loadAdminData({ silent: true });
+    } catch (error) {
+      setErrorMessage(error.message || "신청 삭제에 실패했습니다.");
+    }
+  }
+
+  function openAdminUserEditor(adminUserToEdit = null) {
+    setEditingAdminUser(adminUserToEdit);
+    setAdminUserForm({
+      email: adminUserToEdit?.email || "",
+      displayName: adminUserToEdit?.displayName || "",
+      role: adminUserToEdit?.role || "admin",
+      isActive: adminUserToEdit?.isActive ?? true,
+      password: "",
+    });
+  }
+
+  async function handleAdminUserSave(event) {
+    event.preventDefault();
+
+    if (!adminUserForm) {
+      return;
+    }
+
+    setIsSavingAdminUser(true);
+    setErrorMessage("");
+
+    try {
+      if (editingAdminUser) {
+        await updateAdminUser(editingAdminUser.id, {
+          displayName: adminUserForm.displayName,
+          role: adminUserForm.role,
+          isActive: String(adminUserForm.isActive) === "true",
+          ...(adminUserForm.password ? { password: adminUserForm.password } : {}),
+        });
+      } else {
+        await createAdminUser({
+          email: adminUserForm.email,
+          displayName: adminUserForm.displayName,
+          role: adminUserForm.role,
+          password: adminUserForm.password,
+        });
+      }
+
+      setEditingAdminUser(null);
+      setAdminUserForm(null);
+      await loadAdminData({ silent: true });
+    } catch (error) {
+      setErrorMessage(error.message || "관리자 계정 저장에 실패했습니다.");
+    } finally {
+      setIsSavingAdminUser(false);
+    }
+  }
+
   return (
     <section className="site-admin-page">
       <div className="site-admin-page__header">
@@ -896,8 +1376,8 @@ export function AdminDashboardPage() {
         <SummaryCard label="결제 완료" value={paidApplicationCount} />
         <SummaryCard label="무대 서비스 주문" value={stageServices.length} />
         <SummaryCard label="환불 요청" value={refundRequests.length} />
-        <SummaryCard label="R2 등록 이미지" value={assets.length} />
         <SummaryCard label="최근 감사 로그" value={auditLogs.length} />
+        {adminUser?.role === "superadmin" ? <SummaryCard label="활성 관리자" value={adminUsers.filter((item) => item.isActive).length} /> : null}
       </div>
 
       <div className="site-admin-panel-nav" role="tablist" aria-label="관리자 섹션">
@@ -1007,37 +1487,6 @@ export function AdminDashboardPage() {
                   </div>
                 ) : (
                   <div className="site-admin-loading">환불 요청 이력이 없습니다.</div>
-                )}
-              </section>
-
-              <section className="site-admin-overview-card">
-                <div className="site-admin-overview-card__header">
-                  <div>
-                    <p className="site-kicker">R2 Assets</p>
-                    <h2>register/ 최근 이미지</h2>
-                  </div>
-                  <button
-                    className="site-admin-overview-card__action"
-                    onClick={() => setActiveSection("assets")}
-                    type="button"
-                  >
-                    전체 보기
-                  </button>
-                </div>
-                {latestAssets.length ? (
-                  <div className="site-admin-overview-assets">
-                    {latestAssets.map((asset) => (
-                      <article className="site-admin-overview-assets__item" key={asset.key}>
-                        <img
-                          alt={asset.key}
-                          src={buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(asset.key)}`)}
-                        />
-                        <span>{asset.filename}</span>
-                      </article>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="site-admin-loading">register/ 경로에 등록된 이미지가 없습니다.</div>
                 )}
               </section>
 
@@ -1194,6 +1643,33 @@ export function AdminDashboardPage() {
                     key: "submittedAt",
                     label: "접수 일시",
                     render: (row) => formatDateTime(row.submittedAt),
+                  },
+                  {
+                    key: "actions",
+                    label: "관리",
+                    sortable: false,
+                    render: (row) => (
+                      <div className="site-admin-table__actions">
+                        <button
+                          className="site-admin-action-button"
+                          onClick={() => openApplicationEditor(row)}
+                          type="button"
+                        >
+                          수정
+                        </button>
+                        {adminUser?.role === "superadmin" ? (
+                          <button
+                            className="site-admin-action-button site-admin-action-button--danger"
+                            disabled={row.paymentStatus === "DONE"}
+                            onClick={() => handleApplicationDelete(row)}
+                            title={row.paymentStatus === "DONE" ? "결제 완료 건은 환불 절차를 사용해야 합니다." : undefined}
+                            type="button"
+                          >
+                            삭제
+                          </button>
+                        ) : null}
+                      </div>
+                    ),
                   },
                 ]}
                 rows={filteredApplications}
@@ -1567,51 +2043,59 @@ export function AdminDashboardPage() {
             </>
           ) : null}
 
-          {activeSection === "assets" ? (
-            <section className="site-admin-section">
-              <div className="site-admin-section__header">
-                <h2>R2 등록 이미지</h2>
-              </div>
-              <SectionControls
-                searchPlaceholder="파일명, object key, 크기 검색"
-                searchValue={assetSearch}
-                onSearchChange={setAssetSearch}
-                onDownload={() =>
-                  downloadWorkbookFile(
-                    "admin-r2-assets.xlsx",
-                    "R2 자산",
-                    [
-                      { key: "filename", label: "파일명" },
-                      { key: "key", label: "Object Key" },
-                      { key: "sizeLabel", label: "크기" },
-                      { key: "lastModified", label: "수정시각", getValue: (row) => formatDateTime(row.lastModified) },
-                    ],
-                    filteredAssets,
-                  )
-                }
-                downloadDisabled={!filteredAssets.length}
-              />
-              {filteredAssets.length ? (
-                <div className="site-admin-assets-grid">
-                  {filteredAssets.map((asset) => (
-                    <article className="site-admin-asset-card" key={asset.key}>
-                      <img
-                        alt={asset.key}
-                        src={buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(asset.key)}`)}
-                      />
-                      <div className="site-admin-asset-card__meta">
-                        <strong>{asset.filename}</strong>
-                        <span>{asset.key}</span>
-                        <span>{asset.sizeLabel}</span>
-                        <span>{formatDateTime(asset.lastModified)}</span>
-                      </div>
-                    </article>
-                  ))}
+          {activeSection === "accounts" && adminUser?.role === "superadmin" ? (
+            <>
+              <div className="site-admin-account-heading">
+                <div className="site-admin-section__header site-admin-section__header--actions">
+                  <div>
+                    <h2>관리자 계정 관리</h2>
+                    <p>계정 생성, 권한 변경, 비활성화, 비밀번호 재설정을 관리합니다.</p>
+                  </div>
+                  <button className="site-admin-action-button site-admin-action-button--primary" onClick={() => openAdminUserEditor()} type="button">
+                    관리자 추가
+                  </button>
                 </div>
-              ) : (
-                <div className="site-admin-loading">조건에 맞는 register/ 이미지가 없습니다.</div>
-              )}
-            </section>
+              </div>
+              <TableSection
+                title="관리자 계정"
+                columns={[
+                    {
+                      key: "displayName",
+                      label: "관리자",
+                      render: (row) => <MetaCell primary={row.displayName} secondary={row.email} />,
+                    },
+                    { key: "role", label: "권한" },
+                    {
+                      key: "isActive",
+                      label: "상태",
+                      render: (row) => (row.isActive ? "활성" : "비활성"),
+                      sortValue: (row) => (row.isActive ? 1 : 0),
+                    },
+                    {
+                      key: "lastLoginAt",
+                      label: "최근 로그인",
+                      render: (row) => formatDateTime(row.lastLoginAt),
+                    },
+                    {
+                      key: "createdAt",
+                      label: "생성 일시",
+                      render: (row) => formatDateTime(row.createdAt),
+                    },
+                    {
+                      key: "actions",
+                      label: "관리",
+                      sortable: false,
+                      render: (row) => (
+                        <button className="site-admin-action-button" onClick={() => openAdminUserEditor(row)} type="button">
+                          수정
+                        </button>
+                      ),
+                    },
+                ]}
+                rows={adminUsers}
+                emptyText="등록된 관리자 계정이 없습니다."
+              />
+            </>
           ) : null}
 
           {activeSection === "audit" ? (
@@ -1700,6 +2184,71 @@ export function AdminDashboardPage() {
           ) : null}
         </>
       )}
+      {editingApplication && applicationForm ? (
+        <ApplicationEditor
+          application={editingApplication}
+          form={applicationForm}
+          isSubmitting={isSavingApplication}
+          onChange={(event) => {
+            const { name, value } = event.target;
+            setApplicationForm((current) => ({ ...current, [name]: value }));
+          }}
+          onClose={() => {
+            if (!isSavingApplication) {
+              setEditingApplication(null);
+              setApplicationForm(null);
+            }
+          }}
+          onSubmit={handleApplicationSave}
+        />
+      ) : null}
+      {adminUserForm ? (
+        <AdminUserEditor
+          adminUser={editingAdminUser}
+          form={adminUserForm}
+          isCurrentUser={editingAdminUser?.id === adminUser?.id}
+          isSubmitting={isSavingAdminUser}
+          onChange={(event) => {
+            const { name, value } = event.target;
+            setAdminUserForm((current) => ({ ...current, [name]: value }));
+          }}
+          onClose={() => {
+            if (!isSavingAdminUser) {
+              setEditingAdminUser(null);
+              setAdminUserForm(null);
+            }
+          }}
+          onSubmit={handleAdminUserSave}
+        />
+      ) : null}
+      {isIdleWarningOpen ? (
+        <div className="site-admin-idle-warning" role="presentation">
+          <section aria-labelledby="admin-idle-warning-title" aria-modal="true" className="site-admin-idle-warning__card" role="alertdialog">
+            <p className="site-kicker">Session timeout</p>
+            <h2 id="admin-idle-warning-title">로그아웃 예정</h2>
+            <p>1분 동안 동작이 없어 자동 로그아웃됩니다. 계속 관리자 페이지를 사용하시겠습니까?</p>
+            <strong className="site-admin-idle-warning__timer">{formatCountdown(idleSecondsRemaining)}</strong>
+            <div className="site-admin-idle-warning__actions">
+              <button
+                className="site-admin-action-button"
+                disabled={isExtendingAdminSession}
+                onClick={forceAdminLogout}
+                type="button"
+              >
+                로그아웃
+              </button>
+              <button
+                className="site-admin-action-button site-admin-action-button--primary"
+                disabled={isExtendingAdminSession}
+                onClick={handleExtendAdminSession}
+                type="button"
+              >
+                {isExtendingAdminSession ? "연장 중..." : "로그인 연장"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }
