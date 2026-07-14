@@ -561,7 +561,15 @@ export function ApplyPage() {
             <Link className="site-apply-detail__back-link" to="/apply">
               {`< ${t("apply.back")}`}
             </Link>
-            <h1>{competitionName}</h1>
+            <h1
+              className={
+                String(competitionName || "").replace(/\s/g, "").length >= 13
+                  ? "site-apply-detail__title site-apply-detail__title--long"
+                  : "site-apply-detail__title"
+              }
+            >
+              {competitionName}
+            </h1>
             {selectedImageKey ? (
               <img
                 src={getRegisterImageUrl(selectedImageKey)}

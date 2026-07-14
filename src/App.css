@@ -3891,12 +3891,18 @@ body {
   color: #d0d0d0;
 }
 
-.site-apply-detail__summary h1 {
+.site-apply-detail__summary h1,
+.site-apply-detail__title {
   margin: 0 0 74px;
-  font-size: clamp(3rem, 5vw, 4.6rem);
+  font-size: 3.2rem;
   font-weight: 900;
   line-height: 1;
   letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.site-apply-detail__title--long {
+  font-size: 2.45rem;
 }
 
 .site-apply-detail__summary img,
@@ -4592,6 +4598,10 @@ body {
     margin-bottom: 0;
   }
 
+  .site-apply-detail__title--long {
+    font-size: 2.25rem;
+  }
+
   .site-apply-detail__summary img,
   .site-apply-detail__image-placeholder {
     max-width: 320px;
@@ -4617,6 +4627,11 @@ body {
   .site-apply-detail__summary img,
   .site-apply-detail__image-placeholder {
     justify-self: start;
+  }
+
+  .site-apply-detail__summary h1,
+  .site-apply-detail__title--long {
+    font-size: 2.2rem;
   }
 
   .site-apply-detail__form {
