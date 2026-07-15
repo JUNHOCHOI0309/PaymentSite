@@ -4,6 +4,7 @@ import { useLanguage } from "../../context/LanguageContext";
 export function SiteFooter() {
   const { locale, t } = useLanguage();
   const applyGuideLabel = locale === "ko" ? "신청 안내" : "Application Guide";
+  const termsLabel = locale === "ko" ? "이용약관" : "Terms of Service";
   const companyInfo = [
     { label: "상호명", value: "모델라인 컴퍼니(주)" },
     { label: "사업자 등록번호", value: "188-88-01118" },
@@ -30,7 +31,7 @@ export function SiteFooter() {
         <div className="site-footer__links">
           <Link to="/apply/guide">{applyGuideLabel}</Link>
           <Link to="/privacy">{t("footer.privacy")}</Link>
-          <Link to="/terms">{t("footer.terms")}</Link>
+          <Link to="/terms">{termsLabel}</Link>
           <Link to="/lookup">{t("footer.lookup")}</Link>
         </div>
       </div>

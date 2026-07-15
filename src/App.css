@@ -4465,6 +4465,82 @@ body {
   color: #111;
 }
 
+.site-terms {
+  display: grid;
+  gap: 28px;
+}
+
+.site-terms__effective-date,
+.site-terms__language-notice {
+  margin: -12px 0 0;
+  color: #68728a;
+  font-size: 0.9rem;
+}
+
+.site-terms__operator {
+  padding: 22px;
+  border: 1px solid #dce2eb;
+  border-radius: 6px;
+  background: #f7f8fa;
+}
+
+.site-terms__operator h2,
+.site-terms__article h2 {
+  margin: 0;
+}
+
+.site-terms__operator dl {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0 0;
+}
+
+.site-terms__operator dl > div {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 16px;
+}
+
+.site-terms__operator dt {
+  color: #243049;
+  font-weight: 800;
+}
+
+.site-terms__operator dd {
+  margin: 0;
+  color: #525d72;
+  line-height: 1.55;
+}
+
+.site-terms__article {
+  display: grid;
+  gap: 12px;
+}
+
+.site-terms__article p {
+  margin: 0;
+}
+
+.site-terms__article ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 24px;
+  color: #666d7f;
+  line-height: 1.7;
+}
+
+@media (max-width: 640px) {
+  .site-terms__operator {
+    padding: 18px;
+  }
+
+  .site-terms__operator dl > div {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
+
 .site-apply-guide__section {
   display: grid;
   gap: 18px;
