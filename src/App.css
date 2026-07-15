@@ -280,7 +280,7 @@ html[lang]:not([lang^="ko"]) body {
   grid-column: 1 / -1;
 }
 
-.kcp-test-field :is(input, select, textarea) {
+.kcp-test-field > :is(input, select, textarea) {
   width: 100%;
   height: 44px;
   padding: 0 12px;
@@ -304,6 +304,12 @@ html[lang]:not([lang^="ko"]) body {
   color: #6b7684;
   font-size: 12px;
   text-align: right;
+}
+
+.kcp-test-field__hint {
+  color: #6b7684;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .kcp-test-error {

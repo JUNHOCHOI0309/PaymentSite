@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   cancelKcpTestOrder,
@@ -6,7 +6,9 @@ import {
   createDraft,
   createKcpTestOrder,
   prepareKcpPayment,
+  uploadFile,
 } from "../lib/applicationApi";
+import uploadIcon from "../assets/upload-icon.png";
 import { getWeightClassOptions } from "../data/applicationWeightClassOptions";
 import {
   getSnsPlatformOptions,
@@ -14,6 +16,36 @@ import {
 } from "../lib/applicationSns";
 
 const testAmount = 100;
+const maxUploadBytes = 10 * 1024 * 1024;
+const allowedDocumentUploadExtensions = new Set([
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".ppt",
+  ".pptx",
+  ".jpg",
+  ".jpeg",
+  ".png",
+]);
+const allowedDocumentUploadMimeTypes = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "image/jpeg",
+  "image/png",
+]);
+const allowedAudioUploadExtensions = new Set([".mp3"]);
+const allowedAudioUploadMimeTypes = new Set([
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/x-mpeg-3",
+  "audio/mpg",
+]);
+const documentFileInputAccept =
+  ".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/jpeg,image/png";
+const audioFileInputAccept = ".mp3,audio/mpeg,audio/mp3,audio/x-mpeg-3,audio/mpg";
 
 const testDisciplineOptions = [
   { imageKey: "register/man_1.png", title: "Bodybuilding" },
@@ -87,8 +119,48 @@ function validateTestForm(form, weightClassOptions) {
   return "";
 }
 
+function getUploadExtension(filename) {
+  const match = String(filename || "").match(/(\.[^.]+)$/);
+  return match ? match[1].toLowerCase() : "";
+}
+
+function validateTestUpload(file, kind) {
+  if (!file) {
+    return "";
+  }
+
+  const isAudio = kind === "audio";
+  const allowedExtensions = isAudio
+    ? allowedAudioUploadExtensions
+    : allowedDocumentUploadExtensions;
+  const allowedMimeTypes = isAudio
+    ? allowedAudioUploadMimeTypes
+    : allowedDocumentUploadMimeTypes;
+
+  if (
+    !allowedExtensions.has(getUploadExtension(file.name)) ||
+    !allowedMimeTypes.has(file.type)
+  ) {
+    return isAudio
+      ? "음원 파일은 MP3 확장자만 업로드할 수 있습니다."
+      : "첨부 파일 형식이 허용되지 않습니다.";
+  }
+
+  if (!Number.isFinite(file.size) || file.size <= 0) {
+    return "비어 있는 파일은 업로드할 수 없습니다.";
+  }
+
+  if (file.size > maxUploadBytes) {
+    return "파일 크기는 최대 10MB까지 업로드할 수 있습니다.";
+  }
+
+  return "";
+}
+
 export function KcpTestPaymentPage() {
   const [searchParams] = useSearchParams();
+  const documentFileInputRef = useRef(null);
+  const audioFileInputRef = useRef(null);
   const token =
     searchParams.get("token") ||
     window.sessionStorage.getItem("kcpTestPaymentToken") ||
@@ -96,6 +168,8 @@ export function KcpTestPaymentPage() {
   const [form, setForm] = useState(initialForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [documentFile, setDocumentFile] = useState(null);
+  const [audioFile, setAudioFile] = useState(null);
   const selectedDiscipline = useMemo(
     () =>
       testDisciplineOptions.find((option) => option.imageKey === form.imageKey) ||
@@ -121,6 +195,33 @@ export function KcpTestPaymentPage() {
     }));
   }
 
+  function handleFileChange(kind) {
+    return (event) => {
+      const file = event.target.files?.[0] || null;
+      const validationMessage = validateTestUpload(file, kind);
+
+      if (validationMessage) {
+        event.target.value = "";
+        setErrorMessage(validationMessage);
+
+        if (kind === "audio") {
+          setAudioFile(null);
+        } else {
+          setDocumentFile(null);
+        }
+        return;
+      }
+
+      setErrorMessage("");
+
+      if (kind === "audio") {
+        setAudioFile(file);
+      } else {
+        setDocumentFile(file);
+      }
+    };
+  }
+
   async function requestKcpTestPayment(event) {
     event.preventDefault();
     setErrorMessage("");
@@ -129,6 +230,14 @@ export function KcpTestPaymentPage() {
 
     if (validationMessage) {
       setErrorMessage(validationMessage);
+      return;
+    }
+
+    const documentValidationMessage = validateTestUpload(documentFile, "document");
+    const audioValidationMessage = validateTestUpload(audioFile, "audio");
+
+    if (documentValidationMessage || audioValidationMessage) {
+      setErrorMessage(documentValidationMessage || audioValidationMessage);
       return;
     }
 
@@ -165,6 +274,23 @@ export function KcpTestPaymentPage() {
         },
       });
       const draftId = draftResult.draft.draftId;
+
+      if (documentFile) {
+        await uploadFile({
+          draftId,
+          file: documentFile,
+          fileKind: "document",
+        });
+      }
+
+      if (audioFile) {
+        await uploadFile({
+          draftId,
+          file: audioFile,
+          fileKind: "audio",
+        });
+      }
+
       const orderResult = await createKcpTestOrder({
         customerName: form.name,
         customerEmail: form.email,
@@ -331,6 +457,68 @@ export function KcpTestPaymentPage() {
                 rows={4}
               />
               <span className="kcp-test-field__count">{form.introduction.length}/100</span>
+            </label>
+
+            <label className="kcp-test-field">
+              첨부 파일 <em>(선택)</em>
+              <div className="site-file-picker">
+                <input
+                  className="site-file-picker__input"
+                  ref={documentFileInputRef}
+                  type="file"
+                  accept={documentFileInputAccept}
+                  onChange={handleFileChange("document")}
+                />
+                <span
+                  className={`site-file-picker__value ${
+                    documentFile ? "" : "site-file-picker__value--placeholder"
+                  }`.trim()}
+                >
+                  {documentFile?.name || "선택된 파일 없음"}
+                </span>
+                <button
+                  className="site-file-picker__trigger"
+                  type="button"
+                  onClick={() => documentFileInputRef.current?.click()}
+                  aria-label="첨부 파일 선택"
+                >
+                  <img className="site-file-picker__trigger-icon" src={uploadIcon} alt="" />
+                </button>
+              </div>
+              <span className="kcp-test-field__hint">
+                PDF, Word, PowerPoint, JPG, PNG 파일만 가능하며 최대 10MB입니다.
+              </span>
+            </label>
+
+            <label className="kcp-test-field">
+              음원 파일 <em>(선택)</em>
+              <div className="site-file-picker">
+                <input
+                  className="site-file-picker__input"
+                  ref={audioFileInputRef}
+                  type="file"
+                  accept={audioFileInputAccept}
+                  onChange={handleFileChange("audio")}
+                />
+                <span
+                  className={`site-file-picker__value ${
+                    audioFile ? "" : "site-file-picker__value--placeholder"
+                  }`.trim()}
+                >
+                  {audioFile?.name || "선택된 파일 없음"}
+                </span>
+                <button
+                  className="site-file-picker__trigger"
+                  type="button"
+                  onClick={() => audioFileInputRef.current?.click()}
+                  aria-label="음원 파일 선택"
+                >
+                  <img className="site-file-picker__trigger-icon" src={uploadIcon} alt="" />
+                </button>
+              </div>
+              <span className="kcp-test-field__hint">
+                MP3 확장자만 가능하며 최대 10MB입니다.
+              </span>
             </label>
           </div>
 
