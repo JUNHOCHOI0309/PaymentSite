@@ -6788,7 +6788,6 @@ app.post("/files/upload", async function (req, res) {
         Key: storedFilename,
         Body: uploadedFile.buffer,
         ContentType: uploadedFile.mimetype,
-        ContentDisposition: `attachment; filename="${safeOriginalFilename.replace(/"/g, "")}"`,
       })
     );
 
