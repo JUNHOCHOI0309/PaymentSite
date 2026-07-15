@@ -61,6 +61,7 @@ const adminLoginRateStore = new Map();
 const adminLoginFailureStore = new Map();
 
 const maxUploadBytes = 10 * 1024 * 1024;
+const maxDocumentUploadFiles = 5;
 const allowedDocumentUploadMimeTypes = new Set([
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -89,6 +90,8 @@ const allowedAudioUploadMimeTypes = new Set([
 const allowedAudioUploadExtensions = new Set([".mp3"]);
 const upload = multer({
   storage: multer.memoryStorage(),
+  // Browsers send Korean filenames in UTF-8 multipart header parameters.
+  defParamCharset: "utf8",
   limits: {
     fileSize: maxUploadBytes,
   },
@@ -2142,9 +2145,25 @@ function getUploadExtension(filename) {
   return path.extname(filename || "").toLowerCase();
 }
 
+function decodeLegacyKoreanFilename(filename) {
+  const rawFilename = String(filename || "");
+
+  if (!rawFilename || /[가-힣]/.test(rawFilename)) {
+    return rawFilename;
+  }
+
+  const decodedFilename = Buffer.from(rawFilename, "latin1").toString("utf8");
+
+  if (decodedFilename.includes("\uFFFD") || !/[가-힣]/.test(decodedFilename)) {
+    return rawFilename;
+  }
+
+  return decodedFilename;
+}
+
 function sanitizeOriginalFilename(filename) {
   return path
-    .basename(String(filename || ""))
+    .basename(decodeLegacyKoreanFilename(filename))
     .replace(/[\u0000-\u001f\u007f]+/g, "")
     .replace(/\s+/g, " ")
     .trim()
@@ -2188,6 +2207,7 @@ function isAudioUploadRecord(record) {
 function splitApplicationFiles(rows) {
   const files = {
     documentFile: null,
+    documentFiles: [],
     audioFile: null,
   };
 
@@ -2199,10 +2219,10 @@ function splitApplicationFiles(rows) {
       continue;
     }
 
-    if (!files.documentFile) {
-      files.documentFile = row;
-    }
+    files.documentFiles.push(row);
   }
+
+  files.documentFile = files.documentFiles[0] || null;
 
   return files;
 }
@@ -4254,17 +4274,21 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
           a.discipline,
           a.payment_status,
           a.submitted_at,
-          document_file.original_filename AS document_original_filename,
+          document_files.files AS document_files,
           audio_file.original_filename AS audio_original_filename
         FROM applications a
         LEFT JOIN LATERAL (
-          SELECT original_filename
+          SELECT json_agg(
+            json_build_object(
+              'id', af.id,
+              'original_filename', af.original_filename
+            )
+            ORDER BY af.uploaded_at DESC
+          ) AS files
           FROM application_files af
           WHERE af.application_id = a.id
             AND lower(af.original_filename) NOT LIKE '%.mp3'
-          ORDER BY af.uploaded_at DESC
-          LIMIT 1
-        ) document_file ON TRUE
+        ) document_files ON TRUE
         LEFT JOIN LATERAL (
           SELECT original_filename
           FROM application_files af
@@ -4290,28 +4314,40 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
 
     return res.status(200).json({
       ok: true,
-      applications: result.rows.map((row) => ({
-        applicationNumber: row.application_number,
-        orderId: row.order_id,
-        status: row.status,
-        name: row.name,
-        phone: row.phone,
-        email: row.email,
-        birthDate: row.birth_date,
-        organization: row.organization,
-        snsIdentity: row.instagram_id,
-        instagramId: row.instagram_id,
-        introduction: row.introduction,
-        weightClass: row.weight_class,
-        division: row.division,
-        discipline: getCanonicalApplicationDisciplineTitle({
-          discipline: row.discipline,
-        }),
-        paymentStatus: row.payment_status,
-        submittedAt: row.submitted_at,
-        documentOriginalFilename: row.document_original_filename,
-        audioOriginalFilename: row.audio_original_filename,
-      })),
+      applications: result.rows.map((row) => {
+        const documentFiles = Array.isArray(row.document_files)
+          ? row.document_files.map((file) => ({
+              id: file.id,
+              originalFilename: sanitizeOriginalFilename(file.original_filename),
+            }))
+          : [];
+
+        return {
+          applicationNumber: row.application_number,
+          orderId: row.order_id,
+          status: row.status,
+          name: row.name,
+          phone: row.phone,
+          email: row.email,
+          birthDate: row.birth_date,
+          organization: row.organization,
+          snsIdentity: row.instagram_id,
+          instagramId: row.instagram_id,
+          introduction: row.introduction,
+          weightClass: row.weight_class,
+          division: row.division,
+          discipline: getCanonicalApplicationDisciplineTitle({
+            discipline: row.discipline,
+          }),
+          paymentStatus: row.payment_status,
+          submittedAt: row.submitted_at,
+          documentFiles,
+          documentOriginalFilename: documentFiles
+            .map((file) => file.originalFilename)
+            .join(", "),
+          audioOriginalFilename: sanitizeOriginalFilename(row.audio_original_filename),
+        };
+      }),
     });
   } catch (error) {
     console.error("Failed to fetch admin applications:", error);
@@ -4606,7 +4642,7 @@ app.get("/admin/stage-services", requireAdminAuth, async function (req, res) {
   }
 });
 
-app.get("/admin/applications/:applicationNumber/files/:fileKind/download", requireAdminAuth, async function (req, res) {
+app.get("/admin/applications/:applicationNumber/files/:fileReference/download", requireAdminAuth, async function (req, res) {
   try {
     if (!ensureR2ReadReady()) {
       return res.status(500).json({
@@ -4616,7 +4652,9 @@ app.get("/admin/applications/:applicationNumber/files/:fileKind/download", requi
     }
 
     const applicationNumber = normalizeText(req.params.applicationNumber);
-    const fileKind = normalizeUploadKind(req.params.fileKind);
+    const fileReference = normalizeText(req.params.fileReference);
+    const fileId = /^\d+$/.test(fileReference) ? Number(fileReference) : null;
+    const fileKind = fileId ? "document" : normalizeUploadKind(fileReference);
 
     if (!applicationNumber) {
       return res.status(400).json({
@@ -4625,10 +4663,12 @@ app.get("/admin/applications/:applicationNumber/files/:fileKind/download", requi
       });
     }
 
-    const filterSql =
-      fileKind === "audio"
+    const filterSql = fileId
+      ? "af.id = $2 AND lower(af.original_filename) NOT LIKE '%.mp3'"
+      : fileKind === "audio"
         ? "lower(af.original_filename) LIKE '%.mp3'"
         : "lower(af.original_filename) NOT LIKE '%.mp3'";
+    const queryValues = fileId ? [applicationNumber, fileId] : [applicationNumber];
 
     const fileResult = await pool.query(
       `
@@ -4644,7 +4684,7 @@ app.get("/admin/applications/:applicationNumber/files/:fileKind/download", requi
         ORDER BY af.uploaded_at DESC
         LIMIT 1
       `,
-      [applicationNumber]
+      queryValues
     );
 
     if (fileResult.rowCount === 0) {
@@ -4672,14 +4712,17 @@ app.get("/admin/applications/:applicationNumber/files/:fileKind/download", requi
       userAgent: getRequestUserAgent(req),
       metadata: {
         fileKind,
+        fileId,
         originalFilename: file.original_filename,
       },
     });
 
+    const downloadFilename = sanitizeOriginalFilename(file.original_filename);
+
     res.setHeader("Content-Type", file.mime_type || "application/octet-stream");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename*=UTF-8''${encodeURIComponent(file.original_filename || "download")}`
+      `attachment; filename*=UTF-8''${encodeURIComponent(downloadFilename || "download")}`
     );
     res.setHeader("Cache-Control", "no-store");
 
@@ -5862,6 +5905,7 @@ app.get("/applications/draft/:draftId", async function (req, res) {
       consents: mapConsentRow(consentResult.rows[0]),
       file: splitFiles.documentFile || null,
       documentFile: splitFiles.documentFile || null,
+      documentFiles: splitFiles.documentFiles,
       audioFile: splitFiles.audioFile || null,
     });
   } catch (error) {
@@ -6859,6 +6903,25 @@ app.post("/files/upload", async function (req, res) {
         ok: false,
         message: "Uploaded file is empty",
       });
+    }
+
+    if (fileKind === "document") {
+      const documentCountResult = await pool.query(
+        `
+          SELECT COUNT(*)::int AS count
+          FROM application_files
+          WHERE draft_id = $1
+            AND lower(original_filename) NOT LIKE '%.mp3'
+        `,
+        [draftResult.rows[0].id]
+      );
+
+      if (documentCountResult.rows[0].count >= maxDocumentUploadFiles) {
+        return res.status(400).json({
+          ok: false,
+          message: `A maximum of ${maxDocumentUploadFiles} document files can be uploaded`,
+        });
+      }
     }
 
     const safeOriginalFilename = sanitizeOriginalFilename(uploadedFile.originalname);

@@ -31,6 +31,7 @@ import {
 import { applicationFlowSteps } from "../lib/applicationFlowAccess";
 
 const maxUploadBytes = 10 * 1024 * 1024;
+const maxDocumentUploadFiles = 5;
 const allowedDocumentUploadExtensions = new Set([
   ".pdf",
   ".doc",
@@ -134,6 +135,28 @@ function validateSelectedFile(file, kind, t) {
   return "";
 }
 
+function getDocumentFileCountMessage(locale) {
+  return locale === "en"
+    ? `You can select up to ${maxDocumentUploadFiles} submission files.`
+    : `제출 파일은 최대 ${maxDocumentUploadFiles}개까지 선택할 수 있습니다.`;
+}
+
+function getDocumentFileLimitDescription(locale) {
+  return locale === "en"
+    ? `Maximum submission files: ${maxDocumentUploadFiles}`
+    : `제출 파일 최대 개수: ${maxDocumentUploadFiles}개`;
+}
+
+function validateSelectedDocumentFiles(files, locale, t) {
+  if (files.length > maxDocumentUploadFiles) {
+    return getDocumentFileCountMessage(locale);
+  }
+
+  return files
+    .map((file) => validateSelectedFile(file, "document", t))
+    .find(Boolean) || "";
+}
+
 export function ApplyPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -145,7 +168,7 @@ export function ApplyPage() {
   const handledLocationKeyRef = useRef("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [selectedAudioFile, setSelectedAudioFile] = useState(null);
   const [fileError, setFileError] = useState("");
   const [audioFileError, setAudioFileError] = useState("");
@@ -165,6 +188,13 @@ export function ApplyPage() {
   const snsPlatformOptions = getSnsPlatformOptions(locale);
   const [additionalInfoTitlePrimary, additionalInfoTitleSecondary] =
     splitDisplayTitle(additionalInfo.title);
+  const selectedDocumentFilenames = selectedFiles.length
+    ? selectedFiles.map((file) => file.name)
+    : state.uploadedFileMetas?.length
+      ? state.uploadedFileMetas.map((file) => file.originalFilename)
+      : state.uploadedFileMeta.originalFilename
+        ? [state.uploadedFileMeta.originalFilename]
+        : [];
 
   useEffect(() => {
     if (!isHydrated) {
@@ -388,60 +418,70 @@ export function ApplyPage() {
     };
   }
 
-  function handleFileChange(kind) {
-    return (event) => {
-      const file = event.target.files?.[0] || null;
-      const validationMessage = validateSelectedFile(file, kind, t);
-      const isAudio = kind === "audio";
-      const actionType = isAudio ? "SET_AUDIO_FILE_META" : "SET_FILE_META";
+  function handleDocumentFileChange(event) {
+    const files = Array.from(event.target.files || []);
+    const validationMessage = validateSelectedDocumentFiles(files, locale, t);
 
-      if (validationMessage) {
-        if (isAudio) {
-          setSelectedAudioFile(null);
-          setAudioFileError(validationMessage);
-        } else {
-          setSelectedFile(null);
-          setFileError(validationMessage);
-        }
-        event.target.value = "";
+    event.target.value = "";
 
-        dispatch({
-          type: actionType,
-          payload: {
+    if (validationMessage) {
+      setSelectedFiles([]);
+      setFileError(validationMessage);
+      dispatch({ type: "SET_FILE_METAS", payload: [] });
+      return;
+    }
+
+    setFileError("");
+    setSelectedFiles(files);
+    dispatch({
+      type: "SET_FILE_METAS",
+      payload: files.map((file) => ({
+        originalFilename: file.name,
+        storedFilename: "",
+        mimeType: file.type,
+        fileSize: file.size,
+      })),
+    });
+  }
+
+  function handleAudioFileChange(event) {
+    const file = event.target.files?.[0] || null;
+    const validationMessage = validateSelectedFile(file, "audio", t);
+
+    if (validationMessage) {
+      setSelectedAudioFile(null);
+      setAudioFileError(validationMessage);
+      event.target.value = "";
+      dispatch({
+        type: "SET_AUDIO_FILE_META",
+        payload: {
+          originalFilename: "",
+          storedFilename: "",
+          mimeType: "",
+          fileSize: 0,
+        },
+      });
+      return;
+    }
+
+    setAudioFileError("");
+    setSelectedAudioFile(file);
+    dispatch({
+      type: "SET_AUDIO_FILE_META",
+      payload: file
+        ? {
+            originalFilename: file.name,
+            storedFilename: "",
+            mimeType: file.type,
+            fileSize: file.size,
+          }
+        : {
             originalFilename: "",
             storedFilename: "",
             mimeType: "",
             fileSize: 0,
           },
-        });
-        return;
-      }
-
-      if (isAudio) {
-        setAudioFileError("");
-        setSelectedAudioFile(file);
-      } else {
-        setFileError("");
-        setSelectedFile(file);
-      }
-
-      dispatch({
-        type: actionType,
-        payload: file
-          ? {
-              originalFilename: file.name,
-              storedFilename: "",
-              mimeType: file.type,
-              fileSize: file.size,
-            }
-          : {
-              originalFilename: "",
-              storedFilename: "",
-              mimeType: "",
-              fileSize: 0,
-            },
-      });
-    };
+    });
   }
 
   async function handleSubmit(event) {
@@ -454,8 +494,8 @@ export function ApplyPage() {
       return;
     }
 
-    if (selectedFile) {
-      const validationMessage = validateSelectedFile(selectedFile, "document", t);
+    if (selectedFiles.length) {
+      const validationMessage = validateSelectedDocumentFiles(selectedFiles, locale, t);
 
       if (validationMessage) {
         setFileError(validationMessage);
@@ -505,22 +545,27 @@ export function ApplyPage() {
       const draftId = draftResponse.draft.draftId;
       dispatch({ type: "SET_DRAFT_ID", value: draftId });
 
-      if (selectedFile) {
-        const fileResponse = await uploadFile({
-          draftId,
-          file: selectedFile,
-          fileKind: "document",
-        });
+      if (selectedFiles.length) {
+        const uploadedFileMetas = [];
 
-        dispatch({
-          type: "SET_FILE_META",
-          payload: {
+        for (const selectedFile of selectedFiles) {
+          const fileResponse = await uploadFile({
+            draftId,
+            file: selectedFile,
+            fileKind: "document",
+          });
+
+          uploadedFileMetas.push({
             originalFilename: fileResponse.file.original_filename,
             storedFilename: fileResponse.file.stored_filename,
             mimeType: fileResponse.file.mime_type,
             fileSize: fileResponse.file.file_size,
-          },
-        });
+          });
+
+          setSelectedFiles((current) => current.filter((file) => file !== selectedFile));
+        }
+
+        dispatch({ type: "SET_FILE_METAS", payload: uploadedFileMetas });
       }
 
       if (selectedAudioFile) {
@@ -728,15 +773,16 @@ export function ApplyPage() {
                     className="site-file-picker__input"
                     ref={documentFileInputRef}
                     type="file"
+                    multiple
                     accept={documentFileInputAccept}
-                    onChange={handleFileChange("document")}
+                    onChange={handleDocumentFileChange}
                   />
                   <span
                     className={`site-file-picker__value ${
-                      state.uploadedFileMeta.originalFilename ? "" : "site-file-picker__value--placeholder"
+                      selectedDocumentFilenames.length ? "" : "site-file-picker__value--placeholder"
                     }`.trim()}
                   >
-                    {state.uploadedFileMeta.originalFilename ||
+                    {selectedDocumentFilenames.join(", ") ||
                       t("apply.noFileSelected")}
                   </span>
                   <button
@@ -755,6 +801,13 @@ export function ApplyPage() {
                 {fileError ? (
                   <span className="site-field__error">{fileError}</span>
                 ) : null}
+                {selectedDocumentFilenames.length ? (
+                  <ul className="site-file-picker__selected-list">
+                    {selectedDocumentFilenames.map((filename, index) => (
+                      <li key={`${filename}-${index}`}>{filename}</li>
+                    ))}
+                  </ul>
+                ) : null}
                 <div className="site-file-help">
                   <button
                     className="site-file-help__trigger"
@@ -771,6 +824,8 @@ export function ApplyPage() {
                     <br />
                     {t("apply.maxFileSize")}
                     <br />
+                    {getDocumentFileLimitDescription(locale)}
+                    <br />
                     {t("apply.objectKeyMessage")}
                   </div>
                 </div>
@@ -786,7 +841,7 @@ export function ApplyPage() {
                     ref={audioFileInputRef}
                     type="file"
                     accept={audioFileInputAccept}
-                    onChange={handleFileChange("audio")}
+                    onChange={handleAudioFileChange}
                   />
                   <span
                     className={`site-file-picker__value ${

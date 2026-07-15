@@ -165,13 +165,13 @@ function SummaryCard({ label, value }) {
   );
 }
 
-function DownloadLinkCell({ applicationNumber, fileKind, filename, emptyLabel = "-" }) {
+function DownloadLinkCell({ applicationNumber, fileReference, filename, emptyLabel = "-" }) {
   if (!filename) {
     return <span>{emptyLabel}</span>;
   }
 
   const href = buildApiUrl(
-    `/api/admin/applications/${encodeURIComponent(applicationNumber)}/files/${fileKind}/download`,
+    `/api/admin/applications/${encodeURIComponent(applicationNumber)}/files/${encodeURIComponent(fileReference)}/download`,
   );
 
   return (
@@ -183,6 +183,25 @@ function DownloadLinkCell({ applicationNumber, fileKind, filename, emptyLabel = 
     >
       {filename}
     </a>
+  );
+}
+
+function DocumentDownloadLinks({ applicationNumber, files = [] }) {
+  if (!files.length) {
+    return <span>-</span>;
+  }
+
+  return (
+    <div className="site-admin-file-links">
+      {files.map((file) => (
+        <DownloadLinkCell
+          applicationNumber={applicationNumber}
+          fileReference={String(file.id)}
+          filename={file.originalFilename}
+          key={file.id}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -1627,10 +1646,9 @@ export function AdminDashboardPage() {
                     key: "documentFile",
                     label: "제출 문서",
                     render: (row) => (
-                      <DownloadLinkCell
+                      <DocumentDownloadLinks
                         applicationNumber={row.applicationNumber}
-                        fileKind="document"
-                        filename={row.documentOriginalFilename}
+                        files={row.documentFiles}
                       />
                     ),
                   },
@@ -1640,7 +1658,7 @@ export function AdminDashboardPage() {
                     render: (row) => (
                       <DownloadLinkCell
                         applicationNumber={row.applicationNumber}
-                        fileKind="audio"
+                        fileReference="audio"
                         filename={row.audioOriginalFilename}
                       />
                     ),

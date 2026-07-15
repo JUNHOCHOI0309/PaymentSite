@@ -36,6 +36,7 @@ const initialState = {
     mimeType: "",
     fileSize: 0,
   },
+  uploadedFileMetas: [],
   uploadedAudioFileMeta: {
     originalFilename: "",
     storedFilename: "",
@@ -91,6 +92,12 @@ function applicationFlowReducer(state, action) {
       return {
         ...state,
         uploadedFileMeta: action.payload,
+      };
+    case "SET_FILE_METAS":
+      return {
+        ...state,
+        uploadedFileMeta: action.payload[0] || initialState.uploadedFileMeta,
+        uploadedFileMetas: action.payload,
       };
     case "SET_AUDIO_FILE_META":
       return {
@@ -151,6 +158,11 @@ function applicationFlowReducer(state, action) {
           ...initialState.uploadedFileMeta,
           ...(action.payload?.uploadedFileMeta || {}),
         },
+        uploadedFileMetas: Array.isArray(action.payload?.uploadedFileMetas)
+          ? action.payload.uploadedFileMetas
+          : action.payload?.uploadedFileMeta?.originalFilename
+            ? [action.payload.uploadedFileMeta]
+            : [],
         uploadedAudioFileMeta: {
           ...initialState.uploadedAudioFileMeta,
           ...(action.payload?.uploadedAudioFileMeta || {}),

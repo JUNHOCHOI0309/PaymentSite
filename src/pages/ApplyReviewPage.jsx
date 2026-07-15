@@ -54,6 +54,11 @@ export function ApplyReviewPage() {
       customPlatform: state.applicantInfo.snsOtherPlatform,
       id: state.applicantInfo.snsId,
     });
+  const documentFilenames = draftSnapshot?.documentFiles?.length
+    ? draftSnapshot.documentFiles.map((file) => file.original_filename).join(", ")
+    : state.uploadedFileMetas?.length
+      ? state.uploadedFileMetas.map((file) => file.originalFilename).join(", ")
+      : state.uploadedFileMeta.originalFilename;
 
   useEffect(() => {
     if (!requiredConsentsAccepted) {
@@ -156,7 +161,7 @@ export function ApplyReviewPage() {
             <ReviewRow label={t("review.weightClass")} value={draftSnapshot?.draft?.weightClass || state.applicantInfo.weightClass} />
             <ReviewRow
               label={t("review.file")}
-              value={draftSnapshot?.documentFile?.original_filename || state.uploadedFileMeta.originalFilename}
+              value={documentFilenames}
             />
             <ReviewRow
               label={t("review.audioFile")}

@@ -1232,6 +1232,21 @@ body,
   color: #7a8292;
 }
 
+.site-file-picker__selected-list {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding: 0;
+  color: #4f566b;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  list-style: none;
+}
+
+.site-file-picker__selected-list li {
+  overflow-wrap: anywhere;
+}
+
 .site-file-picker__trigger {
   flex: 0 0 auto;
   width: 40px;
