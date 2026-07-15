@@ -359,6 +359,7 @@ function TableSection({
   rows,
   emptyText,
   pageSize = 20,
+  defaultSortKey: preferredDefaultSortKey = "",
   defaultSortDirection = "desc",
 }) {
   const isColumnSortable = useCallback(
@@ -372,7 +373,12 @@ function TableSection({
     () => columns.filter((column) => isColumnSortable(column)),
     [columns, isColumnSortable],
   );
-  const defaultSortKey = sortableColumns[0]?.key || "";
+  const fallbackDefaultSortKey = sortableColumns[0]?.key || "";
+  const defaultSortKey = sortableColumns.some(
+    (column) => column.key === preferredDefaultSortKey,
+  )
+    ? preferredDefaultSortKey
+    : fallbackDefaultSortKey;
   const [sortKey, setSortKey] = useState(defaultSortKey);
   const [sortDirection, setSortDirection] = useState(defaultSortDirection);
   const [page, setPage] = useState(1);
@@ -1568,6 +1574,7 @@ export function AdminDashboardPage() {
               />
               <TableSection
                 title="등록 현황"
+                defaultSortKey="submittedAt"
                 columns={[
                   {
                     key: "applicationNumber",
@@ -1725,6 +1732,7 @@ export function AdminDashboardPage() {
               />
               <TableSection
                 title="무대 서비스 주문 현황"
+                defaultSortKey="purchasedAt"
                 columns={[
                   {
                     key: "serviceOrderNumber",
@@ -1866,6 +1874,7 @@ export function AdminDashboardPage() {
               />
               <TableSection
                 title="환불 요청 이력"
+                defaultSortKey="createdAt"
                 columns={[
                   {
                     key: "applicationNumber",
@@ -1928,7 +1937,7 @@ export function AdminDashboardPage() {
                     ),
                   },
                   {
-                    key: "timestamps",
+                    key: "createdAt",
                     label: "요청 / 처리 시각",
                     render: (row) => (
                       <MetaCell
@@ -1992,6 +2001,7 @@ export function AdminDashboardPage() {
               />
               <TableSection
                 title="결제 취소 / 환불 결과"
+                defaultSortKey="updatedAt"
                 columns={[
                   {
                     key: "orderId",
@@ -2058,6 +2068,7 @@ export function AdminDashboardPage() {
               </div>
               <TableSection
                 title="관리자 계정"
+                defaultSortKey="lastLoginAt"
                 columns={[
                     {
                       key: "displayName",
@@ -2134,6 +2145,7 @@ export function AdminDashboardPage() {
               />
               <TableSection
                 title="감사 로그"
+                defaultSortKey="createdAt"
                 columns={[
                   {
                     key: "adminUserDisplayName",
