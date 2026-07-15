@@ -210,6 +210,10 @@ html[lang]:not([lang^="ko"]) body {
   box-shadow: 0 12px 28px rgba(0, 27, 55, 0.08);
 }
 
+.kcp-test-panel--wide {
+  width: min(100%, 820px);
+}
+
 .kcp-test-eyebrow {
   margin: 0 0 10px;
   font-size: 14px;
@@ -258,13 +262,48 @@ html[lang]:not([lang^="ko"]) body {
   color: #333d4b;
 }
 
-.kcp-test-field input {
+.kcp-test-field em {
+  margin-left: 4px;
+  color: #77808d;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.kcp-test-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.kcp-test-field--full {
+  grid-column: 1 / -1;
+}
+
+.kcp-test-field :is(input, select, textarea) {
   width: 100%;
   height: 44px;
   padding: 0 12px;
   border: 1px solid #d1d6db;
   border-radius: 6px;
+  background: #fff;
+  color: #191f28;
   font-size: 15px;
+  font-family: inherit;
+}
+
+.kcp-test-field textarea {
+  min-height: 104px;
+  height: auto;
+  padding: 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.kcp-test-field__count {
+  color: #6b7684;
+  font-size: 12px;
+  text-align: right;
 }
 
 .kcp-test-error {
@@ -306,6 +345,24 @@ html[lang]:not([lang^="ko"]) body {
   overflow-wrap: anywhere;
   font-size: 16px;
   line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .kcp-test-page {
+    padding: 24px 12px;
+  }
+
+  .kcp-test-panel {
+    padding: 24px 18px;
+  }
+
+  .kcp-test-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .kcp-test-field--full {
+    grid-column: auto;
+  }
 }
 
 .button:hover {

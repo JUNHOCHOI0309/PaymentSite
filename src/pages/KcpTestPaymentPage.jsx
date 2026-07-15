@@ -1,12 +1,91 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   cancelKcpTestOrder,
+  completeApplication,
+  createDraft,
   createKcpTestOrder,
   prepareKcpPayment,
 } from "../lib/applicationApi";
+import { getWeightClassOptions } from "../data/applicationWeightClassOptions";
+import {
+  getSnsPlatformOptions,
+  serializeDetailedSnsIdentity,
+} from "../lib/applicationSns";
 
 const testAmount = 100;
+
+const testDisciplineOptions = [
+  { imageKey: "register/man_1.png", title: "Bodybuilding" },
+  { imageKey: "register/man_2.png", title: "Classic" },
+  { imageKey: "register/man_3.png", title: "Physique" },
+  { imageKey: "register/common_1.png", title: "Model" },
+  { imageKey: "register/common_2.png", title: "Fitness" },
+  { imageKey: "register/common_3.png", title: "Denim" },
+  { imageKey: "register/common_4.png", title: "Transformation" },
+  { imageKey: "register/woman_1.png", title: "Ms.Bikini" },
+  { imageKey: "register/woman_2.png", title: "Figure" },
+];
+
+const initialForm = {
+  name: "KCP 테스트",
+  phone: "",
+  email: "",
+  birthDate: "",
+  organization: "",
+  snsPlatform: "",
+  snsOtherPlatform: "",
+  snsId: "",
+  introduction: "",
+  imageKey: testDisciplineOptions[0].imageKey,
+  weightClass: "",
+};
+
+function formatPhoneNumber(value) {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 11);
+
+  if (digits.length <= 3) {
+    return digits;
+  }
+
+  if (digits.length <= 7) {
+    return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  }
+
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
+function validateTestForm(form, weightClassOptions) {
+  if (!form.name.trim()) {
+    return "성함을 입력해 주세요.";
+  }
+
+  if (form.phone.replace(/\D/g, "").length !== 11) {
+    return "연락처를 11자리로 입력해 주세요.";
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+    return "올바른 이메일 주소를 입력해 주세요.";
+  }
+
+  if (!form.birthDate) {
+    return "생년월일을 입력해 주세요.";
+  }
+
+  if (weightClassOptions.length > 0 && !form.weightClass) {
+    return "체급을 선택해 주세요.";
+  }
+
+  if (form.introduction.trim().length > 100) {
+    return "자기 소개 멘트는 100자 이내로 입력해 주세요.";
+  }
+
+  if (form.snsPlatform === "other" && !form.snsOtherPlatform.trim()) {
+    return "기타 SNS 종류를 입력해 주세요.";
+  }
+
+  return "";
+}
 
 export function KcpTestPaymentPage() {
   const [searchParams] = useSearchParams();
@@ -14,23 +93,87 @@ export function KcpTestPaymentPage() {
     searchParams.get("token") ||
     window.sessionStorage.getItem("kcpTestPaymentToken") ||
     "";
-  const [customerName, setCustomerName] = useState("KCP 테스트");
-  const [customerEmail, setCustomerEmail] = useState("");
+  const [form, setForm] = useState(initialForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const selectedDiscipline = useMemo(
+    () =>
+      testDisciplineOptions.find((option) => option.imageKey === form.imageKey) ||
+      testDisciplineOptions[0],
+    [form.imageKey],
+  );
+  const weightClassOptions = useMemo(
+    () => getWeightClassOptions(selectedDiscipline.imageKey),
+    [selectedDiscipline.imageKey],
+  );
+  const snsPlatformOptions = useMemo(() => getSnsPlatformOptions("ko"), []);
 
-  async function requestKcpTestPayment() {
-    setIsSubmitting(true);
+  useEffect(() => {
+    if (!weightClassOptions.includes(form.weightClass)) {
+      setForm((current) => ({ ...current, weightClass: "" }));
+    }
+  }, [form.weightClass, weightClassOptions]);
+
+  function updateField(field, value) {
+    setForm((current) => ({
+      ...current,
+      [field]: field === "phone" ? formatPhoneNumber(value) : value,
+    }));
+  }
+
+  async function requestKcpTestPayment(event) {
+    event.preventDefault();
     setErrorMessage("");
 
+    const validationMessage = validateTestForm(form, weightClassOptions);
+
+    if (validationMessage) {
+      setErrorMessage(validationMessage);
+      return;
+    }
+
+    setIsSubmitting(true);
+
     try {
+      const serializedSnsIdentity = serializeDetailedSnsIdentity({
+        platform: form.snsPlatform,
+        customPlatform: form.snsOtherPlatform,
+        id: form.snsId,
+      });
+      const draftResult = await createDraft({
+        name: form.name,
+        phone: form.phone,
+        email: form.email,
+        birthDate: form.birthDate,
+        organization: form.organization,
+        instagramId: serializedSnsIdentity,
+        introduction: form.introduction,
+        weightClass: form.weightClass,
+        paymentMethod: "payment",
+        selection: {
+          division: "TEST",
+          discipline: selectedDiscipline.title,
+          imageKey: selectedDiscipline.imageKey,
+        },
+        consents: {
+          privacy: true,
+          terms: true,
+          refund: true,
+          marketing: false,
+          photoVideo: false,
+          version: "kcp-test-v1",
+        },
+      });
+      const draftId = draftResult.draft.draftId;
       const orderResult = await createKcpTestOrder({
-        customerName,
-        customerEmail,
+        customerName: form.name,
+        customerEmail: form.email,
+        draftId,
         token,
       });
       const paymentResult = await prepareKcpPayment({
         context: "kcpTest",
+        draftId,
         orderId: orderResult.order.orderId,
         paymentMethod: "CARD",
         token,
@@ -46,48 +189,157 @@ export function KcpTestPaymentPage() {
 
   return (
     <main className="kcp-test-page">
-      <section className="kcp-test-panel">
+      <section className="kcp-test-panel kcp-test-panel--wide">
         <p className="kcp-test-eyebrow">KCP 운영 결제 테스트</p>
-        <h1>100원 카드 결제</h1>
+        <h1>신청 정보 입력 및 100원 카드 결제</h1>
         <p className="kcp-test-description">
-          이 페이지는 KCP 결제 승인 흐름만 확인합니다. 결제가 성공해도 대회 신청서나 무대 서비스 주문은 생성하지 않습니다.
+          결제 승인 후 입력한 정보는 테스트 신청 데이터로 저장됩니다. 관리자 등록 현황에서
+          참가 구분이 <strong>TEST</strong>인 항목으로 확인할 수 있습니다.
         </p>
 
         <div className="kcp-test-summary">
-          <span>결제금액</span>
+          <span>테스트 결제금액</span>
           <strong>{testAmount.toLocaleString("ko-KR")}원</strong>
         </div>
 
-        <label className="kcp-test-field">
-          이름
-          <input
-            value={customerName}
-            onChange={(event) => setCustomerName(event.target.value)}
-            maxLength={40}
-          />
-        </label>
+        <form className="kcp-test-form" onSubmit={requestKcpTestPayment}>
+          <div className="kcp-test-form-grid">
+            <label className="kcp-test-field">
+              성함 <em>(필수)</em>
+              <input
+                value={form.name}
+                onChange={(event) => updateField("name", event.target.value)}
+                maxLength={40}
+                autoComplete="name"
+              />
+            </label>
 
-        <label className="kcp-test-field">
-          이메일
-          <input
-            type="email"
-            value={customerEmail}
-            onChange={(event) => setCustomerEmail(event.target.value)}
-            maxLength={120}
-            placeholder="선택 입력"
-          />
-        </label>
+            <label className="kcp-test-field">
+              연락처 <em>(필수)</em>
+              <input
+                value={form.phone}
+                onChange={(event) => updateField("phone", event.target.value)}
+                inputMode="numeric"
+                placeholder="010-0000-0000"
+                autoComplete="tel"
+              />
+            </label>
 
-        {errorMessage ? <p className="kcp-test-error">{errorMessage}</p> : null}
+            <label className="kcp-test-field">
+              이메일 <em>(필수)</em>
+              <input
+                type="email"
+                value={form.email}
+                onChange={(event) => updateField("email", event.target.value)}
+                maxLength={120}
+                autoComplete="email"
+              />
+            </label>
 
-        <button
-          className="button kcp-test-button"
-          type="button"
-          onClick={requestKcpTestPayment}
-          disabled={isSubmitting}
-        >
-          {isSubmitting ? "결제창 여는 중" : "100원 결제 테스트"}
-        </button>
+            <label className="kcp-test-field">
+              생년월일 <em>(필수)</em>
+              <input
+                type="date"
+                value={form.birthDate}
+                onChange={(event) => updateField("birthDate", event.target.value)}
+              />
+            </label>
+
+            <label className="kcp-test-field">
+              테스트 종목 <em>(필수)</em>
+              <select
+                value={form.imageKey}
+                onChange={(event) => updateField("imageKey", event.target.value)}
+              >
+                {testDisciplineOptions.map((option) => (
+                  <option key={option.imageKey} value={option.imageKey}>
+                    {option.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {weightClassOptions.length > 0 ? (
+              <label className="kcp-test-field">
+                체급 <em>(필수)</em>
+                <select
+                  value={form.weightClass}
+                  onChange={(event) => updateField("weightClass", event.target.value)}
+                >
+                  <option value="">체급을 선택해 주세요</option>
+                  {weightClassOptions.map((weightClass) => (
+                    <option key={weightClass} value={weightClass}>
+                      {weightClass}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+
+            <label className="kcp-test-field">
+              소속 <em>(선택)</em>
+              <input
+                value={form.organization}
+                onChange={(event) => updateField("organization", event.target.value)}
+                maxLength={120}
+              />
+            </label>
+
+            <label className="kcp-test-field">
+              SNS 플랫폼 <em>(선택)</em>
+              <select
+                value={form.snsPlatform}
+                onChange={(event) => updateField("snsPlatform", event.target.value)}
+              >
+                <option value="">플랫폼을 선택해 주세요</option>
+                {snsPlatformOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {form.snsPlatform === "other" ? (
+              <label className="kcp-test-field">
+                기타 SNS 종류 <em>(필수)</em>
+                <input
+                  value={form.snsOtherPlatform}
+                  onChange={(event) => updateField("snsOtherPlatform", event.target.value)}
+                  maxLength={40}
+                />
+              </label>
+            ) : null}
+
+            {form.snsPlatform && form.snsPlatform !== "none" ? (
+              <label className="kcp-test-field">
+                SNS ID <em>(선택)</em>
+                <input
+                  value={form.snsId}
+                  onChange={(event) => updateField("snsId", event.target.value)}
+                  maxLength={120}
+                />
+              </label>
+            ) : null}
+
+            <label className="kcp-test-field kcp-test-field--full">
+              자기 소개 멘트 <em>(선택, 최대 100자)</em>
+              <textarea
+                value={form.introduction}
+                onChange={(event) => updateField("introduction", event.target.value)}
+                maxLength={100}
+                rows={4}
+              />
+              <span className="kcp-test-field__count">{form.introduction.length}/100</span>
+            </label>
+          </div>
+
+          {errorMessage ? <p className="kcp-test-error">{errorMessage}</p> : null}
+
+          <button className="button kcp-test-button" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? "신청 데이터 저장 및 결제창 여는 중" : "100원 테스트 결제"}
+          </button>
+        </form>
       </section>
     </main>
   );
@@ -96,18 +348,61 @@ export function KcpTestPaymentPage() {
 export function KcpTestPaymentSuccessPage() {
   const [searchParams] = useSearchParams();
   const orderId = searchParams.get("orderId");
+  const draftId = searchParams.get("draftId");
+  const confirmed = searchParams.get("confirmed");
+  const amount = searchParams.get("amount");
+  const paymentKey = searchParams.get("paymentKey");
+  const provider = searchParams.get("provider");
   const token = window.sessionStorage.getItem("kcpTestPaymentToken") || "";
+  const [isCompleting, setIsCompleting] = useState(Boolean(orderId && draftId));
+  const [applicationNumber, setApplicationNumber] = useState("");
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancellationResult, setCancellationResult] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    if (!orderId || !draftId || confirmed !== "1") {
+      setIsCompleting(false);
+      setErrorMessage("결제 승인 또는 신청서 정보를 확인할 수 없습니다.");
+      return;
+    }
+
+    let isActive = true;
+
+    async function completeTestApplication() {
+      try {
+        const result = await completeApplication({ draftId, orderId });
+
+        if (isActive) {
+          setApplicationNumber(result.application?.applicationNumber || "");
+        }
+      } catch (error) {
+        if (isActive) {
+          setErrorMessage(error.message || "테스트 신청 데이터를 완료하지 못했습니다.");
+        }
+      } finally {
+        if (isActive) {
+          setIsCompleting(false);
+        }
+      }
+    }
+
+    completeTestApplication();
+
+    return () => {
+      isActive = false;
+    };
+  }, [confirmed, draftId, orderId]);
+
   const rows = useMemo(
     () => [
       ["주문번호", orderId],
-      ["결제금액", formatAmount(searchParams.get("amount"))],
-      ["KCP 거래번호", searchParams.get("paymentKey")],
-      ["결제대행사", searchParams.get("provider")],
+      ["테스트 신청번호", applicationNumber || (isCompleting ? "신청 데이터 생성 중" : "-")],
+      ["결제금액", formatAmount(amount)],
+      ["KCP 거래번호", paymentKey],
+      ["결제대행사", provider],
     ],
-    [orderId, searchParams]
+    [amount, applicationNumber, isCompleting, orderId, paymentKey, provider],
   );
 
   async function cancelTestPayment() {
@@ -135,7 +430,8 @@ export function KcpTestPaymentSuccessPage() {
         <p className="kcp-test-eyebrow">KCP 테스트 결과</p>
         <h1>결제 승인 완료</h1>
         <p className="kcp-test-description">
-          DB에서 승인 상태를 확인한 뒤 아래 버튼으로 KCP 전체취소와 DB 상태 동기화를 테스트하세요.
+          결제 승인 후 테스트 신청서가 생성됩니다. 관리자 등록 현황에서 참가 구분이 TEST인
+          데이터와 결제 상태를 확인하세요.
         </p>
         <div className="kcp-test-result">
           {rows.map(([label, value]) => (
@@ -146,14 +442,16 @@ export function KcpTestPaymentSuccessPage() {
           ))}
         </div>
         {cancellationResult ? (
-          <p className="kcp-test-success">100원 결제가 취소되었고 DB 상태도 CANCELED로 변경되었습니다.</p>
+          <p className="kcp-test-success">
+            100원 결제가 취소되었고 테스트 신청 데이터도 CANCELED 상태로 변경되었습니다.
+          </p>
         ) : null}
         {errorMessage ? <p className="kcp-test-error">{errorMessage}</p> : null}
         <button
           className="button kcp-test-button"
           type="button"
           onClick={cancelTestPayment}
-          disabled={isCancelling || Boolean(cancellationResult)}
+          disabled={isCompleting || isCancelling || Boolean(cancellationResult)}
         >
           {isCancelling
             ? "결제 취소 중"

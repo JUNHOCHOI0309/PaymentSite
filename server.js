@@ -2932,54 +2932,99 @@ app.post("/kcp/test/orders", async function (req, res) {
   try {
     const customerName = normalizeText(req.body.customerName) || "KCP 테스트";
     const customerEmail = normalizeEmail(req.body.customerEmail);
+    const draftId = normalizeText(req.body.draftId);
     const orderId = generateOrderId();
     const orderName = "KCP 100원 테스트 결제";
-    const result = await pool.query(
-      `
-        INSERT INTO orders (
-          order_id,
-          order_name,
-          amount,
-          customer_name,
-          customer_email,
-          payment_provider,
-          status
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, 'READY')
-        RETURNING
-          order_id,
-          order_name,
-          amount,
-          customer_name,
-          customer_email,
-          payment_provider,
-          status,
-          created_at
-      `,
-      [
-        orderId,
-        orderName,
-        amount,
-        customerName,
-        customerEmail,
-        providerResolution.provider,
-      ]
-    );
-    const order = result.rows[0];
+    const client = await pool.connect();
 
-    return res.status(201).json({
-      ok: true,
-      order: {
-        orderId: order.order_id,
-        orderName: order.order_name,
-        amount: order.amount,
-        customerName: order.customer_name,
-        customerEmail: order.customer_email,
-        paymentProvider: order.payment_provider,
-        status: order.status,
-        createdAt: order.created_at,
-      },
-    });
+    try {
+      await client.query("BEGIN");
+
+      if (draftId) {
+        const draftResult = await client.query(
+          `
+            SELECT draft_id
+            FROM application_drafts
+            WHERE draft_id = $1
+            FOR UPDATE
+          `,
+          [draftId]
+        );
+
+        if (draftResult.rowCount === 0) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({
+            ok: false,
+            message: "Test application draft not found",
+          });
+        }
+      }
+
+      const result = await client.query(
+        `
+          INSERT INTO orders (
+            order_id,
+            order_name,
+            amount,
+            customer_name,
+            customer_email,
+            payment_provider,
+            status
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, 'READY')
+          RETURNING
+            order_id,
+            order_name,
+            amount,
+            customer_name,
+            customer_email,
+            payment_provider,
+            status,
+            created_at
+        `,
+        [
+          orderId,
+          orderName,
+          amount,
+          customerName,
+          customerEmail,
+          providerResolution.provider,
+        ]
+      );
+      const order = result.rows[0];
+
+      if (draftId) {
+        await client.query(
+          `
+            UPDATE application_drafts
+            SET order_id = $2, updated_at = NOW()
+            WHERE draft_id = $1
+          `,
+          [draftId, order.order_id]
+        );
+      }
+
+      await client.query("COMMIT");
+
+      return res.status(201).json({
+        ok: true,
+        order: {
+          orderId: order.order_id,
+          orderName: order.order_name,
+          amount: order.amount,
+          customerName: order.customer_name,
+          customerEmail: order.customer_email,
+          paymentProvider: order.payment_provider,
+          status: order.status,
+          createdAt: order.created_at,
+        },
+      });
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
   } catch (error) {
     console.error("Failed to create KCP test order:", error);
     return res.status(500).json({
@@ -3127,6 +3172,18 @@ app.post("/kcp/test/orders/:orderId/cancel", async function (req, res) {
       `
         UPDATE orders
         SET status = 'CANCELED', updated_at = NOW()
+        WHERE order_id = $1
+      `,
+      [payment.order_id]
+    );
+
+    await client.query(
+      `
+        UPDATE applications
+        SET
+          status = 'CANCELED',
+          payment_status = 'CANCELED',
+          updated_at = NOW()
         WHERE order_id = $1
       `,
       [payment.order_id]
@@ -7783,6 +7840,14 @@ app.post("/applications/complete", async function (req, res) {
       return res.status(404).json({
         ok: false,
         message: "Payment not found for order",
+      });
+    }
+
+    if (paymentResult.rows[0].status !== "DONE") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        message: "Payment is not completed",
       });
     }
 
