@@ -226,7 +226,7 @@ export function ApplyPage() {
       if (navigationSource === "select") {
         dispatch({ type: "RESET_APPLICATION_FLOW" });
         dispatch({ type: "SET_SELECTION", value: incomingSelection });
-        setSelectedFile(null);
+        setSelectedFiles([]);
         setSelectedAudioFile(null);
         setErrorMessage("");
         setFileError("");
@@ -239,7 +239,7 @@ export function ApplyPage() {
     if (!hasSavedSelection || !isSameSelection) {
       dispatch({ type: "RESET_APPLICATION_FLOW" });
       dispatch({ type: "SET_SELECTION", value: incomingSelection });
-      setSelectedFile(null);
+      setSelectedFiles([]);
       setSelectedAudioFile(null);
       setErrorMessage("");
       setFileError("");
