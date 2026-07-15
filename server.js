@@ -3399,6 +3399,22 @@ app.post("/kcp/trade/register", async function (req, res) {
   }
 });
 
+app.get("/kcp/return", function (req, res) {
+  const context = normalizeKcpPaymentContext(req.query.context);
+  const failPath = getKcpFailPath(context);
+  const message =
+    normalizeText(req.query.res_msg) ||
+    normalizeText(req.query.message) ||
+    "결제가 취소되었습니다. 다시 결제를 시도해 주세요.";
+
+  return res.redirect(
+    buildKcpRedirectUrl(req, failPath, {
+      code: "KCP_PAYMENT_CANCELED",
+      message,
+    })
+  );
+});
+
 app.post("/kcp/return", async function (req, res) {
   const context = normalizeKcpPaymentContext(req.query.context);
   const draftId = normalizeText(req.query.draftId);
@@ -3410,6 +3426,8 @@ app.post("/kcp/return", async function (req, res) {
   const encData = normalizeText(req.body.enc_data);
   const encInfo = normalizeText(req.body.enc_info);
   const tranCd = normalizeText(req.body.tran_cd);
+  const responseCode = normalizeText(req.body.res_cd);
+  const responseMessage = normalizeText(req.body.res_msg);
   const failPath = getKcpFailPath(context);
   const successPath = getKcpSuccessPath(context);
 
@@ -3423,6 +3441,13 @@ app.post("/kcp/return", async function (req, res) {
   }
 
   if (!orderId || !encData || !encInfo || !tranCd) {
+    if (responseCode && responseCode !== "0000") {
+      return redirectFailure(
+        "KCP_PAYMENT_CANCELED",
+        responseMessage || "결제가 취소되었습니다. 다시 결제를 시도해 주세요."
+      );
+    }
+
     return redirectFailure("KCP_AUTH_DATA_MISSING", "KCP 인증 결과가 올바르지 않습니다.");
   }
 
