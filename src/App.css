@@ -1,13 +1,53 @@
+@font-face {
+  font-family: "Pretendard";
+  src: url("./assets/fonts/PretendardVariable.woff2") format("woff2-variations");
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Paperlogy";
+  src: url("./assets/fonts/Paperlogy-7Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Paperlogy";
+  src: url("./assets/fonts/Paperlogy-8ExtraBold.ttf") format("truetype");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Paperlogy";
+  src: url("./assets/fonts/Paperlogy-9Black.ttf") format("truetype");
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --font-sans: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic",
+    "Segoe UI", Arial, sans-serif;
+  --font-heading: "Paperlogy", "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR",
+    "Malgun Gothic", "Segoe UI", Arial, sans-serif;
+}
+
+html[lang]:not([lang^="ko"]) {
+  --font-heading: var(--font-sans);
+}
+
 body {
   background-color: #e8f3ff;
 }
 .p {
   padding: 0;
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont,
-    Bazier Square, Noto Sans KR, Segoe UI, Apple SD Gothic Neo, Roboto,
-    Helvetica Neue, Arial, sans-serif, Apple Color Emoji, Segoe UI Emoji,
-    Segoe UI Symbol, Noto Color Emoji;
+  font-family: var(--font-sans);
   color: #4e5968;
   word-break: keep-all;
   word-wrap: break-word;
@@ -91,14 +131,16 @@ body {
 
 body,
 html {
-  font-family: -apple-system, BlinkMacSystemFont,
-    Bazier Square, Noto Sans KR, Segoe UI, Apple SD Gothic Neo, Roboto,
-    Helvetica Neue, Arial, sans-serif, Apple Color Emoji, Segoe UI Emoji,
-    Segoe UI Symbol, Noto Color Emoji;
+  font-family: var(--font-sans);
   -moz-osx-font-smoothing: grayscale;
   -webkit-font-smoothing: antialiased;
   word-break: keep-all;
   word-wrap: break-word;
+}
+
+html[lang]:not([lang^="ko"]) body {
+  word-break: normal;
+  overflow-wrap: anywhere;
 }
 
 *,
@@ -280,10 +322,7 @@ input:disabled {
 button,
 input,
 textarea {
-  font-family: -apple-system, BlinkMacSystemFont,
-    Bazier Square, Noto Sans KR, Segoe UI, Apple SD Gothic Neo, Roboto,
-    Helvetica Neue, Arial, sans-serif, Apple Color Emoji, Segoe UI Emoji,
-    Segoe UI Symbol, Noto Color Emoji;
+  font-family: var(--font-sans);
 }
 
 .color--grey800 {
@@ -736,9 +775,9 @@ body,
 .site-footer__brand {
   color: #2d3140;
   text-decoration: none;
-  font-family: "Times New Roman", Georgia, serif;
+  font-family: var(--font-heading);
   font-size: 2rem;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
 }
 
 .site-header__nav,
@@ -840,10 +879,10 @@ body,
 .site-complete-card h1,
 .site-document h1 {
   margin: 0;
-  font-family: "Times New Roman", Georgia, serif;
-  font-weight: 500;
+  font-family: var(--font-heading);
+  font-weight: 800;
   line-height: 1.03;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
 }
 
 .site-hero__title {
@@ -1656,10 +1695,11 @@ body,
 .site-home-hero__overlay h1,
 .site-home-hero__placeholder h1 {
   margin: 0;
-  font-family: "Times New Roman", Georgia, serif;
+  font-family: var(--font-heading);
   font-size: clamp(2.6rem, 5vw, 4.8rem);
+  font-weight: 900;
   line-height: 1.02;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
   max-width: 8ch;
 }
 
@@ -1698,10 +1738,11 @@ body,
 .site-home-panel__title {
   margin: 0 0 24px;
   color: #23314d;
+  font-family: var(--font-heading);
   font-size: clamp(1.8rem, 3.6vw, 2.8rem);
-  font-weight: 700;
+  font-weight: 800;
   line-height: 1.04;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
 }
 
 .site-home-panel__list {
@@ -2680,9 +2721,7 @@ body {
 }
 
 .site-header__brand {
-  font-family: -apple-system, BlinkMacSystemFont,
-    Bazier Square, Noto Sans KR, Segoe UI, Apple SD Gothic Neo, Roboto,
-    Helvetica Neue, Arial, sans-serif;
+  font-family: var(--font-sans);
   font-size: 1.2rem;
   font-weight: 800;
   letter-spacing: 0;
@@ -2901,7 +2940,7 @@ body {
 
 .site-home-hero__placeholder h1 {
   margin: 0;
-  font-family: inherit;
+  font-family: var(--font-heading);
   font-size: clamp(2rem, 4vw, 3rem);
   font-weight: 800;
   line-height: 1.2;
