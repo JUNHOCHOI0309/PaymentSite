@@ -5033,7 +5033,6 @@ body {
   width: min(100%, 1050px);
   margin: 0 auto;
   padding: 4px 0 8px;
-  transform-origin: top left;
 }
 
 .site-organization-chart__viewport {
@@ -5124,6 +5123,7 @@ body {
 .site-organization-chart__top,
 .site-organization-chart__executive {
   display: flex;
+  position: relative;
   justify-content: center;
 }
 
@@ -5161,43 +5161,62 @@ body {
   height: 34px;
 }
 
+.site-organization-chart__executive::after {
+  position: absolute;
+  z-index: 0;
+  top: 100%;
+  left: calc(50% - 1px);
+  width: 2px;
+  height: 28px;
+  background: #365e89;
+  content: "";
+}
+
 .site-organization-chart__division-connector {
   position: relative;
   width: 100%;
   height: 54px;
   margin: 0 auto;
-  border-top: 2px solid #365e89;
 }
 
 .site-organization-chart__division-connector::before {
   position: absolute;
-  top: -36px;
-  left: 50%;
-  width: 2px;
-  height: 36px;
+  z-index: 0;
+  top: 28px;
+  left: 10%;
+  width: 80%;
+  height: 2px;
   background: #365e89;
   content: "";
 }
 
-.site-organization-chart__division-connector::after {
-  position: absolute;
-  top: 0;
-  left: 10%;
-  width: 80%;
-  height: 54px;
-  background: linear-gradient(90deg, #365e89 0 2px, transparent 2px);
-  background-repeat: repeat-x;
-  background-size: 25% 100%;
-  content: "";
-}
-
 .site-organization-chart__divisions {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0;
 }
 
+.site-organization-chart__division-lines {
+  position: absolute;
+  z-index: 0;
+  top: -26px;
+  left: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  width: 100%;
+  height: 26px;
+}
+
+.site-organization-chart__division-lines span {
+  width: 2px;
+  height: 26px;
+  justify-self: center;
+  background: #365e89;
+}
+
 .site-organization-chart__divisions .site-organization-chart__card {
+  z-index: 1;
   min-height: 122px;
   margin: 0 9px;
 }
@@ -5205,6 +5224,19 @@ body {
 @media (max-width: 800px) {
   .site-organization-chart {
     padding: 28px 16px;
+  }
+
+  .site-organization-chart__viewport {
+    height: min(72svh, 560px);
+    overflow: auto;
+    cursor: grab;
+    overscroll-behavior: contain;
+    touch-action: none;
+  }
+
+  .site-organization-chart__viewport.is-panning {
+    cursor: grabbing;
+    user-select: none;
   }
 
   .site-organization-chart__diagram {

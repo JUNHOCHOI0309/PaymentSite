@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useLanguage } from "../context/LanguageContext";
 import { IntroPageLayout } from "./CompetitionIntroPage";
 
@@ -41,9 +41,7 @@ export function OrganizationCommitteePage() {
 export function OrganizationPage() {
   const { locale, t } = useLanguage();
   const chartViewportRef = useRef(null);
-  const chartDiagramRef = useRef(null);
-  const [chartScale, setChartScale] = useState(1);
-  const [chartHeight, setChartHeight] = useState(0);
+  const chartDragRef = useRef(null);
   const committeeTitle = locale === "ko" ? "MMK조직위원회" : "MMK Committee";
   const chart =
     locale === "ko"
@@ -72,36 +70,69 @@ export function OrganizationPage() {
 
   useEffect(() => {
     const viewport = chartViewportRef.current;
-    const diagram = chartDiagramRef.current;
 
-    if (!viewport || !diagram) {
+    if (!viewport) {
       return undefined;
     }
 
-    const updateChartScale = () => {
-      const isCompactScreen = window.matchMedia("(max-width: 800px)").matches;
-      const diagramWidth = diagram.offsetWidth;
-      const viewportWidth = viewport.clientWidth;
-      const nextScale =
-        isCompactScreen && diagramWidth > 0
-          ? Math.min(1, viewportWidth / diagramWidth)
-          : 1;
+    const frameId = window.requestAnimationFrame(() => {
+      if (window.matchMedia("(max-width: 800px)").matches) {
+        viewport.scrollLeft = Math.max(0, (viewport.scrollWidth - viewport.clientWidth) / 2);
+      }
+    });
 
-      setChartScale(nextScale);
-      setChartHeight(diagram.offsetHeight);
-    };
-
-    const resizeObserver = new ResizeObserver(updateChartScale);
-    resizeObserver.observe(viewport);
-    resizeObserver.observe(diagram);
-    window.addEventListener("resize", updateChartScale);
-    updateChartScale();
-
-    return () => {
-      resizeObserver.disconnect();
-      window.removeEventListener("resize", updateChartScale);
-    };
+    return () => window.cancelAnimationFrame(frameId);
   }, []);
+
+  function handleChartPointerDown(event) {
+    const viewport = chartViewportRef.current;
+
+    if (
+      !viewport ||
+      !window.matchMedia("(max-width: 800px)").matches ||
+      (event.pointerType === "mouse" && event.button !== 0)
+    ) {
+      return;
+    }
+
+    chartDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: viewport.scrollLeft,
+      scrollTop: viewport.scrollTop,
+    };
+    viewport.setPointerCapture(event.pointerId);
+    viewport.classList.add("is-panning");
+  }
+
+  function handleChartPointerMove(event) {
+    const viewport = chartViewportRef.current;
+    const drag = chartDragRef.current;
+
+    if (!viewport || !drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    event.preventDefault();
+    viewport.scrollLeft = drag.scrollLeft - (event.clientX - drag.startX);
+    viewport.scrollTop = drag.scrollTop - (event.clientY - drag.startY);
+  }
+
+  function handleChartPointerEnd(event) {
+    const viewport = chartViewportRef.current;
+    const drag = chartDragRef.current;
+
+    if (!viewport || !drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (viewport.hasPointerCapture(event.pointerId)) {
+      viewport.releasePointerCapture(event.pointerId);
+    }
+    viewport.classList.remove("is-panning");
+    chartDragRef.current = null;
+  }
 
   return (
     <InfoPage
@@ -112,49 +143,51 @@ export function OrganizationPage() {
         <div
           ref={chartViewportRef}
           className="site-organization-chart__viewport"
-          style={chartScale < 1 && chartHeight ? { height: `${chartHeight * chartScale}px` } : undefined}
+          onPointerDown={handleChartPointerDown}
+          onPointerMove={handleChartPointerMove}
+          onPointerUp={handleChartPointerEnd}
+          onPointerCancel={handleChartPointerEnd}
         >
-          <div
-            ref={chartDiagramRef}
-            className="site-organization-chart__diagram"
-            style={chartScale < 1 ? { transform: `scale(${chartScale})` } : undefined}
-          >
-          <div className="site-organization-chart__top">
-            <OrganizationChartCard badge="MM+" title={chart.eventChair} variant="event" />
-          </div>
-
-          <div className="site-organization-chart__top-connector" aria-hidden="true" />
-
-          <div className="site-organization-chart__lead-row">
-            <OrganizationChartCard
-              badge="MMK"
-              title={chart.organizationChair}
-              variant="lead"
-            />
-            <div className="site-organization-chart__advisor">
-              <OrganizationChartCard badge="MM+" title={chart.advisors} variant="advisor" />
+          <div className="site-organization-chart__diagram">
+            <div className="site-organization-chart__top">
+              <OrganizationChartCard badge="MM+" title={chart.eventChair} variant="event" />
             </div>
-          </div>
 
-          <div className="site-organization-chart__lead-connector" aria-hidden="true" />
+            <div className="site-organization-chart__top-connector" aria-hidden="true" />
 
-          <div className="site-organization-chart__executive">
-            <OrganizationChartCard
-              badge="MMK"
-              title={chart.executiveChair}
-              variant="executive"
-            />
-          </div>
+            <div className="site-organization-chart__lead-row">
+              <OrganizationChartCard
+                badge="MMK"
+                title={chart.organizationChair}
+                variant="lead"
+              />
+              <div className="site-organization-chart__advisor">
+                <OrganizationChartCard badge="MM+" title={chart.advisors} variant="advisor" />
+              </div>
+            </div>
 
-          <div className="site-organization-chart__division-connector" aria-hidden="true" />
+            <div className="site-organization-chart__lead-connector" aria-hidden="true" />
 
-          <div className="site-organization-chart__divisions">
-            <OrganizationChartCard badge="MMK" title={chart.planning} />
-            <OrganizationChartCard badge="MMK" title={chart.publicRelations} />
-            <OrganizationChartCard badge="MMK" title={chart.secretariat} variant="secretariat" />
-            <OrganizationChartCard badge="MMK" title={chart.sponsorship} />
-            <OrganizationChartCard badge="MMK" title={chart.judging} />
-          </div>
+            <div className="site-organization-chart__executive">
+              <OrganizationChartCard
+                badge="MMK"
+                title={chart.executiveChair}
+                variant="executive"
+              />
+            </div>
+
+            <div className="site-organization-chart__division-connector" aria-hidden="true" />
+
+            <div className="site-organization-chart__divisions">
+              <div className="site-organization-chart__division-lines" aria-hidden="true">
+                {Array.from({ length: 5 }, (_, index) => <span key={index} />)}
+              </div>
+              <OrganizationChartCard badge="MMK" title={chart.planning} />
+              <OrganizationChartCard badge="MMK" title={chart.publicRelations} />
+              <OrganizationChartCard badge="MMK" title={chart.secretariat} variant="secretariat" />
+              <OrganizationChartCard badge="MMK" title={chart.sponsorship} />
+              <OrganizationChartCard badge="MMK" title={chart.judging} />
+            </div>
           </div>
         </div>
       </div>
