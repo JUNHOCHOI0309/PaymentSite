@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { useLanguage } from "../context/LanguageContext";
 import { IntroPageLayout } from "./CompetitionIntroPage";
 
@@ -39,6 +40,10 @@ export function OrganizationCommitteePage() {
 
 export function OrganizationPage() {
   const { locale, t } = useLanguage();
+  const chartViewportRef = useRef(null);
+  const chartDiagramRef = useRef(null);
+  const [chartScale, setChartScale] = useState(1);
+  const [chartHeight, setChartHeight] = useState(0);
   const committeeTitle = locale === "ko" ? "MMK조직위원회" : "MMK Committee";
   const chart =
     locale === "ko"
@@ -65,13 +70,55 @@ export function OrganizationPage() {
           judging: "Judging Committee",
         };
 
+  useEffect(() => {
+    const viewport = chartViewportRef.current;
+    const diagram = chartDiagramRef.current;
+
+    if (!viewport || !diagram) {
+      return undefined;
+    }
+
+    const updateChartScale = () => {
+      const isCompactScreen = window.matchMedia("(max-width: 800px)").matches;
+      const diagramWidth = diagram.offsetWidth;
+      const viewportWidth = viewport.clientWidth;
+      const nextScale =
+        isCompactScreen && diagramWidth > 0
+          ? Math.min(1, viewportWidth / diagramWidth)
+          : 1;
+
+      setChartScale(nextScale);
+      setChartHeight(diagram.offsetHeight);
+    };
+
+    const resizeObserver = new ResizeObserver(updateChartScale);
+    resizeObserver.observe(viewport);
+    resizeObserver.observe(diagram);
+    window.addEventListener("resize", updateChartScale);
+    updateChartScale();
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateChartScale);
+    };
+  }, []);
+
   return (
     <InfoPage
       title={committeeTitle}
       bodyTitle={t("header.organizationPage")}
     >
       <div className="site-organization-chart">
-        <div className="site-organization-chart__diagram">
+        <div
+          ref={chartViewportRef}
+          className="site-organization-chart__viewport"
+          style={chartScale < 1 && chartHeight ? { height: `${chartHeight * chartScale}px` } : undefined}
+        >
+          <div
+            ref={chartDiagramRef}
+            className="site-organization-chart__diagram"
+            style={chartScale < 1 ? { transform: `scale(${chartScale})` } : undefined}
+          >
           <div className="site-organization-chart__top">
             <OrganizationChartCard badge="MM+" title={chart.eventChair} variant="event" />
           </div>
@@ -107,6 +154,7 @@ export function OrganizationPage() {
             <OrganizationChartCard badge="MMK" title={chart.secretariat} variant="secretariat" />
             <OrganizationChartCard badge="MMK" title={chart.sponsorship} />
             <OrganizationChartCard badge="MMK" title={chart.judging} />
+          </div>
           </div>
         </div>
       </div>

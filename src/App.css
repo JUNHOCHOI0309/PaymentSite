@@ -5033,6 +5033,11 @@ body {
   width: min(100%, 1050px);
   margin: 0 auto;
   padding: 4px 0 8px;
+  transform-origin: top left;
+}
+
+.site-organization-chart__viewport {
+  width: 100%;
 }
 
 .site-organization-chart__card {
@@ -5158,7 +5163,7 @@ body {
 
 .site-organization-chart__division-connector {
   position: relative;
-  width: min(94%, 950px);
+  width: 100%;
   height: 54px;
   margin: 0 auto;
   border-top: 2px solid #365e89;
@@ -5177,106 +5182,35 @@ body {
 .site-organization-chart__division-connector::after {
   position: absolute;
   top: 0;
-  left: 0;
-  width: 100%;
-  height: 16px;
-  background: repeating-linear-gradient(
-    90deg,
-    transparent 0,
-    transparent calc(25% - 1px),
-    #365e89 calc(25% - 1px),
-    #365e89 calc(25% + 1px),
-    transparent calc(25% + 1px),
-    transparent 25%
-  );
+  left: 10%;
+  width: 80%;
+  height: 54px;
+  background: linear-gradient(90deg, #365e89 0 2px, transparent 2px);
+  background-repeat: repeat-x;
+  background-size: 25% 100%;
   content: "";
 }
 
 .site-organization-chart__divisions {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 18px;
+  gap: 0;
 }
 
 .site-organization-chart__divisions .site-organization-chart__card {
   min-height: 122px;
+  margin: 0 9px;
 }
 
 @media (max-width: 800px) {
-  .site-organization-chart__advisor {
-    left: calc(50% + 132px);
-  }
-
-  .site-organization-chart__advisor::before {
-    width: 44px;
-  }
-
-  .site-organization-chart__divisions {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .site-organization-chart__division-connector {
-    display: none;
-  }
-
-  .site-organization-chart__divisions {
-    margin-top: 34px;
-  }
-}
-
-@media (max-width: 640px) {
   .site-organization-chart {
     padding: 28px 16px;
   }
 
   .site-organization-chart__diagram {
-    display: grid;
-    gap: 16px;
-    padding: 0;
-  }
-
-  .site-organization-chart__top-connector,
-  .site-organization-chart__lead-connector,
-  .site-organization-chart__advisor::before {
-    display: none;
-  }
-
-  .site-organization-chart__lead-row {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-  }
-
-  .site-organization-chart__advisor {
-    position: static;
-  }
-
-  .site-organization-chart__card,
-  .site-organization-chart__card--event,
-  .site-organization-chart__card--lead,
-  .site-organization-chart__card--executive,
-  .site-organization-chart__card--advisor {
-    width: 100%;
-    min-height: 96px;
-    padding: 16px 12px;
-  }
-
-  .site-organization-chart__divisions {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-    margin-top: 0;
-  }
-
-  .site-organization-chart__divisions .site-organization-chart__card {
-    min-height: 104px;
-  }
-
-  .site-organization-chart__divisions .site-organization-chart__card:last-child {
-    grid-column: 1 / -1;
-  }
-
-  .site-organization-chart__card strong {
-    font-size: 0.94rem;
+    width: 1050px;
+    max-width: none;
+    margin: 0;
   }
 }
 
