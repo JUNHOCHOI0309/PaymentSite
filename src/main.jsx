@@ -31,7 +31,6 @@ import {
   HallOfFamePage,
   OrganizationCommitteePage,
   OrganizationPage,
-  SponsorsPage,
 } from "./pages/InfoPages";
 import { LookupPage } from "./pages/LookupPage";
 import { StageServiceCompletePage } from "./pages/StageServiceCompletePage";
@@ -166,10 +165,6 @@ const router = createBrowserRouter([
       {
         path: "hall-of-fame",
         element: <HallOfFamePage />,
-      },
-      {
-        path: "sponsors",
-        element: <SponsorsPage />,
       },
       {
         path: "admin/login",

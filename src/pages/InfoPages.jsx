@@ -1,13 +1,24 @@
 import { useLanguage } from "../context/LanguageContext";
 import { IntroPageLayout } from "./CompetitionIntroPage";
 
-function InfoPage({ title, bodyTitle, body }) {
+function InfoPage({ title, bodyTitle, body, children }) {
   return (
     <IntroPageLayout title={title} bodyTitle={bodyTitle}>
-      <div className="site-introduce-page__status">
-        <p>{body}</p>
-      </div>
+        {children || (
+          <div className="site-introduce-page__status">
+            <p>{body}</p>
+          </div>
+        )}
     </IntroPageLayout>
+  );
+}
+
+function OrganizationChartCard({ badge, title, variant = "default" }) {
+  return (
+    <article className={`site-organization-chart__card site-organization-chart__card--${variant}`}>
+      <span>{badge}</span>
+      <strong>{title}</strong>
+    </article>
   );
 }
 
@@ -29,13 +40,77 @@ export function OrganizationCommitteePage() {
 export function OrganizationPage() {
   const { locale, t } = useLanguage();
   const committeeTitle = locale === "ko" ? "MMK조직위원회" : "MMK Committee";
+  const chart =
+    locale === "ko"
+      ? {
+          eventChair: "대회장",
+          advisors: "고문단",
+          organizationChair: "조직위원장",
+          executiveChair: "집행위원장",
+          planning: "기획·제작위원회",
+          publicRelations: "홍보위원회",
+          secretariat: "사무국",
+          sponsorship: "후원·협찬위원회",
+          judging: "심사위원회",
+        }
+      : {
+          eventChair: "Event Chair",
+          advisors: "Advisory Group",
+          organizationChair: "Organization Committee Chair",
+          executiveChair: "Executive Committee Chair",
+          planning: "Planning & Production Committee",
+          publicRelations: "Public Relations Committee",
+          secretariat: "Secretariat",
+          sponsorship: "Sponsorship Committee",
+          judging: "Judging Committee",
+        };
 
   return (
     <InfoPage
       title={committeeTitle}
       bodyTitle={t("header.organizationPage")}
-      body={t("infoPages.organizationBody")}
-    />
+    >
+      <div className="site-organization-chart">
+        <div className="site-organization-chart__diagram">
+          <div className="site-organization-chart__top">
+            <OrganizationChartCard badge="MM+" title={chart.eventChair} variant="event" />
+          </div>
+
+          <div className="site-organization-chart__top-connector" aria-hidden="true" />
+
+          <div className="site-organization-chart__lead-row">
+            <OrganizationChartCard
+              badge="MMK"
+              title={chart.organizationChair}
+              variant="lead"
+            />
+            <div className="site-organization-chart__advisor">
+              <OrganizationChartCard badge="MM+" title={chart.advisors} variant="advisor" />
+            </div>
+          </div>
+
+          <div className="site-organization-chart__lead-connector" aria-hidden="true" />
+
+          <div className="site-organization-chart__executive">
+            <OrganizationChartCard
+              badge="MMK"
+              title={chart.executiveChair}
+              variant="executive"
+            />
+          </div>
+
+          <div className="site-organization-chart__division-connector" aria-hidden="true" />
+
+          <div className="site-organization-chart__divisions">
+            <OrganizationChartCard badge="MMK" title={chart.planning} />
+            <OrganizationChartCard badge="MMK" title={chart.publicRelations} />
+            <OrganizationChartCard badge="MMK" title={chart.secretariat} variant="secretariat" />
+            <OrganizationChartCard badge="MMK" title={chart.sponsorship} />
+            <OrganizationChartCard badge="MMK" title={chart.judging} />
+          </div>
+        </div>
+      </div>
+    </InfoPage>
   );
 }
 
@@ -47,18 +122,6 @@ export function HallOfFamePage() {
       title={t("header.archive")}
       bodyTitle={t("header.hallOfFame")}
       body={t("infoPages.hallOfFameBody")}
-    />
-  );
-}
-
-export function SponsorsPage() {
-  const { t } = useLanguage();
-
-  return (
-    <InfoPage
-      title={t("header.archive")}
-      bodyTitle={t("header.sponsors")}
-      body={t("infoPages.sponsorsBody")}
     />
   );
 }

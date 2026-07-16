@@ -51,7 +51,6 @@ export function SiteHeader() {
         title: t("header.archive"),
         links: [
           { to: "/hall-of-fame", label: t("header.hallOfFame") },
-          { to: "/sponsors", label: t("header.sponsors") },
         ],
       },
       {
@@ -179,7 +178,6 @@ export function SiteHeader() {
               </button>
               <div className="site-header__dropdown-menu">
                 <Link to="/hall-of-fame">{t("header.hallOfFame")}</Link>
-                <Link to="/sponsors">{t("header.sponsors")}</Link>
               </div>
             </div>
             <div className="site-header__dropdown">
