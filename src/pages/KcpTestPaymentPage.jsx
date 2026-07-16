@@ -17,6 +17,7 @@ import {
 
 const testAmount = 100;
 const maxUploadBytes = 10 * 1024 * 1024;
+const maxDocumentUploadFiles = 5;
 const allowedDocumentUploadExtensions = new Set([
   ".pdf",
   ".doc",
@@ -139,6 +140,14 @@ function validateTestUpload(file) {
   return "";
 }
 
+function validateTestUploads(files) {
+  if (files.length > maxDocumentUploadFiles) {
+    return `첨부 파일은 최대 ${maxDocumentUploadFiles}개까지 선택할 수 있습니다.`;
+  }
+
+  return files.map(validateTestUpload).find(Boolean) || "";
+}
+
 export function KcpTestPaymentPage() {
   const [searchParams] = useSearchParams();
   const documentFileInputRef = useRef(null);
@@ -149,7 +158,7 @@ export function KcpTestPaymentPage() {
   const [form, setForm] = useState(initialForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [documentFile, setDocumentFile] = useState(null);
+  const [documentFiles, setDocumentFiles] = useState([]);
   const selectedDiscipline = useMemo(
     () =>
       testDisciplineOptions.find((option) => option.imageKey === form.imageKey) ||
@@ -176,18 +185,19 @@ export function KcpTestPaymentPage() {
   }
 
   function handleDocumentFileChange(event) {
-    const file = event.target.files?.[0] || null;
-    const validationMessage = validateTestUpload(file);
+    const files = Array.from(event.target.files || []);
+    const validationMessage = validateTestUploads(files);
+
+    event.target.value = "";
 
     if (validationMessage) {
-      event.target.value = "";
       setErrorMessage(validationMessage);
-      setDocumentFile(null);
+      setDocumentFiles([]);
       return;
     }
 
     setErrorMessage("");
-    setDocumentFile(file);
+    setDocumentFiles(files);
   }
 
   async function requestKcpTestPayment(event) {
@@ -201,7 +211,7 @@ export function KcpTestPaymentPage() {
       return;
     }
 
-    const documentValidationMessage = validateTestUpload(documentFile);
+    const documentValidationMessage = validateTestUploads(documentFiles);
 
     if (documentValidationMessage) {
       setErrorMessage(documentValidationMessage);
@@ -242,11 +252,8 @@ export function KcpTestPaymentPage() {
       });
       const draftId = draftResult.draft.draftId;
 
-      if (documentFile) {
-        await uploadFile({
-          draftId,
-          file: documentFile,
-        });
+      for (const documentFile of documentFiles) {
+        await uploadFile({ draftId, file: documentFile });
       }
 
       const orderResult = await createKcpTestOrder({
@@ -424,15 +431,18 @@ export function KcpTestPaymentPage() {
                   className="site-file-picker__input"
                   ref={documentFileInputRef}
                   type="file"
+                  multiple
                   accept={documentFileInputAccept}
                   onChange={handleDocumentFileChange}
                 />
                 <span
                   className={`site-file-picker__value ${
-                    documentFile ? "" : "site-file-picker__value--placeholder"
+                    documentFiles.length ? "" : "site-file-picker__value--placeholder"
                   }`.trim()}
                 >
-                  {documentFile?.name || "선택된 파일 없음"}
+                  {documentFiles.length
+                    ? documentFiles.map((file) => file.name).join(", ")
+                    : "선택된 파일 없음"}
                 </span>
                 <button
                   className="site-file-picker__trigger"
@@ -444,7 +454,8 @@ export function KcpTestPaymentPage() {
                 </button>
               </div>
               <span className="kcp-test-field__hint">
-                PDF, Word, PowerPoint, JPG, PNG 파일만 가능하며 최대 10MB입니다.
+                PDF, Word, PowerPoint, JPG, PNG 파일을 최대 {maxDocumentUploadFiles}개까지
+                선택할 수 있으며 파일당 최대 10MB입니다.
               </span>
             </label>
 
