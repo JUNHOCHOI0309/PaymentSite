@@ -17,8 +17,11 @@ export function buildApiUrl(path) {
   return `${apiBaseUrl}${resolvedPath}`;
 }
 
-export async function apiFetch(path, options) {
-  return fetch(buildApiUrl(path), options);
+export async function apiFetch(path, options = {}) {
+  return fetch(buildApiUrl(path), {
+    credentials: "include",
+    ...options,
+  });
 }
 
 export async function adminApiFetch(path, options = {}) {
