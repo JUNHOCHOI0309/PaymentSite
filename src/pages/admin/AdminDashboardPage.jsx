@@ -224,12 +224,11 @@ function normalizeWorkbookCell(value) {
     return "";
   }
 
-  const normalizedValue =
-    typeof value === "object" ? JSON.stringify(value) : String(value);
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
 
-  return /^[=+\-@\t\r]/.test(normalizedValue)
-    ? `'${normalizedValue}`
-    : normalizedValue;
+  return String(value);
 }
 
 function sanitizeSheetName(value) {
@@ -251,7 +250,7 @@ function getWorksheetColumns(rows) {
     }, 0);
 
     return {
-      width: Math.min(Math.max(width + 2, 12), 48),
+      wch: Math.min(Math.max(width + 2, 12), 48),
     };
   });
 }
@@ -261,10 +260,10 @@ async function downloadWorkbookFile(filename, sheetName, columns, rows) {
     return;
   }
 
-  const excelModule = await import("exceljs");
-  const ExcelJS = excelModule.default || excelModule;
+  const xlsxModule = await import("xlsx");
+  const xlsx = xlsxModule?.utils ? xlsxModule : xlsxModule.default;
 
-  if (typeof ExcelJS?.Workbook !== "function") {
+  if (!xlsx?.utils || typeof xlsx.writeFile !== "function") {
     throw new Error("엑셀 내보내기 모듈을 불러오지 못했습니다.");
   }
 
@@ -276,27 +275,14 @@ async function downloadWorkbookFile(filename, sheetName, columns, rows) {
       ),
     ),
   ];
-  const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet(sanitizeSheetName(sheetName));
-  worksheet.addRows(worksheetRows);
-  worksheet.columns = getWorksheetColumns(worksheetRows);
-  worksheet.getRow(1).font = { bold: true };
+  const worksheet = xlsx.utils.aoa_to_sheet(worksheetRows);
+  worksheet["!cols"] = getWorksheetColumns(worksheetRows);
 
-  const workbookBuffer = await workbook.xlsx.writeBuffer({
-    useSharedStrings: true,
-    useStyles: true,
+  const workbook = xlsx.utils.book_new();
+  xlsx.utils.book_append_sheet(workbook, worksheet, sanitizeSheetName(sheetName));
+  xlsx.writeFile(workbook, filename, {
+    compression: true,
   });
-  const blob = new Blob([workbookBuffer], {
-    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  });
-  const objectUrl = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = objectUrl;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
 }
 
 function compareSortValues(left, right) {

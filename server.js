@@ -9,17 +9,6 @@ const express = require("express");
 const multer = require("multer");
 const { Pool } = require("pg");
 const {
-  createDraftAccessToken,
-  createPaymentResultAccessToken,
-  resolveApplicationOrderDetails,
-  validateKcpTestDraft,
-  validateKcpApprovalResult,
-  validateCompletionPaymentBinding,
-  validateDraftAccess,
-  validateExistingPaymentReplay,
-  validatePaymentResultAccess,
-} = require("./server/paymentCompletionSecurity");
-const {
   GetObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
@@ -31,7 +20,6 @@ const applicationDisciplineCatalog = require("./src/data/applicationDisciplineCa
 const applicationEntryFeeConfig = require("./src/data/applicationEntryFeeConfig.json");
 const app = express();
 const port = Number(process.env.PORT || 4000);
-const host = normalizeText(process.env.HOST) || "127.0.0.1";
 const corsAllowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || "")
   .split(",")
   .map((origin) => origin.trim())
@@ -41,12 +29,6 @@ const adminAllowedOrigins = (process.env.ADMIN_ALLOWED_ORIGINS || "")
   .map((origin) => origin.trim())
   .filter(Boolean);
 const adminSessionCookieName = normalizeText(process.env.ADMIN_COOKIE_NAME) || "mmk_admin_session";
-const paymentResultCookieName = "mmk_payment_result";
-const applicationDraftCookieName = "mmk_application_draft";
-const stageServiceDraftCookieName = "mmk_stage_service_draft";
-const paymentResultAccessTtlHours = 24;
-const draftAccessTtlHours = 24;
-const paymentResultTokenSecret = normalizeText(process.env.PAYMENT_RESULT_TOKEN_SECRET);
 const adminSessionTtlHours = Math.max(
   1,
   Number(process.env.ADMIN_SESSION_TTL_HOURS || 12)
@@ -78,19 +60,6 @@ const adminLoginLockDurationMs = Math.max(
 );
 const adminLoginRateStore = new Map();
 const adminLoginFailureStore = new Map();
-const lookupVerificationRateStore = new Map();
-const lookupVerificationRateWindowMs = Math.max(
-  60 * 1000,
-  Number(process.env.LOOKUP_VERIFICATION_RATE_WINDOW_MS || 15 * 60 * 1000)
-);
-const lookupVerificationSendRateLimit = Math.max(
-  1,
-  Number(process.env.LOOKUP_VERIFICATION_SEND_RATE_LIMIT || 10)
-);
-const lookupVerificationVerifyRateLimit = Math.max(
-  1,
-  Number(process.env.LOOKUP_VERIFICATION_VERIFY_RATE_LIMIT || 30)
-);
 
 const maxUploadBytes = 10 * 1024 * 1024;
 const maxDocumentUploadFiles = 5;
@@ -236,37 +205,20 @@ const hairOptionalOptionMap = new Map(
 );
 
 app.set("trust proxy", true);
-app.disable("x-powered-by");
 
-app.use(function (req, res, next) {
+app.use(function (_req, res, next) {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-
-  if (process.env.NODE_ENV === "production") {
-    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-  }
-
-  if (
-    req.path.startsWith("/admin") ||
-    req.path.startsWith("/applications") ||
-    req.path.startsWith("/stage-services") ||
-    req.path.startsWith("/kcp") ||
-    req.path.startsWith("/webhooks")
-  ) {
-    res.setHeader("Cache-Control", "no-store, private");
-    res.setHeader("Pragma", "no-cache");
-  }
-
   next();
 });
 
 app.use(function (req, res, next) {
-  const origin = normalizeText(req.headers.origin);
-  const isAllowedOrigin = Boolean(origin) && corsAllowedOrigins.includes(origin);
+  const origin = req.headers.origin;
+  const hasConfiguredOrigins = corsAllowedOrigins.length > 0;
+  const allowAnyOrigin = !hasConfiguredOrigins;
+  const isAllowedOrigin = origin && corsAllowedOrigins.includes(origin);
 
-  if (isAllowedOrigin) {
+  if (origin && (allowAnyOrigin || isAllowedOrigin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS");
@@ -275,15 +227,15 @@ app.use(function (req, res, next) {
   }
 
   if (req.method === "OPTIONS") {
-    return isAllowedOrigin ? res.status(204).end() : res.status(403).end();
+    return res.status(204).end();
   }
 
   next();
 });
 
 app.use(express.static("public"));
-app.use(express.json({ limit: "100kb" }));
-app.use(express.urlencoded({ extended: false, limit: "100kb" }));
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 
 //DB Pool 생성
 const databaseUrl = process.env.DATABASE_URL;
@@ -324,39 +276,122 @@ const kcpPaymentInquiryUrl =
 const kcpSiteCode = normalizeText(process.env.KCP_SITE_CD) || "T0000";
 const kcpTestPaymentEnabled = process.env.KCP_TEST_PAYMENT_ENABLED === "true";
 const kcpTestPaymentToken = normalizeText(process.env.KCP_TEST_PAYMENT_TOKEN);
-const kcpRequestTimeoutMs = Math.max(1000, Number(process.env.KCP_REQUEST_TIMEOUT_MS || 15000));
 const publicBaseUrl = normalizeBaseUrl(process.env.PUBLIC_BASE_URL);
 const publicApiBaseUrl = normalizeBaseUrl(process.env.PUBLIC_API_BASE_URL);
 
 async function ensurePaymentProviderColumnsReady() {
-  const requiredColumns = new Map([
-    ["orders", new Set(["payment_provider", "payment_method"])],
-    ["payments", new Set(["payment_provider", "provider_payment_id"])],
-    ["payment_webhook_events", new Set(["payment_provider"])],
-  ]);
-  const schemaResult = await pool.query(
-    `
-      SELECT table_name, column_name
-      FROM information_schema.columns
-      WHERE table_schema = 'public'
-        AND table_name = ANY($1::text[])
-    `,
-    [Array.from(requiredColumns.keys())]
-  );
+  async function hasColumn(tableName, columnName) {
+    const result = await pool.query(
+      `
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = $1
+          AND column_name = $2
+        LIMIT 1
+      `,
+      [tableName, columnName]
+    );
 
-  for (const row of schemaResult.rows) {
-    requiredColumns.get(row.table_name)?.delete(row.column_name);
+    return result.rowCount > 0;
   }
 
-  const missingColumns = Array.from(requiredColumns.entries()).flatMap(
-    ([tableName, columnNames]) =>
-      Array.from(columnNames).map((columnName) => `${tableName}.${columnName}`)
+  if (!(await hasColumn("orders", "payment_provider"))) {
+    await pool.query(`
+      ALTER TABLE orders
+      ADD COLUMN payment_provider VARCHAR(20)
+    `);
+    await pool.query(`
+      UPDATE orders
+      SET payment_provider = 'kcp'
+      WHERE payment_provider IS NULL
+    `);
+    await pool.query(`
+      ALTER TABLE orders
+      ALTER COLUMN payment_provider SET DEFAULT 'kcp'
+    `);
+    await pool.query(`
+      ALTER TABLE orders
+      ALTER COLUMN payment_provider SET NOT NULL
+    `);
+  }
+
+  if (!(await hasColumn("orders", "payment_method"))) {
+    await pool.query(`
+      ALTER TABLE orders
+      ADD COLUMN payment_method VARCHAR(40)
+    `);
+  }
+
+  if (!(await hasColumn("payments", "payment_provider"))) {
+    await pool.query(`
+      ALTER TABLE payments
+      ADD COLUMN payment_provider VARCHAR(20)
+    `);
+    await pool.query(`
+      UPDATE payments
+      SET payment_provider = 'kcp'
+      WHERE payment_provider IS NULL
+    `);
+    await pool.query(`
+      ALTER TABLE payments
+      ALTER COLUMN payment_provider SET DEFAULT 'kcp'
+    `);
+    await pool.query(`
+      ALTER TABLE payments
+      ALTER COLUMN payment_provider SET NOT NULL
+    `);
+  }
+
+  if (!(await hasColumn("payments", "provider_payment_id"))) {
+    await pool.query(`
+      ALTER TABLE payments
+      ADD COLUMN provider_payment_id VARCHAR(120)
+    `);
+  }
+
+  await pool.query(`
+    UPDATE payments
+    SET provider_payment_id = payment_key
+    WHERE provider_payment_id IS NULL
+      AND payment_key IS NOT NULL
+  `);
+
+  try {
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_payments_provider_payment_id
+      ON payments (payment_provider, provider_payment_id)
+    `);
+  } catch (error) {
+    if (error.code !== "42501") {
+      throw error;
+    }
+  }
+
+  const webhookTableResult = await pool.query(
+    "SELECT to_regclass('public.payment_webhook_events') AS table_name"
   );
 
-  if (missingColumns.length > 0) {
-    throw new Error(
-      `Payment database schema is not ready: ${missingColumns.join(", ")}`
-    );
+  if (webhookTableResult.rows[0]?.table_name) {
+    if (!(await hasColumn("payment_webhook_events", "payment_provider"))) {
+      await pool.query(`
+        ALTER TABLE payment_webhook_events
+        ADD COLUMN payment_provider VARCHAR(20)
+      `);
+      await pool.query(`
+        UPDATE payment_webhook_events
+        SET payment_provider = 'kcp'
+        WHERE payment_provider IS NULL
+      `);
+      await pool.query(`
+        ALTER TABLE payment_webhook_events
+        ALTER COLUMN payment_provider SET DEFAULT 'kcp'
+      `);
+      await pool.query(`
+        ALTER TABLE payment_webhook_events
+        ALTER COLUMN payment_provider SET NOT NULL
+      `);
+    }
   }
 }
 
@@ -506,7 +541,11 @@ function mapClientPaymentMethodToKcp(value) {
 }
 
 function getRequestPublicOrigin(req) {
-  return publicBaseUrl || `${req.protocol}://${req.get("host")}`;
+  return (
+    publicBaseUrl ||
+    normalizeBaseUrl(req.headers.origin) ||
+    `${req.protocol}://${req.get("host")}`
+  );
 }
 
 function getRequestPublicApiBaseUrl(req) {
@@ -547,10 +586,6 @@ function normalizeKcpPaymentContext(value) {
   return "application";
 }
 
-function getKcpDraftBindingTable(context) {
-  return context === "stageService" ? "stage_service_drafts" : "application_drafts";
-}
-
 function getKcpSuccessPath(context) {
   switch (context) {
     case "stageService":
@@ -575,7 +610,7 @@ function getKcpFailPath(context) {
 
 function isKcpTestPaymentAuthorized(req) {
   if (!kcpTestPaymentToken) {
-    return false;
+    return true;
   }
 
   const providedToken =
@@ -599,7 +634,6 @@ async function postKcpJson(url, body) {
       "Content-Type": "application/json; charset=UTF-8",
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(kcpRequestTimeoutMs),
   });
   const text = await response.text();
   let json = {};
@@ -955,7 +989,7 @@ function getKcpApprovedAmount(payload) {
 
 //주문 식별 생성 헬퍼
 function generateOrderId(){
-  return `order_${Date.now()}_${crypto.randomBytes(8).toString("hex")}`;
+  return `order_${Date.now()}_${Math.random().toString(36).slice(2,10)}`;
 }
 
 // Amount이 양수일 때만 생성
@@ -971,11 +1005,11 @@ function normalizeAmount(value){
 
 // draft를 frontend에 노출
 function generateDraftId() {
-  return `draft_${Date.now()}_${crypto.randomBytes(8).toString("hex")}`;
+  return `draft_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function generateApplicationNumber() {
-  return `APPL-${new Date().getFullYear()}-${crypto.randomBytes(6).toString("hex").toUpperCase()}`;
+  return `APPL-${new Date().getFullYear()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 }
 
 // Draft API 정규화
@@ -986,11 +1020,6 @@ function normalizeText(value) {
 
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
-}
-
-function truncateNormalizedText(value, maxLength) {
-  const normalized = normalizeText(value);
-  return normalized ? normalized.slice(0, maxLength) : null;
 }
 
 function normalizeDisciplineAlias(value) {
@@ -1144,14 +1173,7 @@ function parseCookies(headerValue) {
       }
 
       const key = pair.slice(0, separatorIndex).trim();
-      let value;
-
-      try {
-        value = decodeURIComponent(pair.slice(separatorIndex + 1).trim());
-      } catch (_error) {
-        return accumulator;
-      }
-
+      const value = decodeURIComponent(pair.slice(separatorIndex + 1).trim());
       accumulator[key] = value;
       return accumulator;
     }, {});
@@ -1196,83 +1218,6 @@ function createAdminSessionCookie(token) {
     path: "/",
     sameSite: "Lax",
     secure: adminCookieSecure,
-  });
-}
-
-function createPaymentResultAccessCookie(token) {
-  return serializeCookie(paymentResultCookieName, token, {
-    maxAge: paymentResultAccessTtlHours * 60 * 60,
-    path: "/",
-    sameSite: "Lax",
-    secure: adminCookieSecure,
-  });
-}
-
-function createDraftAccessCookie(token, cookieName) {
-  return serializeCookie(cookieName, token, {
-    maxAge: draftAccessTtlHours * 60 * 60,
-    path: "/",
-    sameSite: "Lax",
-    secure: adminCookieSecure,
-  });
-}
-
-function issueDraftAccessCookie(res, { draftId, draftType, cookieName }) {
-  const token = createDraftAccessToken({
-    draftId,
-    draftType,
-    secret: paymentResultTokenSecret,
-    ttlSeconds: draftAccessTtlHours * 60 * 60,
-  });
-  res.setHeader("Set-Cookie", createDraftAccessCookie(token, cookieName));
-}
-
-function validateRequestDraftAccess(req, { draftId, draftType, cookieName }) {
-  return validateDraftAccess({
-    providedToken: normalizeText(parseCookies(req.headers.cookie)[cookieName]),
-    draftId,
-    draftType,
-    secret: paymentResultTokenSecret,
-  });
-}
-
-function requireRequestDraftAccess(req, res, options) {
-  if (!hasTrustedWriteOrigin(req)) {
-    res.status(403).json({
-      ok: false,
-      code: "UNTRUSTED_REQUEST_ORIGIN",
-      message: "허용되지 않은 요청 출처입니다.",
-    });
-    return false;
-  }
-
-  const validation = validateRequestDraftAccess(req, options);
-
-  if (!validation.ok) {
-    res.status(403).json(validation);
-    return false;
-  }
-
-  return true;
-}
-
-function getPaymentResultAccessToken(req) {
-  return normalizeText(parseCookies(req.headers.cookie)[paymentResultCookieName]);
-}
-
-function validateOrderPaymentResultAccess(req, order) {
-  if (!hasTrustedWriteOrigin(req)) {
-    return {
-      ok: false,
-      code: "UNTRUSTED_REQUEST_ORIGIN",
-      message: "허용되지 않은 요청 출처입니다.",
-    };
-  }
-
-  return validatePaymentResultAccess({
-    providedToken: getPaymentResultAccessToken(req),
-    orderId: order?.order_id,
-    secret: paymentResultTokenSecret,
   });
 }
 
@@ -1329,7 +1274,12 @@ function getRequestUserAgent(req) {
 
 function hasTrustedAdminOrigin(req) {
   const origin = normalizeText(req.headers.origin);
-  return Boolean(origin) && adminAllowedOrigins.includes(origin);
+
+  if (!origin || adminAllowedOrigins.length === 0) {
+    return true;
+  }
+
+  return adminAllowedOrigins.includes(origin);
 }
 
 function normalizeAdminUser(row) {
@@ -1730,7 +1680,7 @@ function normalizeAdminRole(value) {
 }
 
 function normalizeAdminDisplayName(value) {
-  return truncateNormalizedText(value, 80);
+  return normalizeText(value).slice(0, 80);
 }
 
 function isValidAdminPassword(value) {
@@ -2042,48 +1992,7 @@ function generateLookupVerificationToken() {
 }
 
 function hashLookupVerificationCode(code) {
-  return crypto
-    .createHmac("sha256", paymentResultTokenSecret)
-    .update(`lookup-verification:${String(code)}`)
-    .digest("hex");
-}
-
-function escapeHtml(value) {
-  return String(value || "").replace(/[&<>"']/g, (character) => {
-    const entities = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;",
-    };
-
-    return entities[character];
-  });
-}
-
-function consumeLookupVerificationRateLimit({ action, ipAddress, limit }) {
-  const now = Date.now();
-  const key = `${action}:${ipAddress || "unknown"}`;
-  const existing = lookupVerificationRateStore.get(key);
-
-  if (!existing || now - existing.windowStartedAt >= lookupVerificationRateWindowMs) {
-    lookupVerificationRateStore.set(key, { count: 1, windowStartedAt: now });
-    return { ok: true };
-  }
-
-  if (existing.count >= limit) {
-    return {
-      ok: false,
-      retryAfterSeconds: Math.max(
-        1,
-        Math.ceil((lookupVerificationRateWindowMs - (now - existing.windowStartedAt)) / 1000)
-      ),
-    };
-  }
-
-  existing.count += 1;
-  return { ok: true };
+  return crypto.createHash("sha256").update(String(code)).digest("hex");
 }
 
 let emailTransporter = null;
@@ -2113,15 +2022,32 @@ let lookupVerificationStoreReadyPromise = null;
 async function ensureLookupVerificationStoreReady() {
   if (!lookupVerificationStoreReadyPromise) {
     lookupVerificationStoreReadyPromise = (async function () {
-      const tableResult = await pool.query(
-        "SELECT to_regclass('public.application_lookup_email_verifications') AS table_name"
-      );
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS application_lookup_email_verifications (
+          id BIGSERIAL PRIMARY KEY,
+          name VARCHAR(120) NOT NULL,
+          email VARCHAR(255) NOT NULL,
+          code_hash VARCHAR(64) NOT NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+          verification_token VARCHAR(80),
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          expires_at TIMESTAMPTZ NOT NULL,
+          verified_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
 
-      if (!tableResult.rows[0]?.table_name) {
-        throw new Error(
-          "Lookup verification database schema is not ready. Apply the lookup verification migration."
-        );
-      }
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS idx_application_lookup_email_verifications_email_created
+        ON application_lookup_email_verifications (email, created_at DESC)
+      `);
+
+      await pool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_application_lookup_email_verifications_token
+        ON application_lookup_email_verifications (verification_token)
+        WHERE verification_token IS NOT NULL
+      `);
     })().catch((error) => {
       lookupVerificationStoreReadyPromise = null;
       throw error;
@@ -2149,33 +2075,6 @@ async function hasVerifiedLookupSession({ name, email, verificationToken }) {
         AND status = 'VERIFIED'
         AND verified_at >= NOW() - ($4::text || ' minutes')::interval
       LIMIT 1
-    `,
-    [name, email, verificationToken, String(lookupVerificationSessionTtlMinutes)]
-  );
-
-  return verificationResult.rowCount > 0;
-}
-
-async function consumeVerifiedLookupSession(client, { name, email, verificationToken }) {
-  const verificationResult = await client.query(
-    `
-      UPDATE application_lookup_email_verifications
-      SET
-        status = 'CONSUMED',
-        updated_at = NOW()
-      WHERE id = (
-        SELECT id
-        FROM application_lookup_email_verifications
-        WHERE name = $1
-          AND email = $2
-          AND verification_token = $3
-          AND status = 'VERIFIED'
-          AND verified_at >= NOW() - ($4::text || ' minutes')::interval
-        ORDER BY verified_at DESC
-        LIMIT 1
-        FOR UPDATE
-      )
-      RETURNING id
     `,
     [name, email, verificationToken, String(lookupVerificationSessionTtlMinutes)]
   );
@@ -2279,13 +2178,11 @@ async function sendLookupVerificationEmail({ email, name, code }) {
   const transporter = getEmailTransporter();
   const subject = `[${emailBrandName}] 이메일 인증번호 안내`;
   const text = `${name}님, 신청 조회 인증번호는 ${code} 입니다. ${lookupVerificationCodeTtlMinutes}분 내에 입력해 주세요.`;
-  const safeName = escapeHtml(name);
-  const safeCode = escapeHtml(code);
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937;">
-      <p>${safeName}님, 안녕하세요.</p>
+      <p>${name}님, 안녕하세요.</p>
       <p>신청 조회를 위한 이메일 인증번호를 안내드립니다.</p>
-      <p style="font-size: 24px; font-weight: 700; letter-spacing: 0.08em;">${safeCode}</p>
+      <p style="font-size: 24px; font-weight: 700; letter-spacing: 0.08em;">${code}</p>
       <p>${lookupVerificationCodeTtlMinutes}분 내에 입력해 주세요.</p>
     </div>
   `;
@@ -2455,7 +2352,12 @@ function ensureR2ReadReady() {
 
 function hasTrustedWriteOrigin(req) {
   const origin = normalizeText(req.headers.origin);
-  return Boolean(origin) && corsAllowedOrigins.includes(origin);
+
+  if (!origin || corsAllowedOrigins.length === 0) {
+    return true;
+  }
+
+  return corsAllowedOrigins.includes(origin);
 }
 
 function runSingleFileUpload(req, res) {
@@ -2564,11 +2466,11 @@ function mapConsentRow(row) {
 }
 
 function generateStageServiceDraftId() {
-  return `stage_draft_${Date.now()}_${crypto.randomBytes(8).toString("hex")}`;
+  return `stage_draft_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function generateStageServiceOrderNumber() {
-  return `SS-${new Date().getFullYear()}-${crypto.randomBytes(6).toString("hex").toUpperCase()}`;
+  return `SS-${new Date().getFullYear()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 }
 
 function normalizeStageServiceType(value) {
@@ -2710,7 +2612,7 @@ function validateStageServiceDraftPayload(body) {
     };
   }
 
-  if (!name || !phone || !email || name.length > 120 || email.length > 255) {
+  if (!name || !phone || !email) {
     return {
       ok: false,
       message: "Missing required applicant fields",
@@ -2939,55 +2841,10 @@ function validateDraftPayload(body) {
     photoVideo: normalizeBoolean(body.consents?.photoVideo),
   };
 
-  if (
-    !name ||
-    !phone ||
-    !email ||
-    !birthDate ||
-    name.length > 120 ||
-    phone.length > 40 ||
-    email.length > 255 ||
-    birthDate.length > 20 ||
-    (organization && organization.length > 160) ||
-    instagramId.length > 500 ||
-    (weightClass && weightClass.length > 160)
-  ) {
+  if (!name || !phone || !email || !birthDate) {
     return {
       ok: false,
       message: "Missing required applicant fields",
-    };
-  }
-
-  if (!hasValidEmail(email) || String(phone).replace(/\D/g, "").length !== 11) {
-    return {
-      ok: false,
-      message: "Invalid applicant contact fields",
-    };
-  }
-
-  const disciplineDefinition = applicationDisciplineDefinitionByImageKey.get(
-    selection.imageKey
-  );
-  const divisionAllowsImage =
-    selection.division === "TEST" ||
-    (selection.division === "man" && /\/(man|common)_/.test(selection.imageKey || "")) ||
-    (selection.division === "woman" && /\/(woman|common)_/.test(selection.imageKey || ""));
-
-  if (
-    !disciplineDefinition ||
-    !divisionAllowsImage ||
-    selection.discipline !== disciplineDefinition.title
-  ) {
-    return {
-      ok: false,
-      message: "Invalid application selection",
-    };
-  }
-
-  if (!consents.privacy || !consents.terms || !consents.refund) {
-    return {
-      ok: false,
-      message: "Required consents are missing",
     };
   }
 
@@ -3084,185 +2941,6 @@ async function markWebhookEventStatus(eventId, status) {
   );
 }
 
-async function reconcileKcpWebhookPayment({ orderId, paymentKey }) {
-  const normalizedOrderId = normalizeText(orderId);
-  const normalizedPaymentKey = normalizeText(paymentKey);
-  const snapshot = await getKcpReconciliationSnapshot(pool, normalizedOrderId);
-
-  if (!snapshot.order || !snapshot.payment) {
-    return { ok: false, ignored: true, code: "KCP_PAYMENT_NOT_FOUND" };
-  }
-
-  const storedPaymentKey =
-    normalizeText(snapshot.payment.provider_payment_id) ||
-    normalizeText(snapshot.payment.payment_key);
-  const storedPaymentKeyAlias = normalizeText(snapshot.payment.payment_key);
-  const orderAmount = normalizeAmount(snapshot.order.amount);
-  const paymentAmount = normalizeAmount(snapshot.payment.total_amount);
-  const payType = normalizeKcpInquiryPayType(
-    snapshot.payment.payment_type,
-    snapshot.payment.method,
-    snapshot.order.payment_method
-  );
-
-  if (
-    snapshot.order.payment_provider !== paymentProviders.KCP ||
-    snapshot.payment.payment_provider !== paymentProviders.KCP ||
-    !normalizedPaymentKey ||
-    normalizedPaymentKey !== storedPaymentKey ||
-    normalizedPaymentKey !== storedPaymentKeyAlias ||
-    orderAmount === null ||
-    paymentAmount !== orderAmount ||
-    !payType
-  ) {
-    return { ok: false, ignored: true, code: "KCP_WEBHOOK_BINDING_MISMATCH" };
-  }
-
-  const inquiryResponse = await requestKcpTransactionInquiry({
-    paymentKey: normalizedPaymentKey,
-    payType,
-  });
-
-  if (!inquiryResponse.ok) {
-    const error = new Error(inquiryResponse.errorMessage || "KCP webhook inquiry failed");
-    error.code = inquiryResponse.errorCode;
-    throw error;
-  }
-
-  const inquiryPayload = inquiryResponse.result;
-  const inquiryPaymentKey = normalizeText(inquiryPayload?.tno);
-  const interpretedInquiry = interpretKcpInquiryResult(inquiryPayload, payType);
-
-  if (
-    inquiryPaymentKey !== normalizedPaymentKey ||
-    !interpretedInquiry.ok ||
-    interpretedInquiry.amount !== orderAmount ||
-    !isSafeKcpReconciliationTransition(
-      snapshot.payment.status,
-      interpretedInquiry.paymentStatus
-    )
-  ) {
-    return { ok: false, ignored: true, code: "KCP_WEBHOOK_INQUIRY_MISMATCH" };
-  }
-
-  const client = await pool.connect();
-
-  try {
-    await client.query("BEGIN");
-    const lockedSnapshot = await getKcpReconciliationSnapshot(client, normalizedOrderId, {
-      lock: true,
-    });
-    const lockedPaymentKey =
-      normalizeText(lockedSnapshot.payment?.provider_payment_id) ||
-      normalizeText(lockedSnapshot.payment?.payment_key);
-    const lockedAmount = normalizeAmount(lockedSnapshot.order?.amount);
-    const lockedPaymentAmount = normalizeAmount(lockedSnapshot.payment?.total_amount);
-    const lockedPayType = normalizeKcpInquiryPayType(
-      lockedSnapshot.payment?.payment_type,
-      lockedSnapshot.payment?.method,
-      lockedSnapshot.order?.payment_method
-    );
-
-    if (
-      !lockedSnapshot.order ||
-      !lockedSnapshot.payment ||
-      lockedSnapshot.order.payment_provider !== paymentProviders.KCP ||
-      lockedPaymentKey !== normalizedPaymentKey ||
-      lockedAmount !== orderAmount ||
-      lockedPaymentAmount !== orderAmount ||
-      lockedPayType !== payType ||
-      !isSafeKcpReconciliationTransition(
-        lockedSnapshot.payment.status,
-        interpretedInquiry.paymentStatus
-      )
-    ) {
-      await client.query("ROLLBACK");
-      return { ok: false, ignored: true, code: "KCP_WEBHOOK_STATE_CHANGED" };
-    }
-
-    const nextPaymentStatus = interpretedInquiry.paymentStatus;
-    const nextOrderStatus = mapPaymentStatusToOrderStatus(nextPaymentStatus);
-
-    if (!nextOrderStatus) {
-      throw new Error("Unsupported KCP webhook order state");
-    }
-
-    await client.query(
-      `
-        UPDATE payments
-        SET
-          status = $3,
-          raw_response_json = jsonb_set(
-            CASE
-              WHEN raw_response_json IS NULL THEN '{}'::jsonb
-              WHEN jsonb_typeof(raw_response_json) = 'object' THEN raw_response_json
-              ELSE jsonb_build_object('previous', raw_response_json)
-            END,
-            '{latestInquiry}',
-            $4::jsonb,
-            true
-          ),
-          updated_at = NOW()
-        WHERE order_id = $1
-          AND payment_key = $2
-          AND payment_provider = 'kcp'
-      `,
-      [
-        normalizedOrderId,
-        normalizedPaymentKey,
-        nextPaymentStatus,
-        JSON.stringify(inquiryPayload),
-      ]
-    );
-    await client.query(
-      "UPDATE orders SET status = $2, updated_at = NOW() WHERE order_id = $1",
-      [normalizedOrderId, nextOrderStatus]
-    );
-    await client.query(
-      `
-        UPDATE applications
-        SET
-          status = CASE
-            WHEN $2 = 'CANCELED' THEN 'REFUNDED'
-            WHEN $2 = 'PARTIAL_CANCELED' THEN 'PARTIAL_REFUNDED'
-            ELSE status
-          END,
-          payment_status = $2,
-          updated_at = NOW()
-        WHERE order_id = $1
-      `,
-      [normalizedOrderId, nextPaymentStatus]
-    );
-
-    const stageServiceTableResult = await client.query(
-      "SELECT to_regclass('public.stage_service_orders') AS table_name"
-    );
-
-    if (stageServiceTableResult.rows[0]?.table_name) {
-      await client.query(
-        `
-          UPDATE stage_service_orders
-          SET payment_status = $2, updated_at = NOW()
-          WHERE order_id = $1
-        `,
-        [normalizedOrderId, nextPaymentStatus]
-      );
-    }
-
-    await client.query("COMMIT");
-    return {
-      ok: true,
-      paymentStatus: nextPaymentStatus,
-      transactionStatus: interpretedInquiry.transactionStatus,
-    };
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => undefined);
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
 // Payment의 status에 따른 Order status 변경
 function mapPaymentStatusToOrderStatus(paymentStatus) {
   switch (paymentStatus) {
@@ -3313,69 +2991,35 @@ app.post("/kcp/test/orders", async function (req, res) {
   }
 
   try {
+    const customerName = normalizeText(req.body.customerName) || "KCP 테스트";
+    const customerEmail = normalizeEmail(req.body.customerEmail);
     const draftId = normalizeText(req.body.draftId);
-
-    if (
-      !requireRequestDraftAccess(req, res, {
-        draftId,
-        draftType: "application",
-        cookieName: applicationDraftCookieName,
-      })
-    ) {
-      return;
-    }
-
     const orderId = generateOrderId();
     const orderName = "KCP 100원 테스트 결제";
-    const resultAccessToken = createPaymentResultAccessToken({
-      orderId,
-      secret: paymentResultTokenSecret,
-      ttlSeconds: paymentResultAccessTtlHours * 60 * 60,
-    });
     const client = await pool.connect();
 
     try {
       await client.query("BEGIN");
 
-      if (!draftId) {
-        await client.query("ROLLBACK");
-        return res.status(400).json({
-          ok: false,
-          code: "KCP_TEST_DRAFT_REQUIRED",
-          message: "KCP 테스트 신청 초안이 필요합니다.",
-        });
+      if (draftId) {
+        const draftResult = await client.query(
+          `
+            SELECT draft_id
+            FROM application_drafts
+            WHERE draft_id = $1
+            FOR UPDATE
+          `,
+          [draftId]
+        );
+
+        if (draftResult.rowCount === 0) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({
+            ok: false,
+            message: "Test application draft not found",
+          });
+        }
       }
-
-      const draftResult = await client.query(
-        `
-          SELECT draft_id, order_id, division, name, email
-          FROM application_drafts
-          WHERE draft_id = $1
-          FOR UPDATE
-        `,
-        [draftId]
-      );
-
-      if (draftResult.rowCount === 0) {
-        await client.query("ROLLBACK");
-        return res.status(404).json({
-          ok: false,
-          message: "Test application draft not found",
-        });
-      }
-
-      const testDraftValidation = validateKcpTestDraft(draftResult.rows[0]);
-
-      if (!testDraftValidation.ok) {
-        await client.query("ROLLBACK");
-        return res.status(409).json({
-          ok: false,
-          code: testDraftValidation.code,
-          message: testDraftValidation.message,
-        });
-      }
-
-      const { customerName, customerEmail } = testDraftValidation;
 
       const result = await client.query(
         `
@@ -3410,17 +3054,18 @@ app.post("/kcp/test/orders", async function (req, res) {
       );
       const order = result.rows[0];
 
-      await client.query(
-        `
-          UPDATE application_drafts
-          SET order_id = $2, updated_at = NOW()
-          WHERE draft_id = $1
-        `,
-        [draftId, order.order_id]
-      );
+      if (draftId) {
+        await client.query(
+          `
+            UPDATE application_drafts
+            SET order_id = $2, updated_at = NOW()
+            WHERE draft_id = $1
+          `,
+          [draftId, order.order_id]
+        );
+      }
 
       await client.query("COMMIT");
-      res.setHeader("Set-Cookie", createPaymentResultAccessCookie(resultAccessToken));
 
       return res.status(201).json({
         ok: true,
@@ -3627,14 +3272,6 @@ app.post("/kcp/test/orders/:orderId/cancel", async function (req, res) {
 });
 
 app.post("/kcp/trade/register", async function (req, res) {
-  if (!hasTrustedWriteOrigin(req)) {
-    return res.status(403).json({
-      ok: false,
-      code: "UNTRUSTED_REQUEST_ORIGIN",
-      message: "허용되지 않은 요청 출처입니다.",
-    });
-  }
-
   const orderId = normalizeText(req.body.orderId);
   const draftId = normalizeText(req.body.draftId);
   const context = normalizeKcpPaymentContext(req.body.context);
@@ -3713,12 +3350,6 @@ app.post("/kcp/trade/register", async function (req, res) {
 
     const order = orderResult.rows[0];
 
-    const orderAccessValidation = validateOrderPaymentResultAccess(req, order);
-
-    if (!orderAccessValidation.ok) {
-      return res.status(403).json(orderAccessValidation);
-    }
-
     if (order.payment_provider !== paymentProviders.KCP) {
       return res.status(409).json({
         ok: false,
@@ -3751,38 +3382,6 @@ app.post("/kcp/trade/register", async function (req, res) {
       });
     }
 
-    if (!draftId) {
-      return res.status(400).json({
-        ok: false,
-        code: "KCP_DRAFT_ID_REQUIRED",
-        message: "결제 주문에 연결된 신청 초안이 필요합니다.",
-      });
-    }
-
-    const draftBindingTable = getKcpDraftBindingTable(context);
-    const draftBindingResult = await pool.query(
-      `
-        SELECT draft_id
-        FROM ${draftBindingTable}
-        WHERE order_id = $1
-        LIMIT 1
-      `,
-      [order.order_id]
-    );
-
-    if (
-      draftBindingResult.rowCount === 0 ||
-      draftBindingResult.rows[0].draft_id !== draftId
-    ) {
-      return res.status(409).json({
-        ok: false,
-        code: "KCP_DRAFT_ORDER_MISMATCH",
-        message: "결제 주문과 신청 초안이 일치하지 않습니다.",
-      });
-    }
-
-    const trustedDraftId = draftBindingResult.rows[0].draft_id;
-
     const regType = resolveKcpRegType(req.headers["user-agent"]);
     const signatureSource = [
       kcpSiteCode,
@@ -3798,7 +3397,7 @@ app.post("/kcp/trade/register", async function (req, res) {
     );
     const retURL = buildKcpReturnUrl(req, {
       context,
-      draftId: trustedDraftId,
+      draftId,
       orderId: order.order_id,
     });
     const failPath = getKcpFailPath(context);
@@ -3830,52 +3429,16 @@ app.post("/kcp/trade/register", async function (req, res) {
       });
     }
 
-    const persistenceClient = await pool.connect();
-
-    try {
-      await persistenceClient.query("BEGIN");
-      const orderUpdateResult = await persistenceClient.query(
-        `
-          UPDATE orders
-          SET
-            payment_method = $2,
-            updated_at = NOW()
-          WHERE order_id = $1
-            AND payment_provider = $3
-            AND status = 'READY'
-          RETURNING order_id
-        `,
-        [order.order_id, kcpMethod.payMethod, paymentProviders.KCP]
-      );
-      const draftUpdateResult = await persistenceClient.query(
-        `
-          UPDATE ${draftBindingTable}
-          SET
-            payment_method = $3,
-            updated_at = NOW()
-          WHERE draft_id = $1
-            AND order_id = $2
-          RETURNING draft_id
-        `,
-        [trustedDraftId, order.order_id, kcpMethod.payMethod]
-      );
-
-      if (orderUpdateResult.rowCount !== 1 || draftUpdateResult.rowCount !== 1) {
-        await persistenceClient.query("ROLLBACK");
-        return res.status(409).json({
-          ok: false,
-          code: "KCP_TRADE_BINDING_CHANGED",
-          message: "결제 준비 중 주문 상태가 변경되었습니다. 다시 시도해 주세요.",
-        });
-      }
-
-      await persistenceClient.query("COMMIT");
-    } catch (error) {
-      await persistenceClient.query("ROLLBACK").catch(() => undefined);
-      throw error;
-    } finally {
-      persistenceClient.release();
-    }
+    await pool.query(
+      `
+        UPDATE orders
+        SET
+          payment_method = $2,
+          updated_at = NOW()
+        WHERE order_id = $1
+      `,
+      [order.order_id, kcpMethod.payMethod]
+    );
 
     return res.status(200).json({
       ok: true,
@@ -3990,40 +3553,9 @@ app.post("/kcp/return", async function (req, res) {
       return redirectFailure("PAYMENT_PROVIDER_MISMATCH", "KCP 결제 주문이 아닙니다.");
     }
 
-    const draftBindingTable = getKcpDraftBindingTable(context);
-    const draftBindingResult = await client.query(
-      `
-        SELECT draft_id
-        FROM ${draftBindingTable}
-        WHERE order_id = $1
-        LIMIT 1
-        FOR UPDATE
-      `,
-      [order.order_id]
-    );
-
-    if (
-      draftBindingResult.rowCount === 0 ||
-      !draftId ||
-      draftBindingResult.rows[0].draft_id !== draftId
-    ) {
-      await client.query("ROLLBACK");
-      return redirectFailure(
-        "KCP_DRAFT_ORDER_MISMATCH",
-        "결제 주문과 신청 초안이 일치하지 않습니다."
-      );
-    }
-
-    const trustedDraftId = draftBindingResult.rows[0].draft_id;
-
     const existingPaymentResult = await client.query(
       `
-        SELECT
-          payment_key,
-          provider_payment_id,
-          payment_provider,
-          status,
-          total_amount
+        SELECT payment_key, total_amount
         FROM payments
         WHERE order_id = $1
           AND payment_provider = $2
@@ -4034,18 +3566,11 @@ app.post("/kcp/return", async function (req, res) {
     );
 
     if (existingPaymentResult.rowCount > 0) {
-      const payment = existingPaymentResult.rows[0];
-      const replayValidation = validateExistingPaymentReplay({ order, payment });
-
-      if (!replayValidation.ok) {
-        await client.query("ROLLBACK");
-        return redirectFailure(replayValidation.code, replayValidation.message);
-      }
-
       await client.query("COMMIT");
+      const payment = existingPaymentResult.rows[0];
       return res.redirect(
         buildKcpRedirectUrl(req, successPath, {
-          draftId: trustedDraftId,
+          draftId,
           orderId: order.order_id,
           amount: payment.total_amount || order.amount,
           paymentKey: payment.payment_key,
@@ -4096,49 +3621,38 @@ app.post("/kcp/return", async function (req, res) {
     const kcpResponseMessage = getKcpResponseMessage(json);
 
     if (!response.ok || kcpResponseCode !== "0000") {
-      if (response.ok && kcpResponseCode) {
-        await client.query(
-          `
-            UPDATE orders
-            SET status = 'FAILED', updated_at = NOW()
-            WHERE order_id = $1
-          `,
-          [order.order_id]
-        );
-        await client.query("COMMIT");
-      } else {
-        await client.query("ROLLBACK");
-      }
-
+      await client.query(
+        `
+          UPDATE orders
+          SET status = 'FAILED', updated_at = NOW()
+          WHERE order_id = $1
+        `,
+        [order.order_id]
+      );
+      await client.query("COMMIT");
       return redirectFailure(
-        response.ok
-          ? kcpResponseCode || "KCP_APPROVE_FAILED"
-          : "KCP_APPROVE_UNCERTAIN",
+        kcpResponseCode || "KCP_APPROVE_FAILED",
         kcpResponseMessage || "KCP 결제 승인에 실패했습니다."
       );
     }
 
     const approvedOrderId = getKcpApprovedOrderId(json);
     const approvedAmountFromKcp = getKcpApprovedAmount(json);
-    const approvedPayType = normalizeKcpInquiryPayType(json.pay_type, json.pay_method);
-    const approvalValidation = validateKcpApprovalResult({
-      responseCode: kcpResponseCode,
-      approvedOrderId,
-      approvedAmount: approvedAmountFromKcp,
-      approvedPayType,
-      expectedOrderId: order.order_id,
-      expectedAmount: amount,
-      expectedPayType: kcpMethod.payType,
-    });
 
-    if (!approvalValidation.ok) {
+    if (approvedOrderId && approvedOrderId !== order.order_id) {
       await client.query("ROLLBACK");
-      console.error("KCP approval verification failed:", {
-        code: approvalValidation.code,
-        orderId: order.order_id,
-        transactionNo: normalizeText(json.tno),
-      });
-      return redirectFailure(approvalValidation.code, approvalValidation.message);
+      return redirectFailure(
+        "KCP_ORDER_ID_MISMATCH",
+        "KCP 승인 주문번호가 서버 주문번호와 일치하지 않습니다."
+      );
+    }
+
+    if (approvedAmountFromKcp !== null && approvedAmountFromKcp !== amount) {
+      await client.query("ROLLBACK");
+      return redirectFailure(
+        "KCP_AMOUNT_MISMATCH",
+        "KCP 승인 금액이 서버 주문 금액과 일치하지 않습니다."
+      );
     }
 
     const kcpTransactionNo = normalizeText(json.tno);
@@ -4148,7 +3662,7 @@ app.post("/kcp/return", async function (req, res) {
       return redirectFailure("KCP_TNO_MISSING", "KCP 거래번호를 확인할 수 없습니다.");
     }
 
-    const approvedAmount = approvalValidation.approvedAmount;
+    const approvedAmount = approvedAmountFromKcp ?? amount;
     const approvedAt = new Date().toISOString();
 
     await client.query(
@@ -4173,10 +3687,10 @@ app.post("/kcp/return", async function (req, res) {
         kcpTransactionNo,
         paymentProviders.KCP,
         kcpTransactionNo,
-        approvedPayType,
-        approvedPayType,
+        json.pay_method || kcpMethod.label,
+        kcpMethod.payType,
         approvedAt,
-        approvedAmount,
+        Number.isFinite(approvedAmount) ? approvedAmount : amount,
         JSON.stringify(json),
       ]
     );
@@ -4194,9 +3708,9 @@ app.post("/kcp/return", async function (req, res) {
 
     return res.redirect(
       buildKcpRedirectUrl(req, successPath, {
-        draftId: trustedDraftId,
+        draftId,
         orderId: order.order_id,
-        amount: approvedAmount,
+        amount: Number.isFinite(approvedAmount) ? approvedAmount : amount,
         paymentKey: kcpTransactionNo,
         provider: paymentProviders.KCP,
         confirmed: "1",
@@ -4881,27 +4395,20 @@ app.patch("/admin/applications/:applicationNumber", requireAdminAuth, async func
   }
 
   const applicationNumber = normalizeText(req.params.applicationNumber);
-  const name = truncateNormalizedText(req.body?.name, 120);
-  const phone = truncateNormalizedText(req.body?.phone, 40);
+  const name = normalizeText(req.body?.name).slice(0, 120);
+  const phone = normalizeText(req.body?.phone).slice(0, 40);
   const email = normalizeEmail(req.body?.email);
-  const birthDate = truncateNormalizedText(req.body?.birthDate, 20);
-  const organization = truncateNormalizedText(req.body?.organization, 160);
-  const snsIdentity = truncateNormalizedText(req.body?.snsIdentity, 500);
-  const introduction = truncateNormalizedText(req.body?.introduction, 100);
-  const division = truncateNormalizedText(req.body?.division, 80);
+  const birthDate = normalizeText(req.body?.birthDate).slice(0, 20) || null;
+  const organization = normalizeText(req.body?.organization).slice(0, 160) || null;
+  const snsIdentity = normalizeText(req.body?.snsIdentity).slice(0, 500) || null;
+  const introduction = normalizeText(req.body?.introduction).slice(0, 100) || null;
+  const division = normalizeText(req.body?.division).slice(0, 80) || null;
   const discipline = getCanonicalApplicationDisciplineTitle({
-    discipline: truncateNormalizedText(req.body?.discipline, 100),
+    discipline: normalizeText(req.body?.discipline).slice(0, 100),
   }) || null;
-  const weightClass = truncateNormalizedText(req.body?.weightClass, 160);
+  const weightClass = normalizeText(req.body?.weightClass).slice(0, 160) || null;
 
-  if (
-    !applicationNumber ||
-    !name ||
-    !phone ||
-    !hasValidEmail(email) ||
-    email.length > 255 ||
-    !discipline
-  ) {
+  if (!applicationNumber || !name || !phone || !hasValidEmail(email) || !discipline) {
     return res.status(400).json({
       ok: false,
       message: "Application number, name, phone, discipline, and a valid email are required",
@@ -5745,13 +5252,6 @@ app.post(
 );
 
 app.post("/admin/refunds/:refundRequestId/retry-sync", requireAdminAuth, async function (req, res) {
-  if (!hasTrustedAdminOrigin(req)) {
-    return res.status(403).json({
-      ok: false,
-      message: "Untrusted admin origin",
-    });
-  }
-
   const refundRequestId = Number(req.params.refundRequestId);
 
   if (!Number.isInteger(refundRequestId) || refundRequestId <= 0) {
@@ -5993,43 +5493,14 @@ app.get("/admin/audit-logs", requireAdminAuth, async function (req, res) {
 
 async function startServer() {
   try {
-    if (!paymentResultTokenSecret || paymentResultTokenSecret.length < 32) {
-      throw new Error("PAYMENT_RESULT_TOKEN_SECRET must contain at least 32 characters");
-    }
-
-    if (process.env.NODE_ENV === "production") {
-      if (corsAllowedOrigins.length === 0) {
-        throw new Error("CORS_ALLOWED_ORIGINS is required in production");
-      }
-
-      if (adminAllowedOrigins.length === 0) {
-        throw new Error("ADMIN_ALLOWED_ORIGINS is required in production");
-      }
-
-      if (!publicBaseUrl || !publicApiBaseUrl) {
-        throw new Error("PUBLIC_BASE_URL and PUBLIC_API_BASE_URL are required in production");
-      }
-
-      if (kcpEnabled && (kcpMode !== "production" || kcpSiteCode === "T0000")) {
-        throw new Error("Production KCP mode and a production KCP site code are required");
-      }
-
-      if (allowEmailConsoleFallback) {
-        throw new Error("Email console fallback must be disabled in production");
-      }
-    }
-
     await pool.query("SELECT 1");
     await ensurePaymentProviderColumnsReady();
     await ensureLookupVerificationStoreReady();
     await ensureAdminBootstrapReady();
     console.log("PostgreSQL connected");
-    const server = app.listen(port, host, () =>
-      console.log(`http://${host}:${port} 으로 샘플 앱이 실행되었습니다.`),
+    app.listen(port, () =>
+      console.log(`http://localhost:${port} 으로 샘플 앱이 실행되었습니다.`),
     );
-    server.headersTimeout = 15_000;
-    server.requestTimeout = 65_000;
-    server.keepAliveTimeout = 5_000;
   } catch (error) {
     console.error("Failed to connect PostgreSQL:", error);
     process.exit(1);
@@ -6104,16 +5575,7 @@ app.post("/webhooks/kcp", async function (req, res) {
       );
     }
 
-    const reconciliation = await reconcileKcpWebhookPayment({ orderId, paymentKey });
-
-    if (!reconciliation.ok) {
-      await markWebhookEventStatus(eventId, "IGNORED");
-      return res.status(200).json({
-        result: "0000",
-      });
-    }
-
-    await markWebhookEventStatus(eventId, "VERIFIED");
+    await markWebhookEventStatus(eventId, "PROCESSED");
 
     return res.status(200).json({
       result: "0000",
@@ -6139,14 +5601,6 @@ app.post("/webhooks/kcp", async function (req, res) {
 
 //주문 생성 API
 app.post("/applications/draft", async function (req, res) {
-  if (!hasTrustedWriteOrigin(req)) {
-    return res.status(403).json({
-      ok: false,
-      code: "UNTRUSTED_REQUEST_ORIGIN",
-      message: "허용되지 않은 요청 출처입니다.",
-    });
-  }
-
   const validation = validateDraftPayload(req.body);
 
   if (!validation.ok) {
@@ -6248,12 +5702,6 @@ app.post("/applications/draft", async function (req, res) {
 
     await client.query("COMMIT");
 
-    issueDraftAccessCookie(res, {
-      draftId: draftResult.rows[0].draft_id,
-      draftType: "application",
-      cookieName: applicationDraftCookieName,
-    });
-
     return res.status(201).json({
       ok: true,
       draft: mapDraftRow(draftResult.rows[0]),
@@ -6272,18 +5720,6 @@ app.post("/applications/draft", async function (req, res) {
 
 // Draft Update
 app.patch("/applications/draft/:draftId", async function (req, res) {
-  const { draftId } = req.params;
-
-  if (
-    !requireRequestDraftAccess(req, res, {
-      draftId,
-      draftType: "application",
-      cookieName: applicationDraftCookieName,
-    })
-  ) {
-    return;
-  }
-
   const validation = validateDraftPayload(req.body);
 
   if (!validation.ok) {
@@ -6295,68 +5731,16 @@ app.patch("/applications/draft/:draftId", async function (req, res) {
 
   const { payload } = validation;
   const consentVersion = normalizeText(req.body.consents?.version) || "v1";
+  const { draftId } = req.params;
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
 
-    const currentDraftResult = await client.query(
-      `
-        SELECT order_id, status
-        FROM application_drafts
-        WHERE draft_id = $1
-        FOR UPDATE
-      `,
-      [draftId]
-    );
-
-    if (currentDraftResult.rowCount === 0) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({
-        ok: false,
-        message: "Draft not found",
-      });
-    }
-
-    const currentDraft = currentDraftResult.rows[0];
-
-    if (currentDraft.status === "COMPLETED") {
-      await client.query("ROLLBACK");
-      return res.status(409).json({
-        ok: false,
-        code: "DRAFT_ALREADY_COMPLETED",
-        message: "이미 결제 완료된 신청은 수정할 수 없습니다.",
-      });
-    }
-
-    if (currentDraft.order_id) {
-      const linkedOrderResult = await client.query(
-        `
-          SELECT status
-          FROM orders
-          WHERE order_id = $1
-          FOR UPDATE
-        `,
-        [currentDraft.order_id]
-      );
-      const linkedOrderStatus = linkedOrderResult.rows[0]?.status;
-
-      if (!linkedOrderStatus || !["FAILED", "CANCELED"].includes(linkedOrderStatus)) {
-        await client.query("ROLLBACK");
-        return res.status(409).json({
-          ok: false,
-          code: "DRAFT_PAYMENT_IN_PROGRESS",
-          message: "결제가 진행 중이거나 완료된 신청은 수정할 수 없습니다.",
-        });
-      }
-    }
-
     const draftResult = await client.query(
       `
         UPDATE application_drafts
         SET
-          order_id = NULL,
-          status = 'DRAFT',
           payment_method = $2,
           name = $3,
           phone = $4,
@@ -6472,16 +5856,6 @@ app.get("/applications/draft/:draftId", async function (req, res) {
   try {
     const { draftId } = req.params;
 
-    if (
-      !requireRequestDraftAccess(req, res, {
-        draftId,
-        draftType: "application",
-        cookieName: applicationDraftCookieName,
-      })
-    ) {
-      return;
-    }
-
     const draftResult = await pool.query(
       `
         SELECT
@@ -6577,14 +5951,6 @@ app.get("/applications/draft/:draftId", async function (req, res) {
 });
 
 app.post("/stage-services/draft", async function (req, res) {
-  if (!hasTrustedWriteOrigin(req)) {
-    return res.status(403).json({
-      ok: false,
-      code: "UNTRUSTED_REQUEST_ORIGIN",
-      message: "허용되지 않은 요청 출처입니다.",
-    });
-  }
-
   const validation = validateStageServiceDraftPayload(req.body);
 
   if (!validation.ok) {
@@ -6708,12 +6074,6 @@ app.post("/stage-services/draft", async function (req, res) {
 
     await client.query("COMMIT");
 
-    issueDraftAccessCookie(res, {
-      draftId: draftResult.rows[0].draft_id,
-      draftType: "stage-service",
-      cookieName: stageServiceDraftCookieName,
-    });
-
     return res.status(201).json({
       ok: true,
       draft: mapStageServiceDraftRow(draftResult.rows[0]),
@@ -6735,18 +6095,6 @@ app.post("/stage-services/draft", async function (req, res) {
 });
 
 app.patch("/stage-services/draft/:draftId", async function (req, res) {
-  const { draftId } = req.params;
-
-  if (
-    !requireRequestDraftAccess(req, res, {
-      draftId,
-      draftType: "stage-service",
-      cookieName: stageServiceDraftCookieName,
-    })
-  ) {
-    return;
-  }
-
   const validation = validateStageServiceDraftPayload(req.body);
 
   if (!validation.ok) {
@@ -6757,61 +6105,11 @@ app.patch("/stage-services/draft/:draftId", async function (req, res) {
   }
 
   const { payload } = validation;
+  const { draftId } = req.params;
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
-
-    const currentDraftResult = await client.query(
-      `
-        SELECT order_id, status
-        FROM stage_service_drafts
-        WHERE draft_id = $1
-        FOR UPDATE
-      `,
-      [draftId]
-    );
-
-    if (currentDraftResult.rowCount === 0) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({
-        ok: false,
-        message: "Stage service draft not found",
-      });
-    }
-
-    const currentDraft = currentDraftResult.rows[0];
-
-    if (currentDraft.status === "COMPLETED") {
-      await client.query("ROLLBACK");
-      return res.status(409).json({
-        ok: false,
-        code: "DRAFT_ALREADY_COMPLETED",
-        message: "이미 결제 완료된 무대 서비스는 수정할 수 없습니다.",
-      });
-    }
-
-    if (currentDraft.order_id) {
-      const linkedOrderResult = await client.query(
-        `
-          SELECT status
-          FROM orders
-          WHERE order_id = $1
-          FOR UPDATE
-        `,
-        [currentDraft.order_id]
-      );
-      const linkedOrderStatus = linkedOrderResult.rows[0]?.status;
-
-      if (!linkedOrderStatus || !["FAILED", "CANCELED"].includes(linkedOrderStatus)) {
-        await client.query("ROLLBACK");
-        return res.status(409).json({
-          ok: false,
-          code: "DRAFT_PAYMENT_IN_PROGRESS",
-          message: "결제가 진행 중이거나 완료된 무대 서비스는 수정할 수 없습니다.",
-        });
-      }
-    }
 
     const linkedApplication = await findEligibleCompletedApplicationForStageService({
       client,
@@ -6954,16 +6252,6 @@ app.get("/stage-services/draft/:draftId", async function (req, res) {
   try {
     const { draftId } = req.params;
 
-    if (
-      !requireRequestDraftAccess(req, res, {
-        draftId,
-        draftType: "stage-service",
-        cookieName: stageServiceDraftCookieName,
-      })
-    ) {
-      return;
-    }
-
     const result = await pool.query(
       `
         SELECT
@@ -7020,10 +6308,9 @@ app.get("/stage-services/draft/:draftId", async function (req, res) {
 });
 
 app.post("/stage-services/orders", async function (req, res) {
-  const client = await pool.connect();
-
   try {
     const draftId = normalizeText(req.body.draftId);
+    const requestedPaymentProvider = req.body.paymentProvider;
 
     if (!draftId) {
       return res.status(400).json({
@@ -7032,19 +6319,7 @@ app.post("/stage-services/orders", async function (req, res) {
       });
     }
 
-    if (
-      !requireRequestDraftAccess(req, res, {
-        draftId,
-        draftType: "stage-service",
-        cookieName: stageServiceDraftCookieName,
-      })
-    ) {
-      return;
-    }
-
-    await client.query("BEGIN");
-
-    const draftResult = await client.query(
+    const draftResult = await pool.query(
       `
         SELECT
           draft_id,
@@ -7055,13 +6330,11 @@ app.post("/stage-services/orders", async function (req, res) {
           total_amount
         FROM stage_service_drafts
         WHERE draft_id = $1
-        FOR UPDATE
       `,
       [draftId]
     );
 
     if (draftResult.rowCount === 0) {
-      await client.query("ROLLBACK");
       return res.status(404).json({
         ok: false,
         message: "Stage service draft not found",
@@ -7071,7 +6344,7 @@ app.post("/stage-services/orders", async function (req, res) {
     const draft = draftResult.rows[0];
 
     if (draft.order_id) {
-      const orderResult = await client.query(
+      const orderResult = await pool.query(
         `
           SELECT
             order_id,
@@ -7091,13 +6364,6 @@ app.post("/stage-services/orders", async function (req, res) {
 
       if (orderResult.rowCount > 0) {
         const order = orderResult.rows[0];
-        const resultAccessToken = createPaymentResultAccessToken({
-          orderId: order.order_id,
-          secret: paymentResultTokenSecret,
-          ttlSeconds: paymentResultAccessTtlHours * 60 * 60,
-        });
-        await client.query("COMMIT");
-        res.setHeader("Set-Cookie", createPaymentResultAccessCookie(resultAccessToken));
         return res.status(200).json({
           ok: true,
           order: {
@@ -7116,25 +6382,19 @@ app.post("/stage-services/orders", async function (req, res) {
 
     const orderId = generateOrderId();
     const orderName = `${stageServiceDefinitions[draft.service_type]?.title || "무대 서비스"} 결제`;
-    const resultAccessToken = createPaymentResultAccessToken({
-      orderId,
-      secret: paymentResultTokenSecret,
-      ttlSeconds: paymentResultAccessTtlHours * 60 * 60,
-    });
     const providerResolution = resolvePaymentProvider({
-      requestedProvider: paymentProviders.KCP,
+      requestedProvider: requestedPaymentProvider,
       amount: Number(draft.total_amount),
     });
 
     if (!providerResolution.ok) {
-      await client.query("ROLLBACK");
       return res.status(providerResolution.status).json({
         ok: false,
         message: providerResolution.message,
       });
     }
 
-    const result = await client.query(
+    const result = await pool.query(
       `
         INSERT INTO orders (
           order_id,
@@ -7166,7 +6426,7 @@ app.post("/stage-services/orders", async function (req, res) {
       ]
     );
 
-    await client.query(
+    await pool.query(
       `
         UPDATE stage_service_drafts
         SET
@@ -7176,10 +6436,8 @@ app.post("/stage-services/orders", async function (req, res) {
       `,
       [draftId, orderId]
     );
-    await client.query("COMMIT");
 
     const order = result.rows[0];
-    res.setHeader("Set-Cookie", createPaymentResultAccessCookie(resultAccessToken));
     return res.status(201).json({
       ok: true,
       order: {
@@ -7194,14 +6452,11 @@ app.post("/stage-services/orders", async function (req, res) {
       },
     });
   } catch (error) {
-    await client.query("ROLLBACK").catch(() => undefined);
     console.error("Failed to create stage service order:", error);
     return res.status(500).json({
       ok: false,
       message: "Failed to create stage service order",
     });
-  } finally {
-    client.release();
   }
 });
 
@@ -7248,31 +6503,13 @@ app.post("/stage-services/complete", async function (req, res) {
           updated_at
         FROM stage_service_orders
         WHERE draft_id = $1
+           OR order_id = $2
         LIMIT 1
       `,
-      [draftId]
+      [draftId, orderId]
     );
 
     if (existingServiceOrderResult.rowCount > 0) {
-      const accessValidation = validateOrderPaymentResultAccess(
-        req,
-        existingServiceOrderResult.rows[0]
-      );
-
-      if (!accessValidation.ok) {
-        await client.query("ROLLBACK");
-        return res.status(403).json(accessValidation);
-      }
-
-      if (existingServiceOrderResult.rows[0].order_id !== orderId) {
-        await client.query("ROLLBACK");
-        return res.status(409).json({
-          ok: false,
-          code: "DRAFT_ORDER_MISMATCH",
-          message: "이미 완료된 무대 서비스의 주문번호와 일치하지 않습니다.",
-        });
-      }
-
       await client.query("ROLLBACK");
       return res.status(200).json({
         ok: true,
@@ -7317,53 +6554,15 @@ app.post("/stage-services/complete", async function (req, res) {
       });
     }
 
-    const orderResult = await client.query(
-      `
-        SELECT
-          order_id,
-          amount,
-          status,
-          payment_provider,
-          payment_method,
-          customer_name,
-          customer_email
-        FROM orders
-        WHERE order_id = $1
-        LIMIT 1
-        FOR UPDATE
-      `,
-      [orderId]
-    );
-
-    if (orderResult.rowCount === 0) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({
-        ok: false,
-        message: "Order not found",
-      });
-    }
-
-    const accessValidation = validateOrderPaymentResultAccess(req, orderResult.rows[0]);
-
-    if (!accessValidation.ok) {
-      await client.query("ROLLBACK");
-      return res.status(403).json(accessValidation);
-    }
-
     const paymentResult = await client.query(
       `
         SELECT
-          order_id,
           payment_key,
-          provider_payment_id,
-          payment_provider,
-          status,
-          total_amount
+          status
         FROM payments
         WHERE order_id = $1
         ORDER BY updated_at DESC
         LIMIT 1
-        FOR UPDATE
       `,
       [orderId]
     );
@@ -7377,24 +6576,7 @@ app.post("/stage-services/complete", async function (req, res) {
     }
 
     const draft = draftResult.rows[0];
-    const order = orderResult.rows[0];
     const payment = paymentResult.rows[0];
-    const bindingValidation = validateCompletionPaymentBinding({
-      draft,
-      order,
-      payment,
-      expectedAmount: draft.total_amount,
-    });
-
-    if (!bindingValidation.ok) {
-      await client.query("ROLLBACK");
-      return res.status(409).json({
-        ok: false,
-        code: bindingValidation.code,
-        message: bindingValidation.message,
-      });
-    }
-
     const serviceOrderNumber = generateStageServiceOrderNumber();
 
     const serviceOrderInsertResult = await client.query(
@@ -7548,12 +6730,6 @@ app.get("/stage-services/:serviceOrderNumber", async function (req, res) {
       });
     }
 
-    const accessValidation = validateOrderPaymentResultAccess(req, result.rows[0]);
-
-    if (!accessValidation.ok) {
-      return res.status(403).json(accessValidation);
-    }
-
     return res.status(200).json({
       ok: true,
       serviceOrder: mapStageServiceOrderRow(result.rows[0]),
@@ -7607,12 +6783,6 @@ app.get("/stage-services/by-order/:orderId", async function (req, res) {
         ok: false,
         message: "Stage service order not found",
       });
-    }
-
-    const accessValidation = validateOrderPaymentResultAccess(req, result.rows[0]);
-
-    if (!accessValidation.ok) {
-      return res.status(403).json(accessValidation);
     }
 
     return res.status(200).json({
@@ -7728,16 +6898,6 @@ app.post("/files/upload", async function (req, res) {
         ok: false,
         message: "Missing draftId or uploaded file",
       });
-    }
-
-    if (
-      !requireRequestDraftAccess(req, res, {
-        draftId,
-        draftType: "application",
-        cookieName: applicationDraftCookieName,
-      })
-    ) {
-      return;
     }
 
     const draftResult = await pool.query(
@@ -8150,20 +7310,6 @@ app.post("/applications/refund/request", async function (req, res) {
       });
     }
 
-    const verificationConsumed = await consumeVerifiedLookupSession(client, {
-      name,
-      email,
-      verificationToken,
-    });
-
-    if (!verificationConsumed) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({
-        ok: false,
-        message: "이메일 인증이 이미 사용되었거나 만료되었습니다. 다시 인증해 주세요.",
-      });
-    }
-
     const insertResult = await client.query(
       `
         INSERT INTO application_refund_requests (
@@ -8441,27 +7587,6 @@ app.post("/applications/refund/request", async function (req, res) {
 
 app.post("/applications/lookup-verification/send", async function (req, res) {
   try {
-    if (!hasTrustedWriteOrigin(req)) {
-      return res.status(403).json({
-        ok: false,
-        message: "Untrusted request origin",
-      });
-    }
-
-    const rateLimitResult = consumeLookupVerificationRateLimit({
-      action: "send",
-      ipAddress: getRequestIp(req),
-      limit: lookupVerificationSendRateLimit,
-    });
-
-    if (!rateLimitResult.ok) {
-      res.setHeader("Retry-After", String(rateLimitResult.retryAfterSeconds));
-      return res.status(429).json({
-        ok: false,
-        message: "인증번호 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
-      });
-    }
-
     await ensureLookupVerificationStoreReady();
     await purgeExpiredLookupVerifications();
 
@@ -8495,10 +7620,9 @@ app.post("/applications/lookup-verification/send", async function (req, res) {
     );
 
     if (applicationResult.rowCount === 0) {
-      return res.status(200).json({
-        ok: true,
-        message: "입력한 정보가 등록되어 있으면 이메일 인증번호를 전송합니다.",
-        expiresInSeconds: lookupVerificationCodeTtlMinutes * 60,
+      return res.status(404).json({
+        ok: false,
+        message: "데이터베이스에 일치하는 성함과 이메일이 없습니다.",
       });
     }
 
@@ -8550,7 +7674,7 @@ app.post("/applications/lookup-verification/send", async function (req, res) {
 
     return res.status(200).json({
       ok: true,
-      message: "입력한 정보가 등록되어 있으면 이메일 인증번호를 전송합니다.",
+      message: "이메일 인증번호를 전송했습니다.",
       expiresInSeconds: lookupVerificationCodeTtlMinutes * 60,
       ...(sendResult.deliveryMethod === "console" ? { devVerificationCode: code } : {}),
     });
@@ -8567,27 +7691,6 @@ app.post("/applications/lookup-verification/verify", async function (req, res) {
   let client = null;
 
   try {
-    if (!hasTrustedWriteOrigin(req)) {
-      return res.status(403).json({
-        ok: false,
-        message: "Untrusted request origin",
-      });
-    }
-
-    const rateLimitResult = consumeLookupVerificationRateLimit({
-      action: "verify",
-      ipAddress: getRequestIp(req),
-      limit: lookupVerificationVerifyRateLimit,
-    });
-
-    if (!rateLimitResult.ok) {
-      res.setHeader("Retry-After", String(rateLimitResult.retryAfterSeconds));
-      return res.status(429).json({
-        ok: false,
-        message: "인증 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.",
-      });
-    }
-
     client = await pool.connect();
     await ensureLookupVerificationStoreReady();
     await purgeExpiredLookupVerifications();
@@ -8792,31 +7895,13 @@ app.post("/applications/complete", async function (req, res) {
           updated_at
         FROM applications
         WHERE draft_id = $1
+           OR order_id = $2
         LIMIT 1
       `,
-      [draftId]
+      [draftId, orderId]
     );
 
     if (existingApplicationResult.rowCount > 0) {
-      const accessValidation = validateOrderPaymentResultAccess(
-        req,
-        existingApplicationResult.rows[0]
-      );
-
-      if (!accessValidation.ok) {
-        await client.query("ROLLBACK");
-        return res.status(403).json(accessValidation);
-      }
-
-      if (existingApplicationResult.rows[0].order_id !== orderId) {
-        await client.query("ROLLBACK");
-        return res.status(409).json({
-          ok: false,
-          code: "DRAFT_ORDER_MISMATCH",
-          message: "이미 완료된 신청의 주문번호와 일치하지 않습니다.",
-        });
-      }
-
       await client.query("ROLLBACK");
       return res.status(200).json({
         ok: true,
@@ -8858,53 +7943,15 @@ app.post("/applications/complete", async function (req, res) {
       });
     }
 
-    const orderResult = await client.query(
-      `
-        SELECT
-          order_id,
-          amount,
-          status,
-          payment_provider,
-          payment_method,
-          customer_name,
-          customer_email
-        FROM orders
-        WHERE order_id = $1
-        LIMIT 1
-        FOR UPDATE
-      `,
-      [orderId]
-    );
-
-    if (orderResult.rowCount === 0) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({
-        ok: false,
-        message: "Order not found",
-      });
-    }
-
-    const accessValidation = validateOrderPaymentResultAccess(req, orderResult.rows[0]);
-
-    if (!accessValidation.ok) {
-      await client.query("ROLLBACK");
-      return res.status(403).json(accessValidation);
-    }
-
     const paymentResult = await client.query(
       `
         SELECT
-          order_id,
           payment_key,
-          provider_payment_id,
-          payment_provider,
-          status,
-          total_amount
+          status
         FROM payments
         WHERE order_id = $1
         ORDER BY updated_at DESC
         LIMIT 1
-        FOR UPDATE
       `,
       [orderId]
     );
@@ -8917,25 +7964,17 @@ app.post("/applications/complete", async function (req, res) {
       });
     }
 
-    const draft = draftResult.rows[0];
-    const order = orderResult.rows[0];
-    const payment = paymentResult.rows[0];
-    const bindingValidation = validateCompletionPaymentBinding({
-      draft,
-      order,
-      payment,
-    });
-
-    if (!bindingValidation.ok) {
+    if (paymentResult.rows[0].status !== "DONE") {
       await client.query("ROLLBACK");
       return res.status(409).json({
         ok: false,
-        code: bindingValidation.code,
-        message: bindingValidation.message,
+        message: "Payment is not completed",
       });
     }
 
     const applicationNumber = generateApplicationNumber();
+    const draft = draftResult.rows[0];
+    const payment = paymentResult.rows[0];
 
     const applicationInsertResult = await client.query(
       `
@@ -9095,12 +8134,6 @@ app.get("/applications/:applicationNumber", async function (req, res) {
       });
     }
 
-    const accessValidation = validateOrderPaymentResultAccess(req, result.rows[0]);
-
-    if (!accessValidation.ok) {
-      return res.status(403).json(accessValidation);
-    }
-
     return res.status(200).json({
       ok: true,
       application: mapApplicationRow(result.rows[0]),
@@ -9151,12 +8184,6 @@ app.get("/applications/by-order/:orderId", async function (req, res) {
       });
     }
 
-    const accessValidation = validateOrderPaymentResultAccess(req, result.rows[0]);
-
-    if (!accessValidation.ok) {
-      return res.status(403).json(accessValidation);
-    }
-
     return res.status(200).json({
       ok: true,
       application: mapApplicationRow(result.rows[0]),
@@ -9174,131 +8201,128 @@ app.post("/orders", async function (req,res) {
   let client = null;
 
   try {
-    const normalizedDraftId = normalizeText(req.body.draftId);
+    const {
+      draftId = null,
+      orderName,
+      amount,
+      customerName = null,
+      customerEmail = null,
+      paymentProvider = null,
+    } = req.body;
 
-    if (!normalizedDraftId) {
+    if (!orderName || typeof orderName !== "string" || !orderName.trim()) {
       return res.status(400).json({
         ok: false,
-        code: "DRAFT_ID_REQUIRED",
-        message: "신청 초안을 먼저 저장해 주세요.",
+        message: "Invalid orderName",
       });
     }
 
-    if (
-      !requireRequestDraftAccess(req, res, {
-        draftId: normalizedDraftId,
-        draftType: "application",
-        cookieName: applicationDraftCookieName,
-      })
-    ) {
-      return;
-    }
+    const safeOrderName = orderName.trim();
+    const normalizedDraftId = normalizeText(draftId);
+    let pricing = null;
+    let resolvedAmount = normalizeAmount(amount);
+    let resolvedCustomerName = customerName;
+    let resolvedCustomerEmail = customerEmail;
+    let queryable = pool;
 
-    client = await pool.connect();
-    await client.query("BEGIN");
+    if (normalizedDraftId) {
+      client = await pool.connect();
+      queryable = client;
+      await client.query("BEGIN");
 
-    const draftResult = await client.query(
-      `
-        SELECT
-          draft_id,
-          order_id,
-          status,
-          name,
-          phone,
-          email,
-          division,
-          discipline,
-          image_key
-        FROM application_drafts
-        WHERE draft_id = $1
-        FOR UPDATE
-      `,
-      [normalizedDraftId]
-    );
-
-    if (draftResult.rowCount === 0) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({
-        ok: false,
-        message: "Draft not found",
-      });
-    }
-
-    const draft = draftResult.rows[0];
-
-    if (draft.order_id) {
-      const existingOrderResult = await client.query(
+      const draftResult = await client.query(
         `
-          SELECT
-            order_id,
-            order_name,
-            amount,
-            customer_name,
-            customer_email,
-            payment_provider,
-            status,
-            created_at
-          FROM orders
-          WHERE order_id = $1
-          LIMIT 1
+          SELECT draft_id, order_id, name, phone, email, image_key
+          FROM application_drafts
+          WHERE draft_id = $1
+          FOR UPDATE
         `,
-        [draft.order_id]
+        [normalizedDraftId]
       );
 
-      if (existingOrderResult.rowCount > 0) {
-        const existingOrder = existingOrderResult.rows[0];
-        const resultAccessToken = createPaymentResultAccessToken({
-          orderId: existingOrder.order_id,
-          secret: paymentResultTokenSecret,
-          ttlSeconds: paymentResultAccessTtlHours * 60 * 60,
-        });
-        await client.query("COMMIT");
-        res.setHeader("Set-Cookie", createPaymentResultAccessCookie(resultAccessToken));
-        return res.status(200).json({
-          ok: true,
-          idempotent: true,
-          order: {
-            orderId: existingOrder.order_id,
-            orderName: existingOrder.order_name,
-            amount: existingOrder.amount,
-            customerName: existingOrder.customer_name,
-            customerEmail: existingOrder.customer_email,
-            paymentProvider: existingOrder.payment_provider,
-            status: existingOrder.status,
-            createdAt: existingOrder.created_at,
-          },
+      if (draftResult.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({
+          ok: false,
+          message: "Draft not found",
         });
       }
+
+      const draft = draftResult.rows[0];
+      resolvedCustomerName = draft.name;
+      resolvedCustomerEmail = draft.email;
+
+      if (draft.order_id) {
+        const existingOrderResult = await client.query(
+          `
+            SELECT
+              order_id,
+              order_name,
+              amount,
+              customer_name,
+              customer_email,
+              payment_provider,
+              status,
+              created_at
+            FROM orders
+            WHERE order_id = $1
+            LIMIT 1
+          `,
+          [draft.order_id]
+        );
+
+        if (existingOrderResult.rowCount > 0) {
+          const existingOrder = existingOrderResult.rows[0];
+          await client.query("COMMIT");
+          return res.status(200).json({
+            ok: true,
+            idempotent: true,
+            order: {
+              orderId: existingOrder.order_id,
+              orderName: existingOrder.order_name,
+              amount: existingOrder.amount,
+              customerName: existingOrder.customer_name,
+              customerEmail: existingOrder.customer_email,
+              paymentProvider: existingOrder.payment_provider,
+              status: existingOrder.status,
+              createdAt: existingOrder.created_at,
+            },
+          });
+        }
+      }
+
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        `${draft.name}|${draft.phone}|${draft.email.toLowerCase()}`,
+      ]);
+      pricing = await getApplicationEntryFeeQuote({
+        queryable: client,
+        name: draft.name,
+        phone: draft.phone,
+        email: draft.email,
+        imageKey: draft.image_key,
+      });
+      resolvedAmount = pricing.amount;
     }
 
-    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-      `${draft.name}|${draft.phone}|${draft.email.toLowerCase()}`,
-    ]);
-    const pricing = await getApplicationEntryFeeQuote({
-      queryable: client,
-      name: draft.name,
-      phone: draft.phone,
-      email: draft.email,
-      imageKey: draft.image_key,
-    });
-    const orderDetails = resolveApplicationOrderDetails({ draft, pricing });
-
-    if (!orderDetails.ok) {
-      await client.query("ROLLBACK");
-      return res.status(409).json({
+    if (resolvedAmount === null) {
+      if (client) {
+        await client.query("ROLLBACK");
+      }
+      return res.status(400).json({
         ok: false,
-        code: orderDetails.code,
-        message: orderDetails.message,
+        message: "Invalid amount",
       });
     }
 
     const providerResolution = resolvePaymentProvider({
-      requestedProvider: orderDetails.paymentProvider,
-      amount: orderDetails.amount,
+      requestedProvider: paymentProvider,
+      amount: resolvedAmount,
     });
 
     if (!providerResolution.ok) {
-      await client.query("ROLLBACK");
+      if (client) {
+        await client.query("ROLLBACK");
+      }
       return res.status(providerResolution.status).json({
         ok: false,
         message: providerResolution.message,
@@ -9306,12 +8330,7 @@ app.post("/orders", async function (req,res) {
     }
 
     const orderId = generateOrderId();
-    const resultAccessToken = createPaymentResultAccessToken({
-      orderId,
-      secret: paymentResultTokenSecret,
-      ttlSeconds: paymentResultAccessTtlHours * 60 * 60,
-    });
-    const result = await client.query(
+    const result = await queryable.query(
       `
         INSERT INTO orders (
           order_id,
@@ -9335,27 +8354,28 @@ app.post("/orders", async function (req,res) {
       `,
       [
         orderId,
-        orderDetails.orderName,
-        orderDetails.amount,
-        orderDetails.customerName,
-        orderDetails.customerEmail,
+        safeOrderName,
+        resolvedAmount,
+        resolvedCustomerName,
+        resolvedCustomerEmail,
         providerResolution.provider,
       ]
     );
     const order = result.rows[0];
 
-    await client.query(
-      `
-        UPDATE application_drafts
-        SET
-          order_id = $2,
-          updated_at = NOW()
-        WHERE draft_id = $1
-      `,
-      [normalizedDraftId, order.order_id]
-    );
-    await client.query("COMMIT");
-    res.setHeader("Set-Cookie", createPaymentResultAccessCookie(resultAccessToken));
+    if (normalizedDraftId) {
+      await client.query(
+        `
+          UPDATE application_drafts
+          SET
+            order_id = $2,
+            updated_at = NOW()
+          WHERE draft_id = $1
+        `,
+        [normalizedDraftId, order.order_id]
+      );
+      await client.query("COMMIT");
+    }
 
     return res.status(201).json({
       ok: true,
@@ -9383,25 +8403,6 @@ app.post("/orders", async function (req,res) {
   } finally {
     client?.release();
   }
-});
-
-app.use(function (error, _req, res, next) {
-  if (res.headersSent) {
-    return next(error);
-  }
-
-  if (error instanceof SyntaxError && error.status === 400 && "body" in error) {
-    return res.status(400).json({
-      ok: false,
-      message: "Malformed JSON request body",
-    });
-  }
-
-  console.error("Unhandled request error:", error?.message || error);
-  return res.status(500).json({
-    ok: false,
-    message: "Internal server error",
-  });
 });
 
 startServer();
