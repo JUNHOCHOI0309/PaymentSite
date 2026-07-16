@@ -17,6 +17,7 @@ const {
 const refundPolicy = require("./src/data/refundPolicy.json");
 const stageServiceConfig = require("./src/data/stageServiceConfig.json");
 const applicationDisciplineCatalog = require("./src/data/applicationDisciplineCatalog.json");
+const applicationEntryFeeConfig = require("./src/data/applicationEntryFeeConfig.json");
 const app = express();
 const port = Number(process.env.PORT || 4000);
 const corsAllowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || "")
@@ -81,13 +82,6 @@ const allowedDocumentUploadExtensions = new Set([
   ".jpeg",
   ".png",
 ]);
-const allowedAudioUploadMimeTypes = new Set([
-  "audio/mpeg",
-  "audio/mp3",
-  "audio/x-mpeg-3",
-  "audio/mpg",
-]);
-const allowedAudioUploadExtensions = new Set([".mp3"]);
 const upload = multer({
   storage: multer.memoryStorage(),
   // Browsers send Korean filenames in UTF-8 multipart header parameters.
@@ -1080,6 +1074,90 @@ function formatPhoneNumber(value) {
   }
 
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
+function getKoreaDateKey(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(
+    parts
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value])
+  );
+
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function getPositiveInteger(value, fallback = 0) {
+  const amount = Number(value);
+  return Number.isInteger(amount) && amount > 0 ? amount : fallback;
+}
+
+function resolveApplicationBaseFee(imageKey, date = new Date()) {
+  const defaultAmount = getPositiveInteger(applicationEntryFeeConfig.defaultAmount);
+  const entryFeeItems = Array.isArray(applicationEntryFeeConfig.items)
+    ? applicationEntryFeeConfig.items
+    : [];
+  const entryFeeSchedule = Array.isArray(applicationEntryFeeConfig.schedule)
+    ? applicationEntryFeeConfig.schedule
+    : [];
+  const item = entryFeeItems.find((candidate) => candidate.imageKey === imageKey);
+  const itemAmount = getPositiveInteger(item?.amount, defaultAmount);
+  const dateKey = getKoreaDateKey(date);
+  const schedule =
+    entryFeeSchedule.find(
+      (candidate) => dateKey >= candidate.startDate && dateKey <= candidate.endDate
+    ) || null;
+  const scheduledAmount = getPositiveInteger(
+    schedule?.disciplineAmounts?.[imageKey] ?? schedule?.amount,
+    itemAmount
+  );
+  const originalAmount = getPositiveInteger(schedule?.displayOriginalAmount);
+
+  return {
+    amount: scheduledAmount,
+    originalAmount,
+    isDiscounted: originalAmount > scheduledAmount,
+    periodId: schedule?.id || "standard",
+    periodLabel: schedule?.label || "상시",
+    periodLabelEn: schedule?.labelEn || "Standard",
+  };
+}
+
+async function getApplicationEntryFeeQuote({ queryable = pool, name, phone, email, imageKey }) {
+  const completedApplicationResult = await queryable.query(
+    `
+      SELECT COUNT(*)::int AS count
+      FROM applications
+      WHERE name = $1
+        AND phone = $2
+        AND LOWER(email) = $3
+        AND payment_status = 'DONE'
+        AND division <> 'TEST'
+        AND admin_deleted_at IS NULL
+    `,
+    [name, phone, email]
+  );
+  const completedApplicationCount = completedApplicationResult.rows[0]?.count || 0;
+  const baseFee = resolveApplicationBaseFee(imageKey);
+  const additionalAmount = getPositiveInteger(
+    applicationEntryFeeConfig.additionalDisciplineAmount
+  );
+  const isAdditional = completedApplicationCount > 0;
+
+  return {
+    ...baseFee,
+    amount: isAdditional ? additionalAmount : baseFee.amount,
+    originalAmount: isAdditional ? 0 : baseFee.originalAmount,
+    isDiscounted: isAdditional ? false : baseFee.isDiscounted,
+    isAdditional,
+    completedApplicationCount,
+    additionalDisciplineAmount: additionalAmount,
+  };
 }
 
 function parseCookies(headerValue) {
@@ -2179,22 +2257,6 @@ function sanitizeFilenameStem(filename) {
     .slice(0, 60) || "file";
 }
 
-function normalizeUploadKind(value) {
-  return normalizeText(value) === "audio" ? "audio" : "document";
-}
-
-function getAllowedUploadRules(fileKind) {
-  return fileKind === "audio"
-    ? {
-        mimeTypes: allowedAudioUploadMimeTypes,
-        extensions: allowedAudioUploadExtensions,
-      }
-    : {
-        mimeTypes: allowedDocumentUploadMimeTypes,
-        extensions: allowedDocumentUploadExtensions,
-      };
-}
-
 function isAudioUploadExtension(extension) {
   return extension === ".mp3";
 }
@@ -2208,14 +2270,10 @@ function splitApplicationFiles(rows) {
   const files = {
     documentFile: null,
     documentFiles: [],
-    audioFile: null,
   };
 
   for (const row of rows || []) {
     if (isAudioUploadRecord(row)) {
-      if (!files.audioFile) {
-        files.audioFile = row;
-      }
       continue;
     }
 
@@ -2227,13 +2285,12 @@ function splitApplicationFiles(rows) {
   return files;
 }
 
-function isAllowedUpload(file, fileKind) {
+function isAllowedUpload(file) {
   const extension = getUploadExtension(file.originalname);
-  const rules = getAllowedUploadRules(fileKind);
 
   return (
-    rules.mimeTypes.has(file.mimetype) &&
-    rules.extensions.has(extension)
+    allowedDocumentUploadMimeTypes.has(file.mimetype) &&
+    allowedDocumentUploadExtensions.has(extension)
   );
 }
 
@@ -2253,29 +2310,9 @@ function hasZipSignature(buffer) {
   );
 }
 
-function hasMp3Signature(buffer) {
-  if (!Buffer.isBuffer(buffer) || buffer.length < 3) {
-    return false;
-  }
-
-  if (hasSignature(buffer, [0x49, 0x44, 0x33])) {
-    return true;
-  }
-
-  return (
-    buffer.length >= 2 &&
-    buffer[0] === 0xff &&
-    (buffer[1] & 0xe0) === 0xe0
-  );
-}
-
-function matchesUploadSignature(file, fileKind) {
+function matchesUploadSignature(file) {
   const extension = getUploadExtension(file.originalname);
   const { buffer } = file;
-
-  if (fileKind === "audio") {
-    return extension === ".mp3" && hasMp3Signature(buffer);
-  }
 
   switch (extension) {
     case ".pdf":
@@ -2296,12 +2333,11 @@ function matchesUploadSignature(file, fileKind) {
   }
 }
 
-function buildUploadObjectKey(draftId, originalFilename, fileKind) {
+function buildUploadObjectKey(draftId, originalFilename) {
   const extension = getUploadExtension(originalFilename);
   const safeStem = sanitizeFilenameStem(originalFilename);
-  const kindSegment = normalizeUploadKind(fileKind);
 
-  return `applications/${draftId}/${kindSegment}/${Date.now()}_${crypto
+  return `applications/${draftId}/document/${Date.now()}_${crypto
     .randomBytes(8)
     .toString("hex")}_${safeStem}${extension}`;
 }
@@ -2382,6 +2418,10 @@ function mapDraftRow(row) {
 }
 
 function mapApplicationRow(row) {
+  const paymentAmount = Number(
+    row.payment_amount ?? row.total_amount ?? row.order_amount ?? 0
+  );
+
   return {
     applicationNumber: row.application_number,
     draftId: row.draft_id,
@@ -2403,6 +2443,7 @@ function mapApplicationRow(row) {
       discipline: row.discipline,
     }),
     imageKey: row.image_key,
+    paymentAmount: Number.isFinite(paymentAmount) ? paymentAmount : null,
     submittedAt: row.submitted_at,
     updatedAt: row.updated_at,
   };
@@ -4274,8 +4315,7 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
           a.discipline,
           a.payment_status,
           a.submitted_at,
-          document_files.files AS document_files,
-          audio_file.original_filename AS audio_original_filename
+          document_files.files AS document_files
         FROM applications a
         LEFT JOIN LATERAL (
           SELECT json_agg(
@@ -4289,14 +4329,6 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
           WHERE af.application_id = a.id
             AND lower(af.original_filename) NOT LIKE '%.mp3'
         ) document_files ON TRUE
-        LEFT JOIN LATERAL (
-          SELECT original_filename
-          FROM application_files af
-          WHERE af.application_id = a.id
-            AND lower(af.original_filename) LIKE '%.mp3'
-          ORDER BY af.uploaded_at DESC
-          LIMIT 1
-        ) audio_file ON TRUE
         WHERE a.admin_deleted_at IS NULL
         ORDER BY a.submitted_at DESC
         LIMIT 200
@@ -4345,7 +4377,6 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
           documentOriginalFilename: documentFiles
             .map((file) => file.originalFilename)
             .join(", "),
-          audioOriginalFilename: sanitizeOriginalFilename(row.audio_original_filename),
         };
       }),
     });
@@ -4654,20 +4685,17 @@ app.get("/admin/applications/:applicationNumber/files/:fileReference/download", 
     const applicationNumber = normalizeText(req.params.applicationNumber);
     const fileReference = normalizeText(req.params.fileReference);
     const fileId = /^\d+$/.test(fileReference) ? Number(fileReference) : null;
-    const fileKind = fileId ? "document" : normalizeUploadKind(fileReference);
 
-    if (!applicationNumber) {
+    if (!applicationNumber || (!fileId && fileReference !== "document")) {
       return res.status(400).json({
         ok: false,
-        message: "Application number is required",
+        message: "Application number and a document file reference are required",
       });
     }
 
     const filterSql = fileId
       ? "af.id = $2 AND lower(af.original_filename) NOT LIKE '%.mp3'"
-      : fileKind === "audio"
-        ? "lower(af.original_filename) LIKE '%.mp3'"
-        : "lower(af.original_filename) NOT LIKE '%.mp3'";
+      : "lower(af.original_filename) NOT LIKE '%.mp3'";
     const queryValues = fileId ? [applicationNumber, fileId] : [applicationNumber];
 
     const fileResult = await pool.query(
@@ -4711,7 +4739,6 @@ app.get("/admin/applications/:applicationNumber/files/:fileReference/download", 
       ipAddress: getRequestIp(req),
       userAgent: getRequestUserAgent(req),
       metadata: {
-        fileKind,
         fileId,
         originalFilename: file.original_filename,
       },
@@ -5898,15 +5925,21 @@ app.get("/applications/draft/:draftId", async function (req, res) {
       [draft.id]
     );
     const splitFiles = splitApplicationFiles(fileResult.rows);
+    const pricing = await getApplicationEntryFeeQuote({
+      name: draft.name,
+      phone: draft.phone,
+      email: draft.email,
+      imageKey: draft.image_key,
+    });
 
     return res.status(200).json({
       ok: true,
       draft: mapDraftRow(draft),
+      pricing,
       consents: mapConsentRow(consentResult.rows[0]),
       file: splitFiles.documentFile || null,
       documentFile: splitFiles.documentFile || null,
       documentFiles: splitFiles.documentFiles,
-      audioFile: splitFiles.audioFile || null,
     });
   } catch (error) {
     console.error("Failed to fetch application draft:", error);
@@ -6858,7 +6891,6 @@ app.post("/files/upload", async function (req, res) {
     await runSingleFileUpload(req, res);
 
     const draftId = normalizeText(req.body.draftId);
-    const fileKind = normalizeUploadKind(req.body.fileKind);
     const uploadedFile = req.file;
 
     if (!draftId || !uploadedFile) {
@@ -6884,14 +6916,14 @@ app.post("/files/upload", async function (req, res) {
       });
     }
 
-    if (!isAllowedUpload(uploadedFile, fileKind)) {
+    if (!isAllowedUpload(uploadedFile)) {
       return res.status(400).json({
         ok: false,
         message: "Unsupported file type",
       });
     }
 
-    if (!matchesUploadSignature(uploadedFile, fileKind)) {
+    if (!matchesUploadSignature(uploadedFile)) {
       return res.status(400).json({
         ok: false,
         message: "Uploaded file signature does not match the declared type",
@@ -6905,27 +6937,25 @@ app.post("/files/upload", async function (req, res) {
       });
     }
 
-    if (fileKind === "document") {
-      const documentCountResult = await pool.query(
-        `
-          SELECT COUNT(*)::int AS count
-          FROM application_files
-          WHERE draft_id = $1
-            AND lower(original_filename) NOT LIKE '%.mp3'
-        `,
-        [draftResult.rows[0].id]
-      );
+    const documentCountResult = await pool.query(
+      `
+        SELECT COUNT(*)::int AS count
+        FROM application_files
+        WHERE draft_id = $1
+          AND lower(original_filename) NOT LIKE '%.mp3'
+      `,
+      [draftResult.rows[0].id]
+    );
 
-      if (documentCountResult.rows[0].count >= maxDocumentUploadFiles) {
-        return res.status(400).json({
-          ok: false,
-          message: `A maximum of ${maxDocumentUploadFiles} document files can be uploaded`,
-        });
-      }
+    if (documentCountResult.rows[0].count >= maxDocumentUploadFiles) {
+      return res.status(400).json({
+        ok: false,
+        message: `A maximum of ${maxDocumentUploadFiles} document files can be uploaded`,
+      });
     }
 
     const safeOriginalFilename = sanitizeOriginalFilename(uploadedFile.originalname);
-    const storedFilename = buildUploadObjectKey(draftId, safeOriginalFilename, fileKind);
+    const storedFilename = buildUploadObjectKey(draftId, safeOriginalFilename);
 
     await r2Client.send(
       new PutObjectCommand({
@@ -7041,8 +7071,11 @@ app.post("/applications/lookup", async function (req, res) {
           discipline,
           image_key,
           submitted_at,
-          updated_at
+          updated_at,
+          orders.amount AS payment_amount
         FROM applications
+        LEFT JOIN orders
+          ON orders.order_id = applications.order_id
         WHERE name = $1
           AND LOWER(email) = $2
         ORDER BY submitted_at DESC NULLS LAST, updated_at DESC
@@ -8165,8 +8198,10 @@ app.get("/applications/by-order/:orderId", async function (req, res) {
 });
 
 app.post("/orders", async function (req,res) {
-  try{
-    const{
+  let client = null;
+
+  try {
+    const {
       draftId = null,
       orderName,
       amount,
@@ -8175,16 +8210,104 @@ app.post("/orders", async function (req,res) {
       paymentProvider = null,
     } = req.body;
 
-    if(!orderName || typeof orderName !== "string" || !orderName.trim()){
+    if (!orderName || typeof orderName !== "string" || !orderName.trim()) {
       return res.status(400).json({
         ok: false,
         message: "Invalid orderName",
       });
     }
 
-    const normalizedAmount = normalizeAmount(amount);
+    const safeOrderName = orderName.trim();
+    const normalizedDraftId = normalizeText(draftId);
+    let pricing = null;
+    let resolvedAmount = normalizeAmount(amount);
+    let resolvedCustomerName = customerName;
+    let resolvedCustomerEmail = customerEmail;
+    let queryable = pool;
 
-    if(normalizedAmount === null){
+    if (normalizedDraftId) {
+      client = await pool.connect();
+      queryable = client;
+      await client.query("BEGIN");
+
+      const draftResult = await client.query(
+        `
+          SELECT draft_id, order_id, name, phone, email, image_key
+          FROM application_drafts
+          WHERE draft_id = $1
+          FOR UPDATE
+        `,
+        [normalizedDraftId]
+      );
+
+      if (draftResult.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({
+          ok: false,
+          message: "Draft not found",
+        });
+      }
+
+      const draft = draftResult.rows[0];
+      resolvedCustomerName = draft.name;
+      resolvedCustomerEmail = draft.email;
+
+      if (draft.order_id) {
+        const existingOrderResult = await client.query(
+          `
+            SELECT
+              order_id,
+              order_name,
+              amount,
+              customer_name,
+              customer_email,
+              payment_provider,
+              status,
+              created_at
+            FROM orders
+            WHERE order_id = $1
+            LIMIT 1
+          `,
+          [draft.order_id]
+        );
+
+        if (existingOrderResult.rowCount > 0) {
+          const existingOrder = existingOrderResult.rows[0];
+          await client.query("COMMIT");
+          return res.status(200).json({
+            ok: true,
+            idempotent: true,
+            order: {
+              orderId: existingOrder.order_id,
+              orderName: existingOrder.order_name,
+              amount: existingOrder.amount,
+              customerName: existingOrder.customer_name,
+              customerEmail: existingOrder.customer_email,
+              paymentProvider: existingOrder.payment_provider,
+              status: existingOrder.status,
+              createdAt: existingOrder.created_at,
+            },
+          });
+        }
+      }
+
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        `${draft.name}|${draft.phone}|${draft.email.toLowerCase()}`,
+      ]);
+      pricing = await getApplicationEntryFeeQuote({
+        queryable: client,
+        name: draft.name,
+        phone: draft.phone,
+        email: draft.email,
+        imageKey: draft.image_key,
+      });
+      resolvedAmount = pricing.amount;
+    }
+
+    if (resolvedAmount === null) {
+      if (client) {
+        await client.query("ROLLBACK");
+      }
       return res.status(400).json({
         ok: false,
         message: "Invalid amount",
@@ -8193,55 +8316,55 @@ app.post("/orders", async function (req,res) {
 
     const providerResolution = resolvePaymentProvider({
       requestedProvider: paymentProvider,
-      amount: normalizedAmount,
+      amount: resolvedAmount,
     });
 
     if (!providerResolution.ok) {
+      if (client) {
+        await client.query("ROLLBACK");
+      }
       return res.status(providerResolution.status).json({
         ok: false,
         message: providerResolution.message,
       });
     }
 
-    const safeOrderName = orderName.trim();
     const orderId = generateOrderId();
-
-    const insertQuery = `
-      INSERT INTO orders (
-        order_id,
-        order_name,
-        amount,
-        customer_name,
-        customer_email,
-        payment_provider,
-        status
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, 'READY')
-      RETURNING
-        order_id,
-        order_name,
-        amount,
-        customer_name,
-        customer_email,
-        payment_provider,
-        status,
-        created_at  
-    `;
-
-    const values = [
-      orderId,
-      safeOrderName,
-      normalizedAmount,
-      customerName,
-      customerEmail,
-      providerResolution.provider
-    ];
-
-    const result = await pool.query(insertQuery, values);
+    const result = await queryable.query(
+      `
+        INSERT INTO orders (
+          order_id,
+          order_name,
+          amount,
+          customer_name,
+          customer_email,
+          payment_provider,
+          status
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'READY')
+        RETURNING
+          order_id,
+          order_name,
+          amount,
+          customer_name,
+          customer_email,
+          payment_provider,
+          status,
+          created_at
+      `,
+      [
+        orderId,
+        safeOrderName,
+        resolvedAmount,
+        resolvedCustomerName,
+        resolvedCustomerEmail,
+        providerResolution.provider,
+      ]
+    );
     const order = result.rows[0];
 
-    if (draftId) {
-      await pool.query(
+    if (normalizedDraftId) {
+      await client.query(
         `
           UPDATE application_drafts
           SET
@@ -8249,13 +8372,14 @@ app.post("/orders", async function (req,res) {
             updated_at = NOW()
           WHERE draft_id = $1
         `,
-        [draftId, order.order_id]
+        [normalizedDraftId, order.order_id]
       );
+      await client.query("COMMIT");
     }
 
     return res.status(201).json({
-      ok:true,
-      order:{
+      ok: true,
+      order: {
         orderId: order.order_id,
         orderName: order.order_name,
         amount: order.amount,
@@ -8265,14 +8389,20 @@ app.post("/orders", async function (req,res) {
         status: order.status,
         createdAt: order.created_at,
       },
+      pricing,
     });
   } catch (error) {
+    if (client) {
+      await client.query("ROLLBACK").catch(() => undefined);
+    }
     console.error("Failed to create order:", error);
     return res.status(500).json({
       ok: false,
       message: "Failed to create order",
     });
-  }  
+  } finally {
+    client?.release();
+  }
 });
 
 startServer();

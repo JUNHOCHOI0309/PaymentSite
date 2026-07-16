@@ -42,7 +42,7 @@ function formatAmount(value, locale) {
 }
 
 export function LookupPage() {
-  const { t, language } = useLanguage();
+  const { locale, t } = useLanguage();
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -375,6 +375,23 @@ export function LookupPage() {
   }
 
   const hasStatusMessage = Boolean(actionErrorMessage || verificationMessage || devVerificationCode);
+  const completedPaymentResults = results.filter((result) => result.paymentStatus === "DONE");
+  const totalPaidAmount = completedPaymentResults.reduce(
+    (total, result) => total + Number(result.paymentAmount || 0),
+    0,
+  );
+  const paymentSummaryCopy =
+    locale === "ko"
+      ? {
+          title: "결제 정산",
+          completedCount: "결제 완료 종목",
+          totalPaid: "총 지불 금액",
+        }
+      : {
+          title: "Payment summary",
+          completedCount: "Completed disciplines",
+          totalPaid: "Total paid",
+        };
 
   return (
     <PageShell>
@@ -523,7 +540,7 @@ export function LookupPage() {
                           </div>
                           <div className="site-review-row">
                             <span>{t("lookup.refundAmount")}</span>
-                            <strong>{formatAmount(result.refundQuote.refundAmount, language)}</strong>
+                            <strong>{formatAmount(result.refundQuote.refundAmount, locale)}</strong>
                           </div>
                           <div className="site-review-row">
                             <span>{t("lookup.refundRule")}</span>
@@ -616,6 +633,17 @@ export function LookupPage() {
                   </div>
                 ))}
               </div>
+              <section className="site-lookup-payment-summary" aria-label={paymentSummaryCopy.title}>
+                <h4>{paymentSummaryCopy.title}</h4>
+                <div className="site-review-row">
+                  <span>{paymentSummaryCopy.completedCount}</span>
+                  <strong>{completedPaymentResults.length}</strong>
+                </div>
+                <div className="site-review-row">
+                  <span>{paymentSummaryCopy.totalPaid}</span>
+                  <strong>{formatAmount(totalPaidAmount, locale)}</strong>
+                </div>
+              </section>
             </div>
           ) : null}
         </div>

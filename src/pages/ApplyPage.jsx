@@ -14,7 +14,8 @@ import {
 } from "../data/applicationDisciplines";
 import {
   formatApplicationEntryFee,
-  getApplicationEntryFee,
+  getApplicationAdditionalDisciplineFee,
+  getApplicationEntryFeePricing,
 } from "../data/applicationEntryFees";
 import { getWeightClassOptions } from "../data/applicationWeightClassOptions";
 import {
@@ -53,14 +54,6 @@ const allowedDocumentUploadMimeTypes = new Set([
 ]);
 const documentFileInputAccept =
   ".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/jpeg,image/png";
-const allowedAudioUploadExtensions = new Set([".mp3"]);
-const allowedAudioUploadMimeTypes = new Set([
-  "audio/mpeg",
-  "audio/mp3",
-  "audio/x-mpeg-3",
-  "audio/mpg",
-]);
-const audioFileInputAccept = ".mp3,audio/mpeg,audio/mp3,audio/x-mpeg-3,audio/mpg";
 const introductionMaxLength = 100;
 
 function getRegisterImageUrl(key) {
@@ -103,25 +96,17 @@ function getUploadExtension(filename) {
   return match ? match[1].toLowerCase() : "";
 }
 
-function validateSelectedFile(file, kind, t) {
+function validateSelectedFile(file, t) {
   if (!file) {
     return "";
   }
 
   const extension = getUploadExtension(file.name);
-  const isAudio = kind === "audio";
-  const allowedExtensions = isAudio
-    ? allowedAudioUploadExtensions
-    : allowedDocumentUploadExtensions;
-  const allowedMimeTypes = isAudio
-    ? allowedAudioUploadMimeTypes
-    : allowedDocumentUploadMimeTypes;
-
   if (
-    !allowedExtensions.has(extension) ||
-    !allowedMimeTypes.has(file.type)
+    !allowedDocumentUploadExtensions.has(extension) ||
+    !allowedDocumentUploadMimeTypes.has(file.type)
   ) {
-    return t(isAudio ? "apply.audioFileTypeError" : "apply.fileTypeError");
+    return t("apply.fileTypeError");
   }
 
   if (!Number.isFinite(file.size) || file.size <= 0) {
@@ -153,7 +138,7 @@ function validateSelectedDocumentFiles(files, locale, t) {
   }
 
   return files
-    .map((file) => validateSelectedFile(file, "document", t))
+    .map((file) => validateSelectedFile(file, t))
     .find(Boolean) || "";
 }
 
@@ -162,16 +147,13 @@ export function ApplyPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const documentFileInputRef = useRef(null);
-  const audioFileInputRef = useRef(null);
   const { state, dispatch, isHydrated } = useApplicationFlow();
   const { locale, t } = useLanguage();
   const handledLocationKeyRef = useRef("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState([]);
-  const [selectedAudioFile, setSelectedAudioFile] = useState(null);
   const [fileError, setFileError] = useState("");
-  const [audioFileError, setAudioFileError] = useState("");
   const [fieldErrors, setFieldErrors] = useState(getInitialFieldErrors);
 
   const selectedDivision = searchParams.get("division") || "";
@@ -184,7 +166,20 @@ export function ApplyPage() {
   const additionalInfo = getApplicationAdditionalInfo(locale, selectedImageKey);
   const weightClassOptions = getWeightClassOptions(selectedImageKey);
   const hasWeightClassOptions = weightClassOptions.length > 0;
-  const entryFeeAmount = getApplicationEntryFee(selectedImageKey);
+  const entryFeePricing = getApplicationEntryFeePricing(selectedImageKey);
+  const additionalDisciplineFee = getApplicationAdditionalDisciplineFee();
+  const entryFeeCopy =
+    locale === "ko"
+      ? {
+          firstDiscipline: "첫 종목 참가비",
+          additionalDiscipline: "두 번째 종목부터 종목당",
+          finalPrice: "현재 적용가",
+        }
+      : {
+          firstDiscipline: "First discipline fee",
+          additionalDiscipline: "Each additional discipline",
+          finalPrice: "Current price",
+        };
   const snsPlatformOptions = getSnsPlatformOptions(locale);
   const [additionalInfoTitlePrimary, additionalInfoTitleSecondary] =
     splitDisplayTitle(additionalInfo.title);
@@ -227,10 +222,8 @@ export function ApplyPage() {
         dispatch({ type: "RESET_APPLICATION_FLOW" });
         dispatch({ type: "SET_SELECTION", value: incomingSelection });
         setSelectedFiles([]);
-        setSelectedAudioFile(null);
         setErrorMessage("");
         setFileError("");
-        setAudioFileError("");
         setFieldErrors(getInitialFieldErrors());
         return;
       }
@@ -240,10 +233,8 @@ export function ApplyPage() {
       dispatch({ type: "RESET_APPLICATION_FLOW" });
       dispatch({ type: "SET_SELECTION", value: incomingSelection });
       setSelectedFiles([]);
-      setSelectedAudioFile(null);
       setErrorMessage("");
       setFileError("");
-      setAudioFileError("");
       setFieldErrors(getInitialFieldErrors());
     }
   }, [
@@ -444,51 +435,10 @@ export function ApplyPage() {
     });
   }
 
-  function handleAudioFileChange(event) {
-    const file = event.target.files?.[0] || null;
-    const validationMessage = validateSelectedFile(file, "audio", t);
-
-    if (validationMessage) {
-      setSelectedAudioFile(null);
-      setAudioFileError(validationMessage);
-      event.target.value = "";
-      dispatch({
-        type: "SET_AUDIO_FILE_META",
-        payload: {
-          originalFilename: "",
-          storedFilename: "",
-          mimeType: "",
-          fileSize: 0,
-        },
-      });
-      return;
-    }
-
-    setAudioFileError("");
-    setSelectedAudioFile(file);
-    dispatch({
-      type: "SET_AUDIO_FILE_META",
-      payload: file
-        ? {
-            originalFilename: file.name,
-            storedFilename: "",
-            mimeType: file.type,
-            fileSize: file.size,
-          }
-        : {
-            originalFilename: "",
-            storedFilename: "",
-            mimeType: "",
-            fileSize: 0,
-          },
-    });
-  }
-
   async function handleSubmit(event) {
     event.preventDefault();
     setErrorMessage("");
     setFileError("");
-    setAudioFileError("");
 
     if (!validateApplicantForm()) {
       return;
@@ -499,15 +449,6 @@ export function ApplyPage() {
 
       if (validationMessage) {
         setFileError(validationMessage);
-        return;
-      }
-    }
-
-    if (selectedAudioFile) {
-      const validationMessage = validateSelectedFile(selectedAudioFile, "audio", t);
-
-      if (validationMessage) {
-        setAudioFileError(validationMessage);
         return;
       }
     }
@@ -552,7 +493,6 @@ export function ApplyPage() {
           const fileResponse = await uploadFile({
             draftId,
             file: selectedFile,
-            fileKind: "document",
           });
 
           uploadedFileMetas.push({
@@ -566,24 +506,6 @@ export function ApplyPage() {
         }
 
         dispatch({ type: "SET_FILE_METAS", payload: uploadedFileMetas });
-      }
-
-      if (selectedAudioFile) {
-        const audioFileResponse = await uploadFile({
-          draftId,
-          file: selectedAudioFile,
-          fileKind: "audio",
-        });
-
-        dispatch({
-          type: "SET_AUDIO_FILE_META",
-          payload: {
-            originalFilename: audioFileResponse.file.original_filename,
-            storedFilename: audioFileResponse.file.stored_filename,
-            mimeType: audioFileResponse.file.mime_type,
-            fileSize: audioFileResponse.file.file_size,
-          },
-        });
       }
 
       dispatch({
@@ -626,8 +548,16 @@ export function ApplyPage() {
               </div>
             )}
             <div className="site-apply-detail__price-box">
-              <span>{t("apply.entryFeeLabel")}</span>
-              <strong>{formatApplicationEntryFee(entryFeeAmount, locale)}</strong>
+              <span>{entryFeeCopy.firstDiscipline}</span>
+              <div className="site-apply-detail__price-values">
+                {entryFeePricing.isDiscounted ? (
+                  <del>{formatApplicationEntryFee(entryFeePricing.originalAmount, locale)}</del>
+                ) : null}
+                <strong>{formatApplicationEntryFee(entryFeePricing.amount, locale)}</strong>
+              </div>
+              <p>
+                {entryFeeCopy.additionalDiscipline} {formatApplicationEntryFee(additionalDisciplineFee, locale)}
+              </p>
             </div>
           </aside>
 
@@ -830,47 +760,6 @@ export function ApplyPage() {
                   </div>
                 </div>
               </label>
-              <label className="site-field">
-                <span className="site-field__label">
-                  {t("apply.submitAudioFile")}
-                  <span className="site-field__requirement">({t("apply.optional")})</span>
-                </span>
-                <div className={`site-input site-file-picker ${audioFileError ? "site-input--error" : ""}`.trim()}>
-                  <input
-                    className="site-file-picker__input"
-                    ref={audioFileInputRef}
-                    type="file"
-                    accept={audioFileInputAccept}
-                    onChange={handleAudioFileChange}
-                  />
-                  <span
-                    className={`site-file-picker__value ${
-                      state.uploadedAudioFileMeta.originalFilename ? "" : "site-file-picker__value--placeholder"
-                    }`.trim()}
-                  >
-                    {state.uploadedAudioFileMeta.originalFilename ||
-                      t("apply.noFileSelected")}
-                  </span>
-                  <button
-                    className="site-file-picker__trigger"
-                    type="button"
-                    onClick={() => audioFileInputRef.current?.click()}
-                    aria-label={t("apply.submitAudioFile")}
-                  >
-                    <img
-                      className="site-file-picker__trigger-icon"
-                      src={uploadIcon}
-                      alt=""
-                    />
-                  </button>
-                </div>
-                {audioFileError ? (
-                  <span className="site-field__error">{audioFileError}</span>
-                ) : null}
-                <span className="site-field__hint">
-                  {t("apply.audioFileHint")}
-                </span>
-              </label>
             </div>
 
             <div className="site-apply-detail__form-lower">
@@ -933,6 +822,9 @@ export function ApplyPage() {
                   <>
                     <h3>{section.title}</h3>
                     <p>{section.body}</p>
+                    {section.note ? (
+                      <p className="site-apply-detail__additional-note">{section.note}</p>
+                    ) : null}
                   </>
                 )}
               </section>

@@ -1644,6 +1644,51 @@ body,
   margin-top: 16px;
 }
 
+.site-lookup-payment-summary {
+  margin-top: 18px;
+  padding: 20px 22px;
+  border: 1px solid rgba(24, 63, 107, 0.16);
+  border-radius: 12px;
+  background: rgba(24, 63, 107, 0.08);
+}
+
+.site-lookup-payment-summary h4 {
+  margin: 0 0 10px;
+  color: #183f6b;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.site-review-row--pricing span {
+  display: grid;
+  gap: 3px;
+}
+
+.site-review-row--pricing small {
+  color: #7a8292;
+  font-size: 0.76rem;
+  font-weight: 500;
+}
+
+.site-review-row--pricing strong {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.site-review-row--pricing del {
+  color: #8a92a2;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.site-review-row--pricing b {
+  color: #183f6b;
+  font-size: 1.04rem;
+}
+
 .site-button {
   border: 0;
   border-radius: 999px;
@@ -4068,6 +4113,26 @@ body {
   line-height: 1.1;
 }
 
+.site-apply-detail__price-values {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.site-apply-detail__price-values del {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.site-apply-detail__price-box p {
+  margin: 2px 0 0;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
 .site-apply-detail__form {
   padding: 38px 42px 22px;
   border-radius: 26px;
@@ -4207,6 +4272,13 @@ body {
 
 .site-apply-detail__additional-section p {
   margin-top: 16px;
+}
+
+.site-apply-detail__additional-info .site-apply-detail__additional-note {
+  margin-top: 10px;
+  color: #7a8292;
+  font-size: 0.86rem;
+  line-height: 1.55;
 }
 
 .site-apply-detail__additional-section--danger h3,
@@ -4834,6 +4906,66 @@ body {
   display: inline-flex;
   width: fit-content;
   text-decoration: none;
+}
+
+.site-apply-guide__fee {
+  display: grid;
+  gap: 14px;
+}
+
+.site-apply-guide__fee-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #d7dde8;
+  border-radius: 8px;
+}
+
+.site-apply-guide__fee-table {
+  width: 100%;
+  min-width: 600px;
+  border-collapse: collapse;
+  color: #243049;
+}
+
+.site-apply-guide__fee-table th,
+.site-apply-guide__fee-table td {
+  padding: 15px 18px;
+  border-right: 1px solid #d7dde8;
+  border-bottom: 1px solid #d7dde8;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.site-apply-guide__fee-table th:last-child,
+.site-apply-guide__fee-table td:last-child {
+  border-right: 0;
+}
+
+.site-apply-guide__fee-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.site-apply-guide__fee-table th {
+  background: #183f6b;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.site-apply-guide__fee-table del {
+  margin-right: 8px;
+  color: #8a92a2;
+  font-size: 0.88rem;
+}
+
+.site-apply-guide__fee-table strong {
+  color: #183f6b;
+}
+
+.site-apply-guide__fee > p {
+  margin: 0;
+  color: #5d687a;
+  font-size: 0.9rem;
+  line-height: 1.65;
 }
 
 .site-introduce-page__body-image {

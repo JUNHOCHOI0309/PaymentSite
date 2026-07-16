@@ -1089,7 +1089,6 @@ export function AdminDashboardPage() {
           row.introduction,
           formatStoredSnsIdentity(row.snsIdentity || row.instagramId, "ko", "-"),
           row.documentOriginalFilename,
-          row.audioOriginalFilename,
         );
       }),
     [applicationPaymentStatusFilter, applicationSearch, applications],
@@ -1579,7 +1578,6 @@ export function AdminDashboardPage() {
                       { key: "weightClass", label: "체급" },
                       { key: "paymentStatus", label: "결제상태" },
                       { key: "documentOriginalFilename", label: "문서 파일" },
-                      { key: "audioOriginalFilename", label: "MP3 파일" },
                       {
                         key: "submittedAt",
                         label: "접수일시",
@@ -1649,17 +1647,6 @@ export function AdminDashboardPage() {
                       <DocumentDownloadLinks
                         applicationNumber={row.applicationNumber}
                         files={row.documentFiles}
-                      />
-                    ),
-                  },
-                  {
-                    key: "audioFile",
-                    label: "MP3",
-                    render: (row) => (
-                      <DownloadLinkCell
-                        applicationNumber={row.applicationNumber}
-                        fileReference="audio"
-                        filename={row.audioOriginalFilename}
                       />
                     ),
                   },

@@ -3,6 +3,11 @@ import { Link } from "react-router-dom";
 import { Button } from "../components/common/Button";
 import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
+import {
+  formatApplicationEntryFee,
+  getApplicationAdditionalDisciplineFee,
+  getApplicationEntryFeeSchedule,
+} from "../data/applicationEntryFees";
 
 function GuideAccordionSection({
   sectionKey,
@@ -45,10 +50,63 @@ function StepGrid({ items }) {
   );
 }
 
+function EntryFeeGuide({ locale }) {
+  const schedule = getApplicationEntryFeeSchedule();
+  const additionalDisciplineFee = getApplicationAdditionalDisciplineFee();
+  const copy =
+    locale === "ko"
+      ? {
+          period: "신청 기간",
+          firstFee: "첫 종목 참가비",
+          additionalFee: "추가 종목 참가비",
+          note:
+            "동일한 성함, 연락처, 이메일로 결제 완료된 대회 신청이 있으면 두 번째 종목부터 종목당 추가 종목 참가비가 적용됩니다.",
+        }
+      : {
+          period: "Application period",
+          firstFee: "First discipline fee",
+          additionalFee: "Additional discipline fee",
+          note:
+            "After a completed competition application with the same name, phone number, and email, each additional discipline is charged at the additional discipline fee.",
+        };
+
+  return (
+    <div className="site-apply-guide__fee">
+      <div className="site-apply-guide__fee-table-wrap">
+        <table className="site-apply-guide__fee-table">
+          <thead>
+            <tr>
+              <th>{copy.period}</th>
+              <th>{copy.firstFee}</th>
+              <th>{copy.additionalFee}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {schedule.map((item) => (
+              <tr key={item.id}>
+                <td>{locale === "ko" ? item.label : item.labelEn || item.label}</td>
+                <td>
+                  {Number(item.displayOriginalAmount || 0) > Number(item.amount || 0) ? (
+                    <del>{formatApplicationEntryFee(item.displayOriginalAmount, locale)}</del>
+                  ) : null}
+                  <strong>{formatApplicationEntryFee(item.amount, locale)}</strong>
+                </td>
+                <td>{formatApplicationEntryFee(additionalDisciplineFee, locale)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p>{copy.note}</p>
+    </div>
+  );
+}
+
 export function ApplyGuidePage() {
-  const { t } = useLanguage();
+  const { locale, t } = useLanguage();
   const [openSections, setOpenSections] = useState({
     application: false,
+    fee: false,
     lookup: false,
     faq: true,
   });
@@ -79,6 +137,15 @@ export function ApplyGuidePage() {
             onToggle={toggleSection}
           >
             <StepGrid items={applicationSteps} />
+          </GuideAccordionSection>
+
+          <GuideAccordionSection
+            sectionKey="fee"
+            title={locale === "ko" ? "참가비 안내" : "Entry fee guide"}
+            isOpen={openSections.fee}
+            onToggle={toggleSection}
+          >
+            <EntryFeeGuide locale={locale} />
           </GuideAccordionSection>
 
           <GuideAccordionSection

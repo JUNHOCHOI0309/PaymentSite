@@ -1,50 +1,79 @@
 {
-  "defaultAmount": 200000,
+  "defaultAmount": 250000,
+  "listAmount": 250000,
+  "additionalDisciplineAmount": 100000,
+  "schedule": [
+    {
+      "id": "2026-july-early-bird",
+      "label": "7월",
+      "labelEn": "July",
+      "startDate": "2026-07-01",
+      "endDate": "2026-07-31",
+      "amount": 160000,
+      "displayOriginalAmount": 250000
+    },
+    {
+      "id": "2026-august",
+      "label": "8월",
+      "labelEn": "August",
+      "startDate": "2026-08-01",
+      "endDate": "2026-08-31",
+      "amount": 200000
+    },
+    {
+      "id": "2026-september-october",
+      "label": "9월 - 10월",
+      "labelEn": "September - October",
+      "startDate": "2026-09-01",
+      "endDate": "2026-10-31",
+      "amount": 250000
+    }
+  ],
   "items": [
     {
       "imageKey": "register/man_1.png",
       "title": "Bodybuilding",
-      "amount": 200000
+      "amount": 250000
     },
     {
       "imageKey": "register/man_2.png",
-      "title": "Classic",
-      "amount": 200000
+      "title": "Classic Physique",
+      "amount": 250000
     },
     {
       "imageKey": "register/man_3.png",
       "title": "Physique",
-      "amount": 200000
+      "amount": 250000
     },
     {
       "imageKey": "register/common_1.png",
       "title": "Model",
-      "amount": 200000
+      "amount": 250000
     },
     {
       "imageKey": "register/common_2.png",
       "title": "Fitness",
-      "amount": 200000
+      "amount": 250000
     },
     {
       "imageKey": "register/common_3.png",
       "title": "Denim",
-      "amount": 200000
+      "amount": 250000
     },
     {
       "imageKey": "register/common_4.png",
       "title": "Transformation",
-      "amount": 200000
+      "amount": 250000
     },
     {
       "imageKey": "register/woman_1.png",
       "title": "Ms.Bikini",
-      "amount": 200000
+      "amount": 250000
     },
     {
       "imageKey": "register/woman_2.png",
       "title": "Figure",
-      "amount": 200000
+      "amount": 250000
     }
   ]
 }

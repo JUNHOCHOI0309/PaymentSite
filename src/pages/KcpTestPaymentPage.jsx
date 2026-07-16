@@ -36,20 +36,12 @@ const allowedDocumentUploadMimeTypes = new Set([
   "image/jpeg",
   "image/png",
 ]);
-const allowedAudioUploadExtensions = new Set([".mp3"]);
-const allowedAudioUploadMimeTypes = new Set([
-  "audio/mpeg",
-  "audio/mp3",
-  "audio/x-mpeg-3",
-  "audio/mpg",
-]);
 const documentFileInputAccept =
   ".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/jpeg,image/png";
-const audioFileInputAccept = ".mp3,audio/mpeg,audio/mp3,audio/x-mpeg-3,audio/mpg";
 
 const testDisciplineOptions = [
   { imageKey: "register/man_1.png", title: "Bodybuilding" },
-  { imageKey: "register/man_2.png", title: "Classic" },
+  { imageKey: "register/man_2.png", title: "Classic Physique" },
   { imageKey: "register/man_3.png", title: "Physique" },
   { imageKey: "register/common_1.png", title: "Model" },
   { imageKey: "register/common_2.png", title: "Fitness" },
@@ -124,26 +116,16 @@ function getUploadExtension(filename) {
   return match ? match[1].toLowerCase() : "";
 }
 
-function validateTestUpload(file, kind) {
+function validateTestUpload(file) {
   if (!file) {
     return "";
   }
 
-  const isAudio = kind === "audio";
-  const allowedExtensions = isAudio
-    ? allowedAudioUploadExtensions
-    : allowedDocumentUploadExtensions;
-  const allowedMimeTypes = isAudio
-    ? allowedAudioUploadMimeTypes
-    : allowedDocumentUploadMimeTypes;
-
   if (
-    !allowedExtensions.has(getUploadExtension(file.name)) ||
-    !allowedMimeTypes.has(file.type)
+    !allowedDocumentUploadExtensions.has(getUploadExtension(file.name)) ||
+    !allowedDocumentUploadMimeTypes.has(file.type)
   ) {
-    return isAudio
-      ? "음원 파일은 MP3 확장자만 업로드할 수 있습니다."
-      : "첨부 파일 형식이 허용되지 않습니다.";
+    return "첨부 파일 형식이 허용되지 않습니다.";
   }
 
   if (!Number.isFinite(file.size) || file.size <= 0) {
@@ -160,7 +142,6 @@ function validateTestUpload(file, kind) {
 export function KcpTestPaymentPage() {
   const [searchParams] = useSearchParams();
   const documentFileInputRef = useRef(null);
-  const audioFileInputRef = useRef(null);
   const token =
     searchParams.get("token") ||
     window.sessionStorage.getItem("kcpTestPaymentToken") ||
@@ -169,7 +150,6 @@ export function KcpTestPaymentPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [documentFile, setDocumentFile] = useState(null);
-  const [audioFile, setAudioFile] = useState(null);
   const selectedDiscipline = useMemo(
     () =>
       testDisciplineOptions.find((option) => option.imageKey === form.imageKey) ||
@@ -195,31 +175,19 @@ export function KcpTestPaymentPage() {
     }));
   }
 
-  function handleFileChange(kind) {
-    return (event) => {
-      const file = event.target.files?.[0] || null;
-      const validationMessage = validateTestUpload(file, kind);
+  function handleDocumentFileChange(event) {
+    const file = event.target.files?.[0] || null;
+    const validationMessage = validateTestUpload(file);
 
-      if (validationMessage) {
-        event.target.value = "";
-        setErrorMessage(validationMessage);
+    if (validationMessage) {
+      event.target.value = "";
+      setErrorMessage(validationMessage);
+      setDocumentFile(null);
+      return;
+    }
 
-        if (kind === "audio") {
-          setAudioFile(null);
-        } else {
-          setDocumentFile(null);
-        }
-        return;
-      }
-
-      setErrorMessage("");
-
-      if (kind === "audio") {
-        setAudioFile(file);
-      } else {
-        setDocumentFile(file);
-      }
-    };
+    setErrorMessage("");
+    setDocumentFile(file);
   }
 
   async function requestKcpTestPayment(event) {
@@ -233,11 +201,10 @@ export function KcpTestPaymentPage() {
       return;
     }
 
-    const documentValidationMessage = validateTestUpload(documentFile, "document");
-    const audioValidationMessage = validateTestUpload(audioFile, "audio");
+    const documentValidationMessage = validateTestUpload(documentFile);
 
-    if (documentValidationMessage || audioValidationMessage) {
-      setErrorMessage(documentValidationMessage || audioValidationMessage);
+    if (documentValidationMessage) {
+      setErrorMessage(documentValidationMessage);
       return;
     }
 
@@ -279,15 +246,6 @@ export function KcpTestPaymentPage() {
         await uploadFile({
           draftId,
           file: documentFile,
-          fileKind: "document",
-        });
-      }
-
-      if (audioFile) {
-        await uploadFile({
-          draftId,
-          file: audioFile,
-          fileKind: "audio",
         });
       }
 
@@ -467,7 +425,7 @@ export function KcpTestPaymentPage() {
                   ref={documentFileInputRef}
                   type="file"
                   accept={documentFileInputAccept}
-                  onChange={handleFileChange("document")}
+                  onChange={handleDocumentFileChange}
                 />
                 <span
                   className={`site-file-picker__value ${
@@ -490,36 +448,6 @@ export function KcpTestPaymentPage() {
               </span>
             </label>
 
-            <label className="kcp-test-field">
-              음원 파일 <em>(선택)</em>
-              <div className="site-file-picker">
-                <input
-                  className="site-file-picker__input"
-                  ref={audioFileInputRef}
-                  type="file"
-                  accept={audioFileInputAccept}
-                  onChange={handleFileChange("audio")}
-                />
-                <span
-                  className={`site-file-picker__value ${
-                    audioFile ? "" : "site-file-picker__value--placeholder"
-                  }`.trim()}
-                >
-                  {audioFile?.name || "선택된 파일 없음"}
-                </span>
-                <button
-                  className="site-file-picker__trigger"
-                  type="button"
-                  onClick={() => audioFileInputRef.current?.click()}
-                  aria-label="음원 파일 선택"
-                >
-                  <img className="site-file-picker__trigger-icon" src={uploadIcon} alt="" />
-                </button>
-              </div>
-              <span className="kcp-test-field__hint">
-                MP3 확장자만 가능하며 최대 10MB입니다.
-              </span>
-            </label>
           </div>
 
           {errorMessage ? <p className="kcp-test-error">{errorMessage}</p> : null}

@@ -29,6 +29,41 @@ function ReviewRow({ label, value }) {
   );
 }
 
+function PricingReviewRow({ pricing, fallbackAmount, locale }) {
+  const amount = Number(pricing?.amount ?? fallbackAmount);
+  const originalAmount = Number(pricing?.originalAmount || 0);
+  const isDiscounted = Boolean(pricing?.isDiscounted && originalAmount > amount);
+  const label = pricing?.isAdditional
+    ? locale === "ko"
+      ? "추가 종목 참가비"
+      : "Additional discipline fee"
+    : locale === "ko"
+      ? "참가비"
+      : "Entry fee";
+  const description = pricing?.isAdditional
+    ? locale === "ko"
+      ? `결제 완료 종목 ${pricing.completedApplicationCount}건 기준`
+      : `Based on ${pricing.completedApplicationCount} completed discipline(s)`
+    : pricing?.periodLabel
+      ? `${locale === "ko" ? pricing.periodLabel : pricing.periodLabelEn || pricing.periodLabel} ${
+          locale === "ko" ? "참가비" : "entry fee"
+        }`
+      : "";
+
+  return (
+    <div className="site-review-row site-review-row--pricing">
+      <span>
+        {label}
+        {description ? <small>{description}</small> : null}
+      </span>
+      <strong>
+        {isDiscounted ? <del>{formatApplicationEntryFee(originalAmount, locale)}</del> : null}
+        <b>{formatApplicationEntryFee(amount, locale)}</b>
+      </strong>
+    </div>
+  );
+}
+
 export function ApplyReviewPage() {
   const navigate = useNavigate();
   const { state, dispatch } = useApplicationFlow();
@@ -47,6 +82,7 @@ export function ApplyReviewPage() {
     discipline: reviewDraft?.discipline || state.selection.discipline,
   });
   const entryFeeAmount = getApplicationEntryFee(selectedImageKey);
+  const entryFeePricing = draftSnapshot?.pricing || null;
   const snsIdentityValue =
     reviewDraft?.instagramId ||
     serializeDetailedSnsIdentity({
@@ -163,13 +199,10 @@ export function ApplyReviewPage() {
               label={t("review.file")}
               value={documentFilenames}
             />
-            <ReviewRow
-              label={t("review.audioFile")}
-              value={draftSnapshot?.audioFile?.original_filename || state.uploadedAudioFileMeta.originalFilename}
-            />
-            <ReviewRow
-              label={t("review.fee")}
-              value={formatApplicationEntryFee(entryFeeAmount, locale)}
+            <PricingReviewRow
+              pricing={entryFeePricing}
+              fallbackAmount={entryFeeAmount}
+              locale={locale}
             />
             <ReviewRow
               label={t("review.consentItems")}

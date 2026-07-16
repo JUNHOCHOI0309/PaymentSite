@@ -75,7 +75,6 @@ export async function uploadFile(payload) {
   const formData = new FormData();
   formData.append("draftId", payload.draftId);
   formData.append("file", payload.file);
-  formData.append("fileKind", payload.fileKind || "document");
 
   const response = await apiFetch("/api/files/upload", {
     method: "POST",

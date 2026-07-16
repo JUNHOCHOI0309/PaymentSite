@@ -61,11 +61,11 @@ const localizedHomeItems = {
           {
             key: "home/man_2.png",
             registerKey: "register/man_2.png",
-            title: "Classic",
-            displayLabel: "CLASSIC",
-            detailTitle: "Classic",
+            title: "Classic Physique",
+            displayLabel: "CLASSIC PHYSIQUE",
+            detailTitle: "Classic Physique",
             detailDescription:
-              "머슬마니아 클래식 (MUSCLEMANIA CLASSIC)\n\n2016년부터 시작된 부문으로 고전적이고 대칭적이며 해변과 어울리는 완벽한 신체를 보여주고자 하는 남성들을 위한 새로운 종목으로서 단일라운드로 치뤄집니다.\n\n□ 클래식 출전자격\n대회일 기준 만 20세 이상의 남성",
+              "머슬마니아 클래식 피지크 (MUSCLEMANIA CLASSIC PHYSIQUE)\n\n2016년부터 시작된 부문으로 고전적이고 대칭적이며 해변과 어울리는 완벽한 신체를 보여주고자 하는 남성들을 위한 새로운 종목으로서 단일라운드로 치뤄집니다.\n\n□ 클래식 피지크 출전자격\n대회일 기준 만 20세 이상의 남성",
           },
           {
             key: "home/man_3.png",
@@ -158,11 +158,11 @@ const localizedHomeItems = {
           {
             key: "home/man_2.png",
             registerKey: "register/man_2.png",
-            title: "Classic",
-            displayLabel: "CLASSIC",
-            detailTitle: "Classic",
+            title: "Classic Physique",
+            displayLabel: "CLASSIC PHYSIQUE",
+            detailTitle: "Classic Physique",
             detailDescription:
-              "MUSCLEMANIA CLASSIC\n\nThis division began in 2016 for men who want to present a classic, symmetrical, beach-ready physique in a single-round format.\n\n□ Eligibility\nMen aged 20 or older as of the event date.",
+              "MUSCLEMANIA CLASSIC PHYSIQUE\n\nThis division began in 2016 for men who want to present a classic, symmetrical, beach-ready physique in a single-round format.\n\n□ Eligibility\nMen aged 20 or older as of the event date.",
           },
           {
             key: "home/man_3.png",

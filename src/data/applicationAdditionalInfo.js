@@ -40,28 +40,27 @@ const localizedAdditionalInfo = {
           {
             title: "심사항목",
             body: `▷ 1라운드 규정포즈심사
-1. 대칭미 2. 포즈 및 표현력 3. 근육크기 4. 컨디션 및 데피니션
+1. 근육크기 2. 컨디션 및 데피니션 3. 포즈 및 표현력 4. 대칭미
 
 ▷ 2라운드 자유포즈심사
 포즈 및 표현력 10점
 
 - 총합 100점 : 1라운드 90 + 2라운드 10점
 
-보디빌딩 노비스는 규정포즈심사만 진행됩니다. (90점 만점)
-
-자유포즈 심사 시 출전선수가 MP3 음원을 제출하지 않거나 파일에 이상이 있는 경우 대체음악이 재생됩니다.`,
+보디빌딩 노비스는 규정포즈심사만 진행됩니다. (90점 만점)`,
           },
           {
             title: "보디빌딩 무대진행순서",
-            body: `▷ 1라운드 (노비스 & 오픈 O)
-단체선수라인업 입장 > 쿼터턴심사 > 규정포즈심사 > 퇴장
-
-- 보디빌딩 노비스는 1라운드만 진행하며, 자유포즈심사 없음.
-
-▷ 2라운드 (노비스 X 오픈 O)
+            body: `▷ 1라운드 (노비스 X 오픈 O)
 개인선수입장 > 보디빌딩 오픈 자유포즈 심사 (60초) > 개인선수퇴장
 
-- 보디빌딩 오픈 1라운드, 2라운드 동시진행`,
+- 보디빌딩 오픈 1라운드, 2라운드 동시진행
+
+
+▷ 2라운드 (노비스 & 오픈 O)
+단체선수라인업 입장 > 쿼터턴심사 > 규정포즈심사 > 퇴장
+
+- 보디빌딩 노비스는 1라운드만 진행하며, 자유포즈심사 없음.`,
           },
           {
             title: "보디빌딩 규정포즈",
@@ -77,64 +76,66 @@ const localizedAdditionalInfo = {
 
 의상 규정에 어긋나는 복장 착용 시 감점
 
-컬러크림 또는 과도한 오일 사용 시 감점`,
+대회 환경에 적합한 탄 사용 권장`,
+            note: "MMKorea 탄 제품이 준비되었으니 참가 준비 시 참고해주시기 바랍니다.",
             tone: "danger",
           },
         ],
       },
       "register/man_2.png": {
-        title: "머슬마니아 클래식\n\n(MUSCLEMANIA CLASSIC)",
+        title: "머슬마니아 클래식 피지크\n\n(MUSCLEMANIA CLASSIC PHYSIQUE)",
         sections: [
           {
             title: "종목 소개",
-            body: `2016년부터 시작된 부문으로 고전적이고 대칭적이며 해변과 어울리는 완벽한 신체를
+            body: `2016년부터 시작된 부문으로 고전적이고 대칭적이며 보디빌딩에 어울리는 완벽한 신체를
 보여주고자 하는 남성들을 위한 새로운 종목으로서 단일라운드로 치뤄집니다.`,
           },
           {
-            title: "클래식 출전자격",
+            title: "클래식 피지크 출전자격",
             body: "대회일 기준 만 20세 이상의 남성",
           },
           {
-            title: "클래식 출전체급",
+            title: "클래식 피지크 출전체급",
             body: `남자 주니어 (단일체급, 만22세 이하)
 
 남자 노비스 & 오픈
 
 - 체급 신장 계측 후 균등 분배
-- 클래식 종목은 클래식보디빌딩 또는 클래식피지크 개념의 종목입니다.`,
+- 클래식 피지크 종목은 클래식보디빌딩 또는 클래식피지크 개념의 종목입니다.`,
           },
           {
-            title: "클래식 심사규정",
-            body: "1. 근육대칭미 2. 포즈와 표현력 3. 근육 크기 4. 컨디션 및 데피니션",
+            title: "클래식 피지크 심사규정",
+            body: "1. 근육대칭미 2. 컨디션 및 데피니션 3. 근육 크기 4. 포즈와 표현력",
           },
           {
-            title: "클래식 무대진행순서",
+            title: "클래식 피지크 무대진행순서",
             body: `개인선수입장 > 무대중앙 자유포즈 > 개인선수퇴장 > 단체라인업재입장
 > 단체쿼터턴심사 > 규정포즈심사 > 퇴장
 
 - 무대 중앙 워킹 & 자유포즈 시간 약 30~40초`,
           },
           {
-            title: "클래식 규정포즈",
+            title: "클래식 피지크 규정포즈",
             body: `1. 프론트 더블 바이셉스 2. 사이드 체스트 3. 트라이셉스
 4. 리어 더블 바이셉스 5. 업도미널 앤 타이
 
-클래식보디빌딩 규정포즈`,
+클래식 피지크 규정포즈`,
           },
           {
-            title: "클래식 규정포즈 이미지",
+            title: "클래식 피지크 규정포즈 이미지",
             type: "image",
             imageKey: "register/man_2_1.png",
           },
           {
-            title: "클래식 복장규정",
-            body: `규정복장 : 남성 브리프
+            title: "클래식 피지크 복장규정",
+            body: `규정복장 : 남성 브리프, 클래식 피지크 트렁크
 
 액세서리 및 신발 착용 금지
 
 의상 규정에 어긋나는 복장 착용 시 감점
 
-컬러크림 또는 과도한 오일 사용 시 감점`,
+대회 환경에 적합한 탄 사용 권장`,
+            note: "MMKorea 탄 제품이 준비되었으니 참가 준비 시 참고해주시기 바랍니다.",
             tone: "danger",
           },
         ],
@@ -144,7 +145,7 @@ const localizedAdditionalInfo = {
         sections: [
           {
             title: "종목 소개",
-            body: `2013년부터 시작된 부문으로 보디빌딩과 모델 수영복 라운드의 중간적인 개념이며,
+            body: `2013년부터 시작된 부문으로 해변에 어울릴만한 보디빌딩과 모델 수영복 라운드의 중간적인 개념이며,
 단일라운드로 진행됩니다. 남자 선수의 상체를 주로 심사합니다.`,
           },
           {
@@ -182,7 +183,8 @@ const localizedAdditionalInfo = {
 
 의상 규정에 어긋나는 복장 착용 시 감점
 
-컬러크림 또는 과도한 오일 사용 시 감점`,
+대회 환경에 적합한 탄 사용 권장`,
+            note: "MMKorea 탄 제품이 준비되었으니 참가 준비 시 참고해주시기 바랍니다.",
             tone: "danger",
           },
         ],
@@ -500,9 +502,7 @@ Presentation: 10 points
 
 Total: 100 points = Round 1 (90) + Round 2 (10)
 
-Bodybuilding Novice is judged only on mandatory poses. (90-point scale)
-
-If a competitor does not submit an MP3 file for free posing, or if the file is unusable, replacement music will be played.`,
+Bodybuilding Novice is judged only on mandatory poses. (90-point scale)`,
           },
           {
             title: "Stage Flow",
@@ -536,7 +536,7 @@ Excessive color cream or oil may result in point deductions.`,
         ],
       },
       "register/man_2.png": {
-        title: "Musclemania Classic",
+        title: "Musclemania Classic Physique",
         sections: [
           {
             title: "Overview",
@@ -571,7 +571,7 @@ Men Novice and Open
             body: `1. Front Double Biceps 2. Side Chest 3. Triceps
 4. Rear Double Biceps 5. Abdominals and Thigh
 
-Classic Bodybuilding mandatory poses`,
+Classic Physique mandatory poses`,
           },
           {
             title: "Mandatory Pose Image",

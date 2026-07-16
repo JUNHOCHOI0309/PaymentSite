@@ -13,7 +13,7 @@ export const privacyPolicy = {
     {
       purpose: "대회 참가 신청 및 운영",
       required: "성함, 연락처, 이메일, 생년월일, 참가 종목, 체급, SNS 플랫폼 및 ID, 자기소개 멘트",
-      optional: "소속, 제출 문서 파일, MP3 음원 파일",
+      optional: "소속, 제출 문서 파일",
       retention: "행사 종료 후 1년 또는 관계 법령상 보관 기간",
     },
     {
@@ -73,7 +73,7 @@ export const privacyPolicy = {
     recipient: "Cloudflare, Inc. (Cloudflare R2)",
     contact: "privacyquestions@cloudflare.com",
     country: "미국 및 아시아 태평양(APAC) 리전에 소재한 국외 국가 (대한민국 내 저장은 보장되지 않음)",
-    items: "참가자가 업로드한 문서 파일 또는 MP3 음원 파일의 내용, 파일명, 파일 형식 및 파일 크기 등 파일 메타데이터",
+    items: "참가자가 업로드한 제출 문서의 내용, 파일명, 파일 형식 및 파일 크기 등 파일 메타데이터",
     timingAndMethod: "파일 업로드 시점에 HTTPS를 통해 전송·보관",
     purpose: "참가 신청에 필요한 제출 파일의 객체 저장 및 권한이 확인된 관리자 다운로드 제공",
     retention: "행사 종료 후 1년 또는 관계 법령상 보관 기간까지",
