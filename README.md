@@ -1,47 +1,25 @@
-# MMKorea KCP Payment
+# MMKorea Website
 
-MMKorea 참가 신청과 무대 서비스 신청의 NHN KCP 결제 애플리케이션입니다. 결제 준비, 승인 결과 처리, 웹훅, 거래 후검증, 취소를 KCP 단일 결제 경로로 처리합니다.
+MMKorea의 대회 소개와 참가 접수, 부가 서비스 신청을 한곳에서 제공하는 웹사이트입니다. 방문자는 대회 정보를 확인하고, 신청 절차를 진행하고, 필요한 안내 문서를 확인할 수 있습니다.
 
-## 실행
+## 사이트 개요
 
-```bash
-npm install
-npm run dev
-```
+- 대회 소개와 운영 관련 정보를 전달하는 공식 웹사이트입니다.
+- 참가 신청 흐름과 신청 내역 확인 기능을 포함합니다.
+- 무대 서비스 등 부가 신청 기능을 함께 제공합니다.
+- 관리자 페이지를 통해 운영 데이터를 관리할 수 있도록 구성되어 있습니다.
 
-- 프런트엔드: `http://localhost:3000`
-- API 서버: `http://localhost:4000`
-- 프로덕션 빌드: `npm run build`
+## 주요 화면
 
-## KCP 환경변수
+- 메인 및 대회 소개 페이지
+- 참가 신청 및 안내 페이지
+- 부가 서비스 신청 페이지
+- 신청 조회 페이지
+- 개인정보처리방침 및 이용약관 페이지
+- 관리자 로그인 및 운영 페이지
 
-실제 값과 인증서 파일은 저장소에 커밋하지 않습니다.
+## 기술 구성
 
-```dotenv
-KCP_ENABLED=true
-KCP_MODE=production
-KCP_SITE_CD=
-KCP_CERT_INFO_PATH=
-KCP_PRIVATE_KEY_PATH=
-KCP_PRIVATE_KEY_PASSPHRASE=
-KCP_MAX_AMOUNT=
-PUBLIC_BASE_URL=https://www.mmkorea.com
-PUBLIC_API_BASE_URL=https://api.mmkorea.com
-VITE_API_BASE_URL=https://api.mmkorea.com
-```
-
-인증서는 애플리케이션 코드와 분리된 서버 전용 디렉터리에 두고, Node.js 프로세스 사용자에게 읽기 권한만 부여합니다. 인라인 인증정보가 필요한 환경에서는 `KCP_CERT_INFO`, `KCP_PRIVATE_KEY`를 사용할 수 있습니다.
-
-## 결제 경로
-
-- 참가 신청: `/payment/checkout` -> KCP 결제창 -> `/payment/success`
-- 무대 서비스: `/stage-services/payment/checkout` -> KCP 결제창 -> `/stage-services/payment/success`
-- KCP 승인 결과 수신: `POST /kcp/return`
-- KCP 웹훅: `POST /webhooks/kcp`
-- 운영 후검증: `POST /admin/kcp/payments/:orderId/reconcile`
-
-KCP 상점 관리자 웹훅 URL은 `https://api.mmkorea.com/webhooks/kcp`입니다. Nginx가 `/webhooks/kcp`를 API 서버로 전달하므로 외부 URL에는 `/api`를 붙이지 않습니다.
-
-## 테스트 결제
-
-테스트 전용 주문 API와 화면은 `KCP_TEST_PAYMENT_ENABLED=true`일 때만 활성화합니다. 운영 확인 후에는 해당 값을 `false`로 전환하고 서버를 재시작합니다. 테스트 거래 취소는 사이트의 KCP 취소 API 또는 KCP 상점 관리자에서 처리한 뒤 후검증으로 DB 상태를 동기화합니다.
+- React와 Vite 기반 프런트엔드
+- Express 기반 백엔드
+- 다국어 구성을 고려한 화면 구조
