@@ -540,7 +540,11 @@ function buildKcpReturnUrl(req, params = {}) {
 function normalizeKcpPaymentContext(value) {
   const normalized = normalizeText(value);
 
-  if (normalized === "stageService" || normalized === "kcpTest") {
+  if (
+    normalized === "stageService" ||
+    normalized === "kcpTest" ||
+    normalized === "stageServiceTest"
+  ) {
     return normalized;
   }
 
@@ -548,7 +552,9 @@ function normalizeKcpPaymentContext(value) {
 }
 
 function getKcpDraftBindingTable(context) {
-  return context === "stageService" ? "stage_service_drafts" : "application_drafts";
+  return context === "stageService" || context === "stageServiceTest"
+    ? "stage_service_drafts"
+    : "application_drafts";
 }
 
 function getKcpSuccessPath(context) {
@@ -557,6 +563,8 @@ function getKcpSuccessPath(context) {
       return "/stage-services/payment/success";
     case "kcpTest":
       return "/kcp-test/success";
+    case "stageServiceTest":
+      return "/kcp-test/stage-services/success";
     default:
       return "/payment/success";
   }
@@ -568,9 +576,28 @@ function getKcpFailPath(context) {
       return "/stage-services/fail";
     case "kcpTest":
       return "/kcp-test/fail";
+    case "stageServiceTest":
+      return "/kcp-test/stage-services/fail";
     default:
       return "/fail";
   }
+}
+
+const kcpTestOrderNames = {
+  kcpTest: "KCP 100원 테스트 결제",
+  stageServiceTest: "KCP 100원 무대 서비스 테스트 결제",
+};
+
+function isKcpTestContext(context) {
+  return context === "kcpTest" || context === "stageServiceTest";
+}
+
+function isMatchingKcpTestOrder(order, context) {
+  return (
+    isKcpTestContext(context) &&
+    order?.order_name === kcpTestOrderNames[context] &&
+    normalizeAmount(order?.amount) === 100
+  );
 }
 
 function isKcpTestPaymentAuthorized(req) {
@@ -1785,6 +1812,7 @@ function diffCalendarDaysInTimeZone(fromDate, toDate, timeZone) {
 
 function calculateRefundQuote({
   applicationStatus,
+  serviceStatus,
   paymentStatus,
   amount,
   paymentCompletedAt,
@@ -1831,6 +1859,7 @@ function calculateRefundQuote({
 
   const normalizedPaymentStatus = normalizeText(paymentStatus);
   const normalizedApplicationStatus = normalizeText(applicationStatus);
+  const normalizedServiceStatus = normalizeText(serviceStatus);
 
   if (normalizedPaymentStatus === "CANCELED" || normalizedPaymentStatus === "PARTIAL_CANCELED") {
     return {
@@ -1868,7 +1897,25 @@ function calculateRefundQuote({
     };
   }
 
-  if (normalizedApplicationStatus && normalizedApplicationStatus !== "SUBMITTED") {
+  if (normalizedServiceStatus && normalizedServiceStatus !== "PURCHASED") {
+    return {
+      policyVersion: refundPolicy.version,
+      policyName: refundPolicy.name,
+      eventDate: refundPolicy.eventDate,
+      requestedAt: requestedAt.toISOString(),
+      timeZone: refundPolicyTimeZone,
+      canAutoRefund: false,
+      isRefundable: false,
+      requiresManualReview: true,
+      reasonCode: "STAGE_SERVICE_STATUS_NOT_REFUNDABLE",
+      message: "현재 무대 서비스 상태에서는 자동 환불을 처리할 수 없습니다.",
+      refundPercent: null,
+      refundAmount: null,
+      nonRefundableAmount: safeAmount,
+    };
+  }
+
+  if (!normalizedServiceStatus && normalizedApplicationStatus && normalizedApplicationStatus !== "SUBMITTED") {
     return {
       policyVersion: refundPolicy.version,
       policyName: refundPolicy.name,
@@ -2235,6 +2282,50 @@ async function findLookupOwnedApplication({ name, email, applicationNumber }) {
       LIMIT 1
     `,
     [applicationNumber, name, email]
+  );
+
+  return result.rows[0] || null;
+}
+
+async function findLookupOwnedStageService({ name, email, serviceOrderNumber }) {
+  const result = await pool.query(
+    `
+      SELECT
+        stage_service_orders.service_order_number,
+        stage_service_orders.order_id,
+        stage_service_orders.payment_key,
+        stage_service_orders.payment_status,
+        stage_service_orders.service_status,
+        stage_service_orders.service_type,
+        stage_service_orders.name,
+        stage_service_orders.phone,
+        stage_service_orders.email,
+        stage_service_orders.linked_application_number,
+        stage_service_orders.linked_discipline,
+        stage_service_orders.total_amount AS service_amount,
+        orders.amount AS order_amount,
+        orders.payment_provider AS order_payment_provider,
+        latest_payment.payment_provider AS latest_payment_provider,
+        latest_payment.status AS latest_payment_status,
+        latest_payment.method AS latest_payment_method,
+        latest_payment.total_amount,
+        latest_payment.approved_at,
+        latest_payment.created_at AS payment_created_at
+      FROM stage_service_orders
+      LEFT JOIN orders ON orders.order_id = stage_service_orders.order_id
+      LEFT JOIN LATERAL (
+        SELECT payment_provider, status, method, total_amount, approved_at, created_at
+        FROM payments
+        WHERE order_id = stage_service_orders.order_id
+        ORDER BY updated_at DESC NULLS LAST, created_at DESC
+        LIMIT 1
+      ) AS latest_payment ON TRUE
+      WHERE stage_service_orders.service_order_number = $1
+        AND stage_service_orders.name = $2
+        AND LOWER(stage_service_orders.email) = $3
+      LIMIT 1
+    `,
+    [serviceOrderNumber, name, email]
   );
 
   return result.rows[0] || null;
@@ -2869,6 +2960,83 @@ async function findEligibleCompletedApplicationForStageService({
       WHERE name = $1
         AND phone = $2
         AND LOWER(email) = $3
+        AND payment_status = 'DONE'
+        AND admin_deleted_at IS NULL
+      ORDER BY submitted_at DESC NULLS LAST, updated_at DESC
+      LIMIT 1
+    `,
+    [name, phone, email]
+  );
+
+  if (result.rowCount === 0) {
+    return null;
+  }
+
+  return {
+    ...result.rows[0],
+    discipline: getCanonicalApplicationDisciplineTitle({
+      imageKey: result.rows[0].image_key,
+      discipline: result.rows[0].discipline,
+    }),
+  };
+}
+
+function mapStageServiceRefundRequestRow(row) {
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    serviceOrderNumber: row.service_order_number,
+    orderId: row.order_id,
+    paymentKey: row.payment_key,
+    requestReason: row.request_reason,
+    requestStatus: row.request_status,
+    refundPercent: row.refund_percent,
+    refundAmount: row.refund_amount,
+    originalAmount: row.original_amount,
+    policyVersion: row.policy_version,
+    policyRuleId: row.policy_rule_id,
+    policyRuleLabel: row.policy_rule_label,
+    providerErrorCode: row.provider_error_code,
+    providerErrorMessage: row.provider_error_message,
+    processedAt: row.processed_at,
+    createdAt: row.created_at,
+  };
+}
+
+function mapAdminStageServiceRefundRequestRow(row) {
+  return {
+    ...mapStageServiceRefundRequestRow(row),
+    refundTarget: "stage-service",
+    applicationNumber: row.linked_application_number,
+    serviceType: row.service_type,
+    name: row.service_name || row.requested_by_name,
+    phone: row.service_phone,
+    email: row.service_email || row.requested_by_email,
+    division: "무대 서비스",
+    discipline: stageServiceDefinitions[row.service_type]?.title || row.service_type,
+    paymentStatus: row.payment_status,
+  };
+}
+
+async function findEligibleKcpTestApplicationForStageService({
+  client = pool,
+  name,
+  phone,
+  email,
+}) {
+  const result = await client.query(
+    `
+      SELECT
+        id,
+        application_number,
+        discipline,
+        image_key
+      FROM applications
+      WHERE name = $1
+        AND phone = $2
+        AND LOWER(email) = $3
+        AND division = 'TEST'
         AND payment_status = 'DONE'
         AND admin_deleted_at IS NULL
       ORDER BY submitted_at DESC NULLS LAST, updated_at DESC
@@ -3626,6 +3794,375 @@ app.post("/kcp/test/orders/:orderId/cancel", async function (req, res) {
   }
 });
 
+app.post("/kcp/test/stage-services/draft", async function (req, res) {
+  if (!hasTrustedWriteOrigin(req)) {
+    return res.status(403).json({
+      ok: false,
+      code: "UNTRUSTED_REQUEST_ORIGIN",
+      message: "허용되지 않은 요청 출처입니다.",
+    });
+  }
+
+  if (!kcpTestPaymentEnabled || !isKcpTestPaymentAuthorized(req)) {
+    return res.status(kcpTestPaymentEnabled ? 403 : 404).json({
+      ok: false,
+      code: kcpTestPaymentEnabled ? "KCP_TEST_PAYMENT_FORBIDDEN" : "KCP_TEST_PAYMENT_DISABLED",
+      message: kcpTestPaymentEnabled
+        ? "Invalid KCP test payment token"
+        : "KCP test payment is disabled",
+    });
+  }
+
+  const validation = validateStageServiceDraftPayload(req.body);
+
+  if (!validation.ok) {
+    return res.status(400).json({ ok: false, message: validation.message });
+  }
+
+  const { payload } = validation;
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const linkedApplication = await findEligibleKcpTestApplicationForStageService({
+      client,
+      name: payload.name,
+      phone: payload.phone,
+      email: payload.email,
+    });
+
+    if (!linkedApplication) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({
+        ok: false,
+        code: "KCP_TEST_APPLICATION_REQUIRED",
+        message:
+          "무대 서비스 테스트는 동일한 성함, 연락처, 이메일로 완료된 KCP TEST 대회 신청이 필요합니다.",
+      });
+    }
+
+    const draftId = generateStageServiceDraftId();
+    const draftResult = await client.query(
+      `
+        INSERT INTO stage_service_drafts (
+          draft_id, payment_method, status, service_type, name, phone, email,
+          linked_application_id, linked_application_number, linked_discipline,
+          photo_has_additional_discipline, photo_additional_discipline,
+          video_type, video_additional_discipline,
+          hair_participant_discipline, hair_option,
+          hair_additional_discipline, hair_optional_option,
+          total_amount, created_at, updated_at
+        )
+        VALUES (
+          $1, $2, 'DRAFT', $3, $4, $5, $6, $7, $8, $9,
+          $10, $11, $12, $13, $14, $15, $16, $17, 100, NOW(), NOW()
+        )
+        RETURNING
+          draft_id, order_id, payment_method, status, service_type, name, phone, email,
+          linked_application_number, linked_discipline,
+          photo_has_additional_discipline, photo_additional_discipline,
+          video_type, video_additional_discipline,
+          hair_participant_discipline, hair_option,
+          hair_additional_discipline, hair_optional_option,
+          total_amount, created_at, updated_at
+      `,
+      [
+        draftId,
+        payload.paymentMethod,
+        payload.serviceType,
+        payload.name,
+        payload.phone,
+        payload.email,
+        linkedApplication.id,
+        linkedApplication.application_number,
+        linkedApplication.discipline,
+        payload.photoHasAdditionalDiscipline,
+        payload.photoAdditionalDiscipline,
+        payload.videoType,
+        payload.videoAdditionalDiscipline,
+        payload.hairParticipantDiscipline,
+        payload.hairOption,
+        payload.hairAdditionalDiscipline,
+        payload.hairOptionalOption,
+      ]
+    );
+
+    await client.query("COMMIT");
+    issueDraftAccessCookie(res, {
+      draftId,
+      draftType: "stage-service",
+      cookieName: stageServiceDraftCookieName,
+    });
+
+    return res.status(201).json({
+      ok: true,
+      draft: mapStageServiceDraftRow(draftResult.rows[0]),
+      linkedApplication: {
+        applicationNumber: linkedApplication.application_number,
+        discipline: linkedApplication.discipline,
+      },
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error("Failed to create KCP test stage service draft:", error);
+    return res.status(500).json({ ok: false, message: "Failed to create KCP test stage service draft" });
+  } finally {
+    client.release();
+  }
+});
+
+app.post("/kcp/test/stage-services/orders", async function (req, res) {
+  if (!hasTrustedWriteOrigin(req)) {
+    return res.status(403).json({ ok: false, code: "UNTRUSTED_REQUEST_ORIGIN", message: "허용되지 않은 요청 출처입니다." });
+  }
+
+  if (!kcpTestPaymentEnabled || !isKcpTestPaymentAuthorized(req)) {
+    return res.status(kcpTestPaymentEnabled ? 403 : 404).json({
+      ok: false,
+      code: kcpTestPaymentEnabled ? "KCP_TEST_PAYMENT_FORBIDDEN" : "KCP_TEST_PAYMENT_DISABLED",
+      message: kcpTestPaymentEnabled ? "Invalid KCP test payment token" : "KCP test payment is disabled",
+    });
+  }
+
+  const draftId = normalizeText(req.body.draftId);
+
+  if (!draftId) {
+    return res.status(400).json({ ok: false, message: "Missing draftId" });
+  }
+
+  if (!requireRequestDraftAccess(req, res, {
+    draftId,
+    draftType: "stage-service",
+    cookieName: stageServiceDraftCookieName,
+  })) {
+    return;
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const draftResult = await client.query(
+      `
+        SELECT
+          stage_service_drafts.draft_id,
+          stage_service_drafts.order_id,
+          stage_service_drafts.name,
+          stage_service_drafts.email,
+          stage_service_drafts.total_amount,
+          applications.division
+        FROM stage_service_drafts
+        JOIN applications ON applications.id = stage_service_drafts.linked_application_id
+        WHERE stage_service_drafts.draft_id = $1
+        FOR UPDATE OF stage_service_drafts
+      `,
+      [draftId]
+    );
+
+    if (draftResult.rowCount === 0 || draftResult.rows[0].division !== "TEST") {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ ok: false, message: "KCP test stage service draft not found" });
+    }
+
+    const draft = draftResult.rows[0];
+
+    if (Number(draft.total_amount) !== 100) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ ok: false, code: "KCP_TEST_ORDER_MISMATCH", message: "KCP 테스트 무대 서비스 금액이 올바르지 않습니다." });
+    }
+
+    if (draft.order_id) {
+      const existingOrderResult = await client.query(
+        `SELECT order_id, order_name, amount, customer_name, customer_email, payment_provider, status, created_at FROM orders WHERE order_id = $1 LIMIT 1`,
+        [draft.order_id]
+      );
+
+      if (existingOrderResult.rowCount > 0) {
+        const order = existingOrderResult.rows[0];
+        if (!isMatchingKcpTestOrder(order, "stageServiceTest")) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({ ok: false, code: "KCP_TEST_ORDER_MISMATCH", message: "KCP 테스트 무대 서비스 주문이 아닙니다." });
+        }
+
+        const resultAccessToken = createPaymentResultAccessToken({ orderId: order.order_id, secret: paymentResultTokenSecret, ttlSeconds: paymentResultAccessTtlHours * 60 * 60 });
+        await client.query("COMMIT");
+        res.setHeader("Set-Cookie", createPaymentResultAccessCookie(resultAccessToken));
+        return res.status(200).json({
+          ok: true,
+          order: {
+            orderId: order.order_id,
+            orderName: order.order_name,
+            amount: order.amount,
+            customerName: order.customer_name,
+            customerEmail: order.customer_email,
+            paymentProvider: order.payment_provider,
+            status: order.status,
+            createdAt: order.created_at,
+          },
+        });
+      }
+    }
+
+    const providerResolution = resolvePaymentProvider({ requestedProvider: paymentProviders.KCP, amount: 100 });
+    if (!providerResolution.ok) {
+      await client.query("ROLLBACK");
+      return res.status(providerResolution.status).json({ ok: false, message: providerResolution.message });
+    }
+
+    const orderId = generateOrderId();
+    const resultAccessToken = createPaymentResultAccessToken({ orderId, secret: paymentResultTokenSecret, ttlSeconds: paymentResultAccessTtlHours * 60 * 60 });
+    const orderResult = await client.query(
+      `
+        INSERT INTO orders (order_id, order_name, amount, customer_name, customer_email, payment_provider, status)
+        VALUES ($1, $2, 100, $3, $4, $5, 'READY')
+        RETURNING order_id, order_name, amount, customer_name, customer_email, payment_provider, status, created_at
+      `,
+      [orderId, kcpTestOrderNames.stageServiceTest, draft.name, draft.email, providerResolution.provider]
+    );
+
+    await client.query(
+      `UPDATE stage_service_drafts SET order_id = $2, updated_at = NOW() WHERE draft_id = $1`,
+      [draftId, orderId]
+    );
+    await client.query("COMMIT");
+
+    const order = orderResult.rows[0];
+    res.setHeader("Set-Cookie", createPaymentResultAccessCookie(resultAccessToken));
+    return res.status(201).json({
+      ok: true,
+      order: {
+        orderId: order.order_id,
+        orderName: order.order_name,
+        amount: order.amount,
+        customerName: order.customer_name,
+        customerEmail: order.customer_email,
+        paymentProvider: order.payment_provider,
+        status: order.status,
+        createdAt: order.created_at,
+      },
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error("Failed to create KCP test stage service order:", error);
+    return res.status(500).json({ ok: false, message: "Failed to create KCP test stage service order" });
+  } finally {
+    client.release();
+  }
+});
+
+app.post("/kcp/test/stage-services/orders/:orderId/cancel", async function (req, res) {
+  if (!kcpTestPaymentEnabled || !isKcpTestPaymentAuthorized(req)) {
+    return res.status(kcpTestPaymentEnabled ? 403 : 404).json({
+      ok: false,
+      code: kcpTestPaymentEnabled ? "KCP_TEST_PAYMENT_FORBIDDEN" : "KCP_TEST_PAYMENT_DISABLED",
+      message: kcpTestPaymentEnabled ? "Invalid KCP test payment token" : "KCP test payment is disabled",
+    });
+  }
+
+  const orderId = normalizeText(req.params.orderId);
+  if (!orderId) {
+    return res.status(400).json({ ok: false, message: "Missing orderId" });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const result = await client.query(
+      `
+        SELECT
+          orders.order_id,
+          orders.order_name,
+          orders.amount,
+          orders.status AS order_status,
+          orders.payment_provider AS order_payment_provider,
+          payments.payment_key,
+          payments.status AS payment_status,
+          payments.payment_provider AS payment_provider
+        FROM orders
+        JOIN payments ON payments.order_id = orders.order_id
+        WHERE orders.order_id = $1
+        ORDER BY payments.updated_at DESC
+        LIMIT 1
+        FOR UPDATE OF orders, payments
+      `,
+      [orderId]
+    );
+
+    if (result.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ ok: false, code: "KCP_TEST_PAYMENT_NOT_FOUND", message: "KCP 테스트 결제 정보를 찾을 수 없습니다." });
+    }
+
+    const payment = result.rows[0];
+    if (
+      !isMatchingKcpTestOrder(payment, "stageServiceTest") ||
+      payment.order_payment_provider !== paymentProviders.KCP ||
+      payment.payment_provider !== paymentProviders.KCP
+    ) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ ok: false, code: "KCP_TEST_ORDER_MISMATCH", message: "KCP 테스트 무대 서비스 주문이 아닙니다." });
+    }
+
+    if (payment.order_status === "CANCELED" || payment.payment_status === "CANCELED") {
+      await client.query("COMMIT");
+      return res.status(200).json({ ok: true, duplicated: true, orderId: payment.order_id, paymentKey: payment.payment_key, paymentStatus: "CANCELED" });
+    }
+
+    if (payment.order_status !== "PAID" || payment.payment_status !== "DONE") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ ok: false, code: "KCP_TEST_PAYMENT_NOT_CANCELABLE", message: "현재 상태에서는 테스트 결제를 취소할 수 없습니다." });
+    }
+
+    const cancellation = await requestKcpCancellation({
+      paymentKey: payment.payment_key,
+      cancelAmount: 100,
+      remainingAmount: 100,
+      originalAmount: 100,
+      reason: "KCP 100원 무대 서비스 테스트 결제 취소",
+    });
+
+    if (!cancellation.ok) {
+      await client.query("ROLLBACK");
+      return res.status(cancellation.httpStatus >= 400 ? cancellation.httpStatus : 502).json({
+        ok: false,
+        code: cancellation.errorCode,
+        message: cancellation.errorMessage,
+        kcp: cancellation.result.kcp,
+      });
+    }
+
+    await client.query(
+      `
+        UPDATE payments
+        SET status = 'CANCELED',
+            raw_response_json = jsonb_build_object('approval', raw_response_json, 'cancellations', jsonb_build_array($2::jsonb)),
+            updated_at = NOW()
+        WHERE order_id = $1 AND payment_provider = 'kcp'
+      `,
+      [payment.order_id, JSON.stringify(cancellation.result)]
+    );
+    await client.query(`UPDATE orders SET status = 'CANCELED', updated_at = NOW() WHERE order_id = $1`, [payment.order_id]);
+    await client.query(`UPDATE stage_service_orders SET payment_status = 'CANCELED', updated_at = NOW() WHERE order_id = $1`, [payment.order_id]);
+    await client.query("COMMIT");
+
+    return res.status(200).json({
+      ok: true,
+      orderId: payment.order_id,
+      paymentKey: payment.payment_key,
+      paymentStatus: "CANCELED",
+      cancellation: cancellation.result,
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error("Failed to cancel KCP test stage service payment:", error);
+    return res.status(error.statusCode || 500).json({ ok: false, message: error.message || "Failed to cancel KCP test stage service payment" });
+  } finally {
+    client.release();
+  }
+});
+
 app.post("/kcp/trade/register", async function (req, res) {
   if (!hasTrustedWriteOrigin(req)) {
     return res.status(403).json({
@@ -3648,7 +4185,7 @@ app.post("/kcp/trade/register", async function (req, res) {
     });
   }
 
-  if (context === "kcpTest") {
+  if (isKcpTestContext(context)) {
     if (!kcpTestPaymentEnabled) {
       return res.status(404).json({
         ok: false,
@@ -3743,7 +4280,7 @@ app.post("/kcp/trade/register", async function (req, res) {
       });
     }
 
-    if (context === "kcpTest" && (order.order_name !== "KCP 100원 테스트 결제" || amount !== 100)) {
+    if (isKcpTestContext(context) && !isMatchingKcpTestOrder(order, context)) {
       return res.status(409).json({
         ok: false,
         code: "KCP_TEST_ORDER_MISMATCH",
@@ -4074,7 +4611,7 @@ app.post("/kcp/return", async function (req, res) {
       return redirectFailure("INVALID_ORDER_AMOUNT", "주문 금액이 올바르지 않습니다.");
     }
 
-    if (context === "kcpTest" && (order.order_name !== "KCP 100원 테스트 결제" || amount !== 100)) {
+    if (isKcpTestContext(context) && !isMatchingKcpTestOrder(order, context)) {
       await client.query("ROLLBACK");
       return redirectFailure("KCP_TEST_ORDER_MISMATCH", "KCP 테스트 결제 주문이 아닙니다.");
     }
@@ -5279,6 +5816,32 @@ app.get("/admin/refunds", requireAdminAuth, async function (req, res) {
       `
     );
 
+    const stageRefundRequestTableResult = await pool.query(
+      "SELECT to_regclass('public.stage_service_refund_requests') AS table_name"
+    );
+    const stageRefundRequestResult = stageRefundRequestTableResult.rows[0]?.table_name
+      ? await pool.query(
+          `
+            SELECT
+              requests.*,
+              service_orders.name AS service_name,
+              service_orders.phone AS service_phone,
+              service_orders.email AS service_email,
+              service_orders.service_type,
+              service_orders.linked_application_number,
+              payments.status AS payment_status
+            FROM stage_service_refund_requests AS requests
+            LEFT JOIN stage_service_orders AS service_orders
+              ON service_orders.service_order_number = requests.service_order_number
+            LEFT JOIN payments
+              ON payments.payment_key = requests.payment_key
+              OR payments.order_id = requests.order_id
+            ORDER BY requests.created_at DESC
+            LIMIT 200
+          `
+        )
+      : { rows: [], rowCount: 0 };
+
     const canceledPaymentResult = await pool.query(
       `
         SELECT
@@ -5295,12 +5858,20 @@ app.get("/admin/refunds", requireAdminAuth, async function (req, res) {
           applications.email,
           applications.division,
           applications.discipline,
+          stage_service_orders.service_order_number,
+          stage_service_orders.service_type,
+          stage_service_orders.linked_application_number AS stage_linked_application_number,
+          stage_service_orders.name AS stage_service_name,
+          stage_service_orders.phone AS stage_service_phone,
+          stage_service_orders.email AS stage_service_email,
           orders.customer_name,
           orders.customer_email,
           orders.status AS order_status
         FROM payments
         LEFT JOIN applications
           ON applications.order_id = payments.order_id
+        LEFT JOIN stage_service_orders
+          ON stage_service_orders.order_id = payments.order_id
         LEFT JOIN orders
           ON orders.order_id = payments.order_id
         WHERE payments.status IN ('CANCELED', 'PARTIAL_CANCELED')
@@ -5317,34 +5888,44 @@ app.get("/admin/refunds", requireAdminAuth, async function (req, res) {
       userAgent: getRequestUserAgent(req),
       metadata: {
         refundRequestCount: refundRequestResult.rowCount,
+        stageRefundRequestCount: stageRefundRequestResult.rowCount,
         canceledPaymentCount: canceledPaymentResult.rowCount,
       },
     });
 
     return res.status(200).json({
       ok: true,
-      refundRequests: refundRequestResult.rows.map((row) => ({
-        ...mapRefundRequestRow(row),
-        name: row.application_name,
-        phone: row.application_phone,
-        email: row.application_email,
-        division: row.division,
-        discipline: getCanonicalApplicationDisciplineTitle({
-          discipline: row.discipline,
-        }),
-        paymentStatus: row.payment_status,
-      })),
+      refundRequests: [
+        ...refundRequestResult.rows.map((row) => ({
+          ...mapRefundRequestRow(row),
+          refundTarget: "application",
+          serviceOrderNumber: null,
+          serviceType: null,
+          name: row.application_name,
+          phone: row.application_phone,
+          email: row.application_email,
+          division: row.division,
+          discipline: getCanonicalApplicationDisciplineTitle({
+            discipline: row.discipline,
+          }),
+          paymentStatus: row.payment_status,
+        })),
+        ...stageRefundRequestResult.rows.map(mapAdminStageServiceRefundRequestRow),
+      ].sort((left, right) => new Date(right.createdAt || 0) - new Date(left.createdAt || 0)),
       refunds: canceledPaymentResult.rows.map((row) => ({
         orderId: row.order_id,
         paymentKey: row.payment_key,
-        applicationNumber: row.application_number,
-        name: row.name || row.customer_name,
-        phone: row.phone,
-        email: row.email || row.customer_email,
-        division: row.division,
-        discipline: getCanonicalApplicationDisciplineTitle({
-          discipline: row.discipline,
-        }),
+        refundTarget: row.service_order_number ? "stage-service" : "application",
+        applicationNumber: row.application_number || row.stage_linked_application_number,
+        serviceOrderNumber: row.service_order_number,
+        serviceType: row.service_type,
+        name: row.name || row.stage_service_name || row.customer_name,
+        phone: row.phone || row.stage_service_phone,
+        email: row.email || row.stage_service_email || row.customer_email,
+        division: row.service_order_number ? "무대 서비스" : row.division,
+        discipline: row.service_order_number
+          ? stageServiceDefinitions[row.service_type]?.title || row.service_type
+          : getCanonicalApplicationDisciplineTitle({ discipline: row.discipline }),
         paymentStatus: row.status,
         totalAmount: row.total_amount,
         approvedAt: row.approved_at,
@@ -5928,6 +6509,144 @@ app.post("/admin/refunds/:refundRequestId/retry-sync", requireAdminAuth, async f
       ok: false,
       message: "Failed to retry refund sync",
     });
+  } finally {
+    client.release();
+  }
+});
+
+app.post("/admin/stage-service-refunds/:refundRequestId/retry-sync", requireAdminAuth, async function (req, res) {
+  if (!hasTrustedAdminOrigin(req)) {
+    return res.status(403).json({ ok: false, message: "Untrusted admin origin" });
+  }
+
+  const refundRequestId = Number(req.params.refundRequestId);
+  if (!Number.isInteger(refundRequestId) || refundRequestId <= 0) {
+    return res.status(400).json({ ok: false, message: "Invalid refund request id" });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const refundRequestResult = await client.query(
+      `SELECT * FROM stage_service_refund_requests WHERE id = $1 LIMIT 1 FOR UPDATE`,
+      [refundRequestId]
+    );
+
+    if (refundRequestResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ ok: false, message: "Stage service refund request not found" });
+    }
+
+    const refundRequest = refundRequestResult.rows[0];
+    if (refundRequest.request_status === "COMPLETED") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ ok: false, code: "REFUND_REQUEST_ALREADY_COMPLETED", message: "이미 완료된 환불 요청입니다." });
+    }
+    if (refundRequest.request_status !== "SYNC_FAILED") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ ok: false, code: "REFUND_REQUEST_NOT_RETRYABLE", message: "현재 상태에서는 재동기화를 실행할 수 없습니다." });
+    }
+
+    let providerResponse = refundRequest.provider_response_json;
+    if (typeof providerResponse === "string") {
+      try {
+        providerResponse = JSON.parse(providerResponse);
+      } catch (_error) {
+        providerResponse = null;
+      }
+    }
+    if (!providerResponse || typeof providerResponse !== "object") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ ok: false, code: "REFUND_PROVIDER_RESPONSE_MISSING", message: "결제사 환불 응답 원본이 없어 재동기화를 진행할 수 없습니다." });
+    }
+
+    const nextPaymentStatus = providerResponse.status || "CANCELED";
+    await client.query(
+      `
+        UPDATE payments
+        SET
+          method = COALESCE($3, method),
+          payment_type = COALESCE($4, payment_type),
+          status = $5,
+          approved_at = COALESCE($6, approved_at),
+          total_amount = COALESCE($7, total_amount),
+          raw_response_json = CASE
+            WHEN payment_provider = 'kcp' THEN jsonb_build_object(
+              'approval', raw_response_json,
+              'cancellations', jsonb_build_array($8::jsonb)
+            )
+            ELSE COALESCE($8::jsonb, raw_response_json)
+          END,
+          updated_at = NOW()
+        WHERE payment_key = $1 OR order_id = $2
+      `,
+      [
+        refundRequest.payment_key,
+        refundRequest.order_id,
+        providerResponse.method || null,
+        providerResponse.type || null,
+        nextPaymentStatus,
+        providerResponse.approvedAt || null,
+        providerResponse.totalAmount ?? refundRequest.original_amount ?? null,
+        JSON.stringify(providerResponse),
+      ]
+    );
+    await client.query(
+      `UPDATE orders SET status = $2, updated_at = NOW() WHERE order_id = $1`,
+      [refundRequest.order_id, mapPaymentStatusToOrderStatus(nextPaymentStatus) || "CANCELED"]
+    );
+    const stageServiceResult = await client.query(
+      `
+        UPDATE stage_service_orders
+        SET
+          payment_status = $2,
+          service_status = CASE
+            WHEN $2 = 'CANCELED' THEN 'REFUNDED'
+            WHEN $2 = 'PARTIAL_CANCELED' THEN 'PARTIAL_REFUNDED'
+            ELSE service_status
+          END,
+          updated_at = NOW()
+        WHERE service_order_number = $1
+        RETURNING service_order_number
+      `,
+      [refundRequest.service_order_number, nextPaymentStatus]
+    );
+    if (stageServiceResult.rowCount === 0) {
+      throw new Error("Stage service order not found for refund sync");
+    }
+    const completedRequestResult = await client.query(
+      `
+        UPDATE stage_service_refund_requests
+        SET request_status = 'COMPLETED', processed_at = COALESCE(processed_at, NOW()), updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `,
+      [refundRequestId]
+    );
+    await client.query("COMMIT");
+
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_RETRY_STAGE_SERVICE_REFUND_SYNC",
+      targetType: "stage_service_refund_request",
+      targetId: String(refundRequestId),
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+      metadata: {
+        serviceOrderNumber: refundRequest.service_order_number,
+        nextPaymentStatus,
+      },
+    });
+
+    return res.status(200).json({
+      ok: true,
+      refundRequest: mapStageServiceRefundRequestRow(completedRequestResult.rows[0]),
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error("Failed to retry stage service refund sync:", error);
+    return res.status(500).json({ ok: false, message: "Failed to retry stage service refund sync" });
   } finally {
     client.release();
   }
@@ -7670,18 +8389,39 @@ app.post("/stage-services/summary", async function (req, res) {
 
     const summaryResult = await pool.query(
       `
-        SELECT service_type
+        SELECT
+          service_order_number,
+          order_id,
+          service_type,
+          linked_application_number,
+          linked_discipline,
+          photo_has_additional_discipline,
+          photo_additional_discipline,
+          video_type,
+          video_additional_discipline,
+          hair_participant_discipline,
+          hair_option,
+          hair_additional_discipline,
+          hair_optional_option,
+          total_amount,
+          payment_status,
+          service_status,
+          purchased_at,
+          updated_at
         FROM stage_service_orders
         WHERE name = $1
           AND phone = $2
           AND LOWER(email) = $3
-          AND payment_status = 'DONE'
+          AND linked_application_number = $4
+        ORDER BY purchased_at DESC NULLS LAST, updated_at DESC
       `,
-      [name, ownedApplication.phone, email]
+      [name, ownedApplication.phone, email, applicationNumber]
     );
 
     const purchasedServiceTypes = new Set(
-      summaryResult.rows.map((row) => row.service_type)
+      summaryResult.rows
+        .filter((row) => row.payment_status === "DONE")
+        .map((row) => row.service_type)
     );
 
     return res.status(200).json({
@@ -7690,6 +8430,14 @@ app.post("/stage-services/summary", async function (req, res) {
         hasStagePhoto: purchasedServiceTypes.has("stage-photo"),
         hasStageVideo: purchasedServiceTypes.has("stage-video"),
         hasHairMakeup: purchasedServiceTypes.has("hair-makeup"),
+        purchases: summaryResult.rows.map((row) =>
+          mapStageServiceOrderRow({
+            ...row,
+            name,
+            phone: ownedApplication.phone,
+            email,
+          })
+        ),
       },
     });
   } catch (error) {
@@ -7698,6 +8446,257 @@ app.post("/stage-services/summary", async function (req, res) {
       ok: false,
       message: "Failed to fetch stage service summary",
     });
+  }
+});
+
+app.post("/stage-services/refund/quote", async function (req, res) {
+  try {
+    await ensureLookupVerificationStoreReady();
+    await purgeExpiredLookupVerifications();
+
+    const name = normalizeText(req.body.name);
+    const email = normalizeEmail(req.body.email);
+    const verificationToken = normalizeText(req.body.verificationToken);
+    const serviceOrderNumber = normalizeText(req.body.serviceOrderNumber);
+
+    if (!name || !email || !verificationToken || !serviceOrderNumber) {
+      return res.status(400).json({ ok: false, message: "Missing stage service refund fields" });
+    }
+
+    if (!hasValidEmail(email)) {
+      return res.status(400).json({ ok: false, message: "유효한 이메일 주소를 입력해 주세요." });
+    }
+
+    if (!(await hasVerifiedLookupSession({ name, email, verificationToken }))) {
+      return res.status(403).json({ ok: false, message: "이메일 인증이 만료되었거나 유효하지 않습니다. 다시 인증해 주세요." });
+    }
+
+    const serviceOrder = await findLookupOwnedStageService({ name, email, serviceOrderNumber });
+    if (!serviceOrder) {
+      return res.status(404).json({ ok: false, message: "일치하는 무대 서비스 주문을 찾을 수 없습니다." });
+    }
+
+    const refundQuote = calculateRefundQuote({
+      serviceStatus: serviceOrder.service_status,
+      paymentStatus: serviceOrder.latest_payment_status || serviceOrder.payment_status,
+      amount: serviceOrder.total_amount ?? serviceOrder.service_amount ?? serviceOrder.order_amount,
+      paymentCompletedAt: serviceOrder.approved_at || serviceOrder.payment_created_at,
+      paymentMethod: serviceOrder.latest_payment_method,
+      requestedAt: new Date(),
+    });
+
+    return res.status(200).json({
+      ok: true,
+      serviceOrder: mapStageServiceOrderRow({
+        ...serviceOrder,
+        total_amount: serviceOrder.service_amount,
+      }),
+      refundQuote,
+    });
+  } catch (error) {
+    console.error("Failed to calculate stage service refund quote:", error);
+    return res.status(500).json({ ok: false, message: "Failed to calculate stage service refund quote" });
+  }
+});
+
+app.post("/stage-services/refund/request", async function (req, res) {
+  let client = null;
+  let refundRequestId = null;
+  let providerCancelResult = null;
+  let providerCancelStatusCode = null;
+
+  try {
+    await ensureLookupVerificationStoreReady();
+    await purgeExpiredLookupVerifications();
+
+    const tableResult = await pool.query("SELECT to_regclass('public.stage_service_refund_requests') AS table_name");
+    if (!tableResult.rows[0]?.table_name) {
+      return res.status(503).json({ ok: false, code: "STAGE_REFUND_STORE_NOT_READY", message: "무대 서비스 환불 저장소를 먼저 구성해 주세요." });
+    }
+
+    const name = normalizeText(req.body.name);
+    const email = normalizeEmail(req.body.email);
+    const verificationToken = normalizeText(req.body.verificationToken);
+    const serviceOrderNumber = normalizeText(req.body.serviceOrderNumber);
+    const requestReason = normalizeText(req.body.requestReason) || "사용자 요청 자동 환불";
+
+    if (!name || !email || !verificationToken || !serviceOrderNumber) {
+      return res.status(400).json({ ok: false, message: "Missing stage service refund fields" });
+    }
+    if (!hasValidEmail(email)) {
+      return res.status(400).json({ ok: false, message: "유효한 이메일 주소를 입력해 주세요." });
+    }
+    if (!(await hasVerifiedLookupSession({ name, email, verificationToken }))) {
+      return res.status(403).json({ ok: false, message: "이메일 인증이 만료되었거나 유효하지 않습니다. 다시 인증해 주세요." });
+    }
+
+    const serviceOrder = await findLookupOwnedStageService({ name, email, serviceOrderNumber });
+    if (!serviceOrder) {
+      return res.status(404).json({ ok: false, message: "일치하는 무대 서비스 주문을 찾을 수 없습니다." });
+    }
+
+    const originalAmount = Number(serviceOrder.total_amount ?? serviceOrder.service_amount ?? serviceOrder.order_amount);
+    const refundQuote = calculateRefundQuote({
+      serviceStatus: serviceOrder.service_status,
+      paymentStatus: serviceOrder.latest_payment_status || serviceOrder.payment_status,
+      amount: originalAmount,
+      paymentCompletedAt: serviceOrder.approved_at || serviceOrder.payment_created_at,
+      paymentMethod: serviceOrder.latest_payment_method,
+      requestedAt: new Date(),
+    });
+
+    if (!refundQuote.canAutoRefund || !refundQuote.isRefundable || refundQuote.requiresManualReview) {
+      return res.status(409).json({ ok: false, code: refundQuote.reasonCode, message: refundQuote.message, refundQuote });
+    }
+    if (!serviceOrder.payment_key || (serviceOrder.latest_payment_provider || serviceOrder.order_payment_provider) !== paymentProviders.KCP) {
+      return res.status(409).json({ ok: false, code: "PAYMENT_PROVIDER_MISMATCH", message: "KCP 결제 건만 환불할 수 있습니다." });
+    }
+    try { assertKcpConfigured(); } catch (error) {
+      return res.status(error.statusCode || 503).json({ ok: false, code: "KCP_NOT_CONFIGURED", message: error.message });
+    }
+
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const activeResult = await client.query(
+      `SELECT * FROM stage_service_refund_requests WHERE service_order_number = $1 AND request_status IN ('REQUESTED', 'PROCESSING', 'COMPLETED', 'SYNC_FAILED') ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,
+      [serviceOrderNumber]
+    );
+    if (activeResult.rowCount > 0) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ ok: false, code: "REFUND_ALREADY_REQUESTED", message: "이미 환불 요청이 접수되었거나 처리된 무대 서비스입니다.", refundRequest: mapStageServiceRefundRequestRow(activeResult.rows[0]) });
+    }
+    if (!(await consumeVerifiedLookupSession(client, { name, email, verificationToken }))) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ ok: false, message: "이메일 인증이 이미 사용되었거나 만료되었습니다. 다시 인증해 주세요." });
+    }
+    const insertResult = await client.query(
+      `
+        INSERT INTO stage_service_refund_requests (
+          service_order_number, order_id, payment_key, request_reason, request_status,
+          refund_percent, refund_amount, original_amount, policy_version, policy_rule_id,
+          policy_rule_label, policy_snapshot_json, requested_by_name, requested_by_email,
+          provider_idempotency_key
+        ) VALUES ($1, $2, $3, $4, 'PROCESSING', $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14)
+        RETURNING *
+      `,
+      [serviceOrderNumber, serviceOrder.order_id, serviceOrder.payment_key, requestReason, refundQuote.refundPercent, refundQuote.refundAmount, originalAmount, refundQuote.policyVersion, refundQuote.matchedRuleId, refundQuote.matchedRuleLabel, JSON.stringify(refundQuote), name, email, generateRefundIdempotencyKey()]
+    );
+    refundRequestId = insertResult.rows[0].id;
+    await client.query("COMMIT");
+    client.release();
+    client = null;
+
+    const cancellation = await requestKcpCancellation({
+      paymentKey: serviceOrder.payment_key,
+      cancelAmount: refundQuote.refundAmount,
+      remainingAmount: originalAmount,
+      originalAmount,
+      reason: requestReason,
+    });
+    providerCancelResult = cancellation.result;
+    providerCancelStatusCode = cancellation.httpStatus;
+
+    client = await pool.connect();
+    await client.query("BEGIN");
+    if (!cancellation.ok) {
+      const failedResult = await client.query(
+        `UPDATE stage_service_refund_requests SET request_status = 'FAILED', provider_status_code = $2, provider_error_code = $3, provider_error_message = $4, provider_response_json = $5::jsonb, processed_at = NOW(), updated_at = NOW() WHERE id = $1 RETURNING *`,
+        [refundRequestId, cancellation.httpStatus, cancellation.errorCode, cancellation.errorMessage, JSON.stringify(cancellation.result)]
+      );
+      await client.query("COMMIT");
+      return res.status(cancellation.httpStatus >= 400 ? cancellation.httpStatus : 502).json({ ok: false, code: cancellation.errorCode || "REFUND_REQUEST_FAILED", message: cancellation.errorMessage || "환불 처리에 실패했습니다.", refundRequest: mapStageServiceRefundRequestRow(failedResult.rows[0]) });
+    }
+
+    const nextPaymentStatus = cancellation.result.status || "CANCELED";
+    await client.query(
+      `
+        UPDATE payments
+        SET
+          method = COALESCE($3, method),
+          payment_type = COALESCE($4, payment_type),
+          status = $5,
+          approved_at = COALESCE($6, approved_at),
+          total_amount = COALESCE($7, total_amount),
+          raw_response_json = jsonb_build_object(
+            'approval', raw_response_json,
+            'cancellations', jsonb_build_array($8::jsonb)
+          ),
+          updated_at = NOW()
+        WHERE payment_key = $1 OR order_id = $2
+      `,
+      [
+        serviceOrder.payment_key,
+        serviceOrder.order_id,
+        cancellation.result.method || null,
+        cancellation.result.type || null,
+        nextPaymentStatus,
+        cancellation.result.approvedAt || null,
+        cancellation.result.totalAmount ?? originalAmount,
+        JSON.stringify(cancellation.result),
+      ]
+    );
+    await client.query(`UPDATE orders SET status = $2, updated_at = NOW() WHERE order_id = $1`, [serviceOrder.order_id, mapPaymentStatusToOrderStatus(nextPaymentStatus) || "CANCELED"]);
+    await client.query(
+      `
+        UPDATE stage_service_orders
+        SET
+          payment_status = $2,
+          service_status = CASE
+            WHEN $2 = 'CANCELED' THEN 'REFUNDED'
+            WHEN $2 = 'PARTIAL_CANCELED' THEN 'PARTIAL_REFUNDED'
+            ELSE service_status
+          END,
+          updated_at = NOW()
+        WHERE service_order_number = $1
+      `,
+      [serviceOrderNumber, nextPaymentStatus]
+    );
+    const completedResult = await client.query(
+      `UPDATE stage_service_refund_requests SET request_status = 'COMPLETED', provider_status_code = $2, provider_response_json = $3::jsonb, processed_at = NOW(), updated_at = NOW() WHERE id = $1 RETURNING *`,
+      [refundRequestId, cancellation.httpStatus, JSON.stringify(cancellation.result)]
+    );
+    await client.query("COMMIT");
+
+    return res.status(200).json({ ok: true, refundRequest: mapStageServiceRefundRequestRow(completedResult.rows[0]), refundQuote });
+  } catch (error) {
+    await client?.query("ROLLBACK").catch(() => undefined);
+    if (refundRequestId) {
+      await pool
+        .query(
+          `
+            UPDATE stage_service_refund_requests
+            SET
+              request_status = CASE
+                WHEN request_status = 'COMPLETED' THEN request_status
+                WHEN $3::boolean = TRUE THEN 'SYNC_FAILED'
+                ELSE 'FAILED'
+              END,
+              provider_status_code = COALESCE(provider_status_code, $4),
+              provider_response_json = COALESCE(provider_response_json, $5::jsonb),
+              provider_error_message = COALESCE(provider_error_message, $2),
+              updated_at = NOW()
+            WHERE id = $1
+          `,
+          [
+            refundRequestId,
+            error.message || "Failed to process stage service refund",
+            Boolean(providerCancelResult),
+            providerCancelStatusCode,
+            providerCancelResult ? JSON.stringify(providerCancelResult) : null,
+          ]
+        )
+        .catch(() => undefined);
+    }
+    console.error("Failed to process stage service refund:", error);
+    if (error.code === "42P01") {
+      return res.status(500).json({ ok: false, message: "Refund request table is not ready. Apply the SQL migration first." });
+    }
+    if (error.code === "23505") {
+      return res.status(409).json({ ok: false, code: "REFUND_ALREADY_REQUESTED", message: "이미 환불 요청이 접수되었거나 처리된 무대 서비스입니다." });
+    }
+    return res.status(500).json({ ok: false, message: "Failed to process stage service refund" });
+  } finally {
+    client?.release();
   }
 });
 

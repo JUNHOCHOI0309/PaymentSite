@@ -517,7 +517,7 @@ function TableSection({
           <tbody>
             {pagedRows.length ? (
               pagedRows.map((row, index) => (
-                <tr key={row.id || row.orderId || row.applicationNumber || index}>
+                <tr key={`${row.refundTarget || ""}:${row.id || row.orderId || row.applicationNumber || index}`}>
                   {columns.map((column) => (
                     <td key={`${column.key}-${index}`}>
                       {column.render ? column.render(row) : row[column.key] || "-"}
@@ -1145,6 +1145,8 @@ export function AdminDashboardPage() {
         return matchesSearch(
           refundRequestSearch,
           row.applicationNumber,
+          row.serviceOrderNumber,
+          row.serviceType,
           row.orderId,
           row.paymentKey,
           row.name,
@@ -1175,6 +1177,8 @@ export function AdminDashboardPage() {
           row.orderId,
           row.paymentKey,
           row.applicationNumber,
+          row.serviceOrderNumber,
+          row.serviceType,
           row.name,
           row.phone,
           row.email,
@@ -1240,12 +1244,13 @@ export function AdminDashboardPage() {
     }
   }
 
-  async function handleRetryRefundSync(refundRequestId) {
-    setRetryingRefundRequestId(refundRequestId);
+  async function handleRetryRefundSync(refundRequestId, refundTarget = "application") {
+    const retryKey = `${refundTarget}:${refundRequestId}`;
+    setRetryingRefundRequestId(retryKey);
     setErrorMessage("");
 
     try {
-      await retryAdminRefundSync(refundRequestId);
+      await retryAdminRefundSync(refundRequestId, refundTarget);
       await loadAdminData({ silent: true });
     } catch (error) {
       setErrorMessage(error.message || "환불 재동기화에 실패했습니다.");
@@ -1573,7 +1578,10 @@ export function AdminDashboardPage() {
                     "admin-applications.xlsx",
                     "대회 신청",
                     [
+                      { key: "refundTarget", label: "구분" },
                       { key: "applicationNumber", label: "신청번호" },
+                      { key: "serviceOrderNumber", label: "서비스 주문번호" },
+                      { key: "serviceType", label: "서비스 종류" },
                       { key: "orderId", label: "주문번호" },
                       { key: "name", label: "신청자" },
                       { key: "phone", label: "연락처" },
@@ -1900,8 +1908,8 @@ export function AdminDashboardPage() {
                     label: "신청 / 주문",
                     render: (row) => (
                       <MetaCell
-                        primary={row.applicationNumber || "-"}
-                        secondary={`${row.orderId || "-"} / ${row.paymentKey || "-"}`}
+                        primary={row.applicationNumber || row.serviceOrderNumber || "-"}
+                        secondary={`${row.refundTarget === "stage-service" ? "무대 서비스" : "대회 신청"} / ${row.orderId || "-"}`}
                       />
                     ),
                   },
@@ -1973,11 +1981,11 @@ export function AdminDashboardPage() {
                       row.requestStatus === "SYNC_FAILED" ? (
                         <button
                           className="site-admin-action-button"
-                          disabled={retryingRefundRequestId === row.id}
-                          onClick={() => handleRetryRefundSync(row.id)}
+                          disabled={retryingRefundRequestId === `${row.refundTarget || "application"}:${row.id}`}
+                          onClick={() => handleRetryRefundSync(row.id, row.refundTarget)}
                           type="button"
                         >
-                          {retryingRefundRequestId === row.id ? "재동기화 중..." : "재동기화"}
+                          {retryingRefundRequestId === `${row.refundTarget || "application"}:${row.id}` ? "재동기화 중..." : "재동기화"}
                         </button>
                       ) : (
                         <span>-</span>
@@ -2002,7 +2010,10 @@ export function AdminDashboardPage() {
                     [
                       { key: "orderId", label: "주문번호" },
                       { key: "paymentKey", label: "결제키" },
+                      { key: "refundTarget", label: "구분" },
                       { key: "applicationNumber", label: "신청번호" },
+                      { key: "serviceOrderNumber", label: "서비스 주문번호" },
+                      { key: "serviceType", label: "서비스 종류" },
                       { key: "name", label: "신청자" },
                       { key: "phone", label: "연락처" },
                       { key: "email", label: "이메일" },
@@ -2034,7 +2045,7 @@ export function AdminDashboardPage() {
                     label: "신청 정보",
                     render: (row) => (
                       <MetaCell
-                        primary={row.applicationNumber || "-"}
+                        primary={row.applicationNumber || row.serviceOrderNumber || "-"}
                         secondary={`${row.division || "-"} / ${row.discipline || "-"}`}
                       />
                     ),

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "../components/common/Button";
 import { Input } from "../components/common/Input";
 import { NoticeBox } from "../components/common/NoticeBox";
@@ -9,10 +9,17 @@ import {
   getApplicationRefundQuote,
   getStageServiceSummary,
   lookupApplication,
-  requestApplicationRefund,
   sendLookupVerificationCode,
   verifyLookupVerificationCode,
 } from "../lib/applicationApi";
+
+const lookupSessionStorageKey = "mmkorea-lookup-session";
+
+const stageServiceTitles = {
+  "stage-photo": "무대 사진 촬영",
+  "stage-video": "무대 영상 촬영",
+  "hair-makeup": "헤어&메이크업",
+};
 
 function formatVerificationCode(value) {
   return value.replace(/\D/g, "").slice(0, 6);
@@ -43,6 +50,7 @@ function formatAmount(value, locale) {
 
 export function LookupPage() {
   const { locale, t } = useLanguage();
+  const navigate = useNavigate();
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -58,8 +66,6 @@ export function LookupPage() {
   const [isSendingCode, setIsSendingCode] = useState(false);
   const [isVerifyingCode, setIsVerifyingCode] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [refundProcessingId, setRefundProcessingId] = useState("");
-  const [refundMessages, setRefundMessages] = useState({});
 
   useEffect(() => {
     if (!verificationDeadline) {
@@ -113,16 +119,9 @@ export function LookupPage() {
       setVerificationMessage("");
       setDevVerificationCode("");
       setVerificationDeadline(null);
-      setRefundMessages({});
+      window.sessionStorage.removeItem(lookupSessionStorageKey);
     }
   };
-
-  function setRefundMessage(applicationNumber, nextMessage) {
-    setRefundMessages((current) => ({
-      ...current,
-      [applicationNumber]: nextMessage,
-    }));
-  }
 
   function validateNameAndEmail() {
     if (!form.name.trim()) {
@@ -214,6 +213,14 @@ export function LookupPage() {
       setVerificationToken(json.verificationToken || "");
       setVerificationMessage(json.message || t("lookup.verified"));
       setVerificationDeadline(null);
+      window.sessionStorage.setItem(
+        lookupSessionStorageKey,
+        JSON.stringify({
+          name: form.name.trim(),
+          email: form.email.trim().toLowerCase(),
+          verificationToken: json.verificationToken || "",
+        })
+      );
     } catch (error) {
       setVerificationToken("");
       setVerificationMessage("");
@@ -308,7 +315,6 @@ export function LookupPage() {
       );
 
       setResults(applicationsWithStageServiceSummary);
-      setRefundMessages({});
       setVerificationMessage(t("lookup.lookupDone"));
     } catch (error) {
       setResults([]);
@@ -318,79 +324,29 @@ export function LookupPage() {
     }
   }
 
-  async function handleRefundRequest(result) {
-    if (!result?.applicationNumber || refundProcessingId) {
-      return;
-    }
-
-    const confirmed = window.confirm(t("lookup.refundRequestConfirm"));
-
-    if (!confirmed) {
-      return;
-    }
-
-    setRefundProcessingId(result.applicationNumber);
-    setRefundMessage(result.applicationNumber, {
-      type: "",
-      text: "",
-    });
-
-    try {
-      const json = await requestApplicationRefund({
-        name: form.name,
-        email: form.email,
-        verificationToken,
-        applicationNumber: result.applicationNumber,
-      });
-
-      setResults((current) =>
-        current.map((item) =>
-          item.applicationNumber === result.applicationNumber
-            ? {
-                ...item,
-                ...(json.application || {}),
-                refundRequest: json.refundRequest || null,
-                refundQuote: json.refundQuote || {
-                  ...item.refundQuote,
-                  canAutoRefund: false,
-                  isRefundable: false,
-                },
-              }
-            : item
-        )
-      );
-
-      setRefundMessage(result.applicationNumber, {
-        type: "success",
-        text: t("lookup.refundRequestDone"),
-      });
-    } catch (error) {
-      setRefundMessage(result.applicationNumber, {
-        type: "error",
-        text: error.message || t("lookup.refundRequestFailed"),
-      });
-    } finally {
-      setRefundProcessingId("");
-    }
-  }
-
   const hasStatusMessage = Boolean(actionErrorMessage || verificationMessage || devVerificationCode);
   const completedPaymentResults = results.filter((result) => result.paymentStatus === "DONE");
+  const completedStageServicePurchases = results.flatMap((result) =>
+    (result.stageServiceSummary?.purchases || []).filter((purchase) => purchase.paymentStatus === "DONE")
+  );
   const totalPaidAmount = completedPaymentResults.reduce(
     (total, result) => total + Number(result.paymentAmount || 0),
     0,
+  ) + completedStageServicePurchases.reduce(
+    (total, purchase) => total + Number(purchase.totalAmount || 0),
+    0
   );
   const paymentSummaryCopy =
     locale === "ko"
       ? {
           title: "결제 정산",
-          completedCount: "결제 완료 종목",
-          totalPaid: "총 지불 금액",
+          completedCount: "결제 완료 신청 / 서비스",
+          totalPaid: "결제 완료 총액",
         }
       : {
           title: "Payment summary",
-          completedCount: "Completed disciplines",
-          totalPaid: "Total paid",
+          completedCount: "Completed applications / services",
+          totalPaid: "Completed payment total",
         };
 
   return (
@@ -560,28 +516,18 @@ export function LookupPage() {
                       ) : (
                         <p className="site-lookup-refund__pending">{t("lookup.refundPending")}</p>
                       )}
-                      {result.refundQuote?.canAutoRefund && result.refundRequest?.requestStatus !== "COMPLETED" ? (
+                      {result.refundQuote?.canAutoRefund && result.paymentStatus === "DONE" ? (
                         <div className="site-lookup-refund__actions">
                           <Button
-                            onClick={() => handleRefundRequest(result)}
-                            disabled={refundProcessingId === result.applicationNumber}
+                            onClick={() =>
+                              navigate(
+                                `/refund/request?type=application&id=${encodeURIComponent(result.applicationNumber)}`
+                              )
+                            }
                           >
-                            {refundProcessingId === result.applicationNumber
-                              ? t("lookup.refundRequesting")
-                              : t("lookup.refundRequest")}
+                            {t("lookup.refundRequest")}
                           </Button>
                         </div>
-                      ) : null}
-                      {refundMessages[result.applicationNumber]?.text ? (
-                        <p
-                          className={
-                            refundMessages[result.applicationNumber]?.type === "success"
-                              ? "site-lookup-refund__success"
-                              : "site-lookup-refund__error"
-                          }
-                        >
-                          {refundMessages[result.applicationNumber].text}
-                        </p>
                       ) : null}
                     </div>
                     <div className="site-lookup-stage-services">
@@ -615,6 +561,46 @@ export function LookupPage() {
                         </div>
                       ) : result.stageServiceSummaryError ? (
                         <p className="site-lookup-refund__error">{result.stageServiceSummaryError}</p>
+                      ) : null}
+                      {result.stageServiceSummary?.purchases?.length ? (
+                        <div className="site-lookup-stage-services__purchases">
+                          {result.stageServiceSummary.purchases.map((purchase) => (
+                            <article
+                              className="site-lookup-stage-services__purchase"
+                              key={purchase.serviceOrderNumber}
+                            >
+                              <strong>
+                                {stageServiceTitles[purchase.serviceType] || purchase.serviceType}
+                                {purchase.linkedDiscipline ? ` · ${purchase.linkedDiscipline}` : ""}
+                              </strong>
+                              <div className="site-review-row">
+                                <span>주문 번호</span>
+                                <strong>{purchase.serviceOrderNumber}</strong>
+                              </div>
+                              <div className="site-review-row">
+                                <span>결제 상태</span>
+                                <strong>{purchase.paymentStatus}</strong>
+                              </div>
+                              <div className="site-review-row">
+                                <span>결제 금액</span>
+                                <strong>{formatAmount(purchase.totalAmount, locale)}</strong>
+                              </div>
+                              {purchase.paymentStatus === "DONE" ? (
+                                <div className="site-lookup-refund__actions">
+                                  <Button
+                                    onClick={() =>
+                                      navigate(
+                                        `/refund/request?type=stage-service&id=${encodeURIComponent(purchase.serviceOrderNumber)}`
+                                      )
+                                    }
+                                  >
+                                    {t("lookup.refundRequest")}
+                                  </Button>
+                                </div>
+                              ) : null}
+                            </article>
+                          ))}
+                        </div>
                       ) : null}
                       {result.stageServiceSummary &&
                       (!result.stageServiceSummary.hasStagePhoto ||

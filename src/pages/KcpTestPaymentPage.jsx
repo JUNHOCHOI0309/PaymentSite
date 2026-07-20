@@ -467,6 +467,10 @@ export function KcpTestPaymentPage() {
             {isSubmitting ? "신청 데이터 저장 및 결제창 여는 중" : "100원 테스트 결제"}
           </button>
         </form>
+
+        <Link className="button kcp-test-button kcp-test-link" to="/kcp-test/stage-services">
+          무대 서비스 100원 테스트
+        </Link>
       </section>
     </main>
   );

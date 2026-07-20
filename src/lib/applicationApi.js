@@ -123,6 +123,45 @@ export async function cancelKcpTestOrder(orderId, payload) {
   return readJson(response);
 }
 
+export async function createKcpTestStageServiceDraft(payload) {
+  const response = await apiFetch("/api/kcp/test/stage-services/draft", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
+export async function createKcpTestStageServiceOrder(payload) {
+  const response = await apiFetch("/api/kcp/test/stage-services/orders", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
+export async function cancelKcpTestStageServiceOrder(orderId, payload) {
+  const response = await apiFetch(
+    `/api/kcp/test/stage-services/orders/${encodeURIComponent(orderId)}/cancel`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  return readJson(response);
+}
+
 export async function prepareKcpPayment(payload) {
   const response = await apiFetch("/api/kcp/trade/register", {
     method: "POST",
@@ -292,6 +331,30 @@ export async function getStageServiceSummary(payload) {
   return readJson(response);
 }
 
+export async function getStageServiceRefundQuote(payload) {
+  const response = await apiFetch("/api/stage-services/refund/quote", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
+export async function requestStageServiceRefund(payload) {
+  const response = await apiFetch("/api/stage-services/refund/request", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
 export async function adminLogin(payload) {
   const response = await adminApiFetch("/api/admin/login", {
     method: "POST",
@@ -398,9 +461,12 @@ export async function getAdminRefunds() {
   return readJson(response);
 }
 
-export async function retryAdminRefundSync(refundRequestId) {
+export async function retryAdminRefundSync(refundRequestId, refundTarget = "application") {
+  const endpoint = refundTarget === "stage-service"
+    ? `/api/admin/stage-service-refunds/${encodeURIComponent(refundRequestId)}/retry-sync`
+    : `/api/admin/refunds/${encodeURIComponent(refundRequestId)}/retry-sync`;
   const response = await adminApiFetch(
-    `/api/admin/refunds/${encodeURIComponent(refundRequestId)}/retry-sync`,
+    endpoint,
     {
       method: "POST",
     },

@@ -28,6 +28,11 @@ import {
   KcpTestPaymentSuccessPage,
 } from "./pages/KcpTestPaymentPage";
 import {
+  KcpTestStageServiceFailPage,
+  KcpTestStageServicePage,
+  KcpTestStageServiceSuccessPage,
+} from "./pages/KcpTestStageServicePage";
+import {
   HallOfFamePage,
   OrganizationCommitteePage,
   OrganizationPage,
@@ -39,6 +44,8 @@ import { StageServiceReviewPage } from "./pages/StageServiceReviewPage";
 import { PaymentCheckoutPage } from "./pages/payment/PaymentCheckout";
 import { PaymentSuccessPage } from "./pages/payment/PaymentSuccess";
 import { PrivacyPage } from "./pages/PrivacyPage";
+import { RefundCompletePage } from "./pages/RefundCompletePage";
+import { RefundRequestPage } from "./pages/RefundRequestPage";
 import { TermsPage } from "./pages/TermsPage";
 import { StageServicePaymentCheckoutPage } from "./pages/stageService/StageServicePaymentCheckout";
 import { StageServicePaymentSuccessPage } from "./pages/stageService/StageServicePaymentSuccess";
@@ -183,6 +190,14 @@ const router = createBrowserRouter([
         element: <LookupPage />,
       },
       {
+        path: "refund/request",
+        element: <RefundRequestPage />,
+      },
+      {
+        path: "refund/complete",
+        element: <RefundCompletePage />,
+      },
+      {
         path: "privacy",
         element: <PrivacyPage />,
       },
@@ -201,6 +216,18 @@ const router = createBrowserRouter([
       {
         path: "kcp-test/fail",
         element: <KcpTestPaymentFailPage />,
+      },
+      {
+        path: "kcp-test/stage-services",
+        element: <KcpTestStageServicePage />,
+      },
+      {
+        path: "kcp-test/stage-services/success",
+        element: <KcpTestStageServiceSuccessPage />,
+      },
+      {
+        path: "kcp-test/stage-services/fail",
+        element: <KcpTestStageServiceFailPage />,
       },
       {
         path: "payment",

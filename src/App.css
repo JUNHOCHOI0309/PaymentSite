@@ -4353,6 +4353,84 @@ body {
   background: #2c5d9f;
 }
 
+.site-lookup-stage-services__purchases {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.site-lookup-stage-services__purchase {
+  padding: 16px;
+  border: 1px solid #dbe3ef;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.site-lookup-stage-services__purchase > strong {
+  display: block;
+  margin-bottom: 10px;
+  color: #183f6b;
+}
+
+.site-refund-page__target,
+.site-refund-page__policy {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid #dbe3ef;
+}
+
+.site-refund-page__target h2,
+.site-refund-page__policy h2 {
+  margin: 0 0 14px;
+}
+
+.site-refund-page__policy-table-wrap {
+  overflow-x: auto;
+}
+
+.site-refund-page__policy-table {
+  width: 100%;
+  min-width: 440px;
+  border-collapse: collapse;
+}
+
+.site-refund-page__policy-table th,
+.site-refund-page__policy-table td {
+  padding: 13px 14px;
+  border: 1px solid #dbe3ef;
+  text-align: left;
+}
+
+.site-refund-page__policy-table th {
+  background: #edf3fa;
+  color: #183f6b;
+}
+
+.site-refund-page__policy-note {
+  margin: 14px 0 0;
+  color: #667085;
+  font-size: 0.92rem;
+}
+
+.site-refund-page__acknowledgment {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 24px;
+  color: #243049;
+  line-height: 1.65;
+}
+
+.site-refund-page__acknowledgment input {
+  width: 18px;
+  height: 18px;
+  margin: 4px 0 0;
+}
+
+.site-refund-page__actions {
+  margin-top: 24px;
+}
+
 .site-consent-page .site-review-card {
   display: grid;
   gap: 28px;
