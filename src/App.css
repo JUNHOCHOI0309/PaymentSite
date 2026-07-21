@@ -3122,7 +3122,8 @@ body {
 
 .site-home-intro-card {
   position: relative;
-  min-height: 600px;
+  min-height: 0;
+  aspect-ratio: 4 / 5;
   border-radius: 0;
   background: #d8d8d8;
   color: #050609;
@@ -3135,7 +3136,7 @@ body {
   background-repeat: no-repeat;
   background-size: cover;
   overflow: hidden;
-  padding: 0 0 30px;
+  padding: 0;
   opacity: 0.68;
   transition: transform 0.25s ease, filter 0.25s ease, opacity 0.25s ease, box-shadow 0.25s ease;
 }
@@ -3585,7 +3586,7 @@ body {
   }
 
   .site-home-intro-card {
-    min-height: 410px;
+    min-height: 0;
   }
 }
 
