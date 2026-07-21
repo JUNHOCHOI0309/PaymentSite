@@ -5221,7 +5221,7 @@ body {
 
 .site-organization-chart__advisor {
   position: absolute;
-  top: 12px;
+  top: -66px;
   left: calc(50% + 166px);
 }
 
@@ -5229,10 +5229,14 @@ body {
   position: absolute;
   top: 48px;
   right: 100%;
-  width: 86px;
+  width: 166px;
   height: 2px;
   background: #365e89;
   content: "";
+}
+
+.site-organization-chart__advisor::after {
+  display: none;
 }
 
 .site-organization-chart__lead-connector {
