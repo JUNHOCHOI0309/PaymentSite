@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useLanguage } from "../context/LanguageContext";
 import { IntroPageLayout } from "./CompetitionIntroPage";
 
@@ -41,7 +41,8 @@ export function OrganizationCommitteePage() {
 export function OrganizationPage() {
   const { locale, t } = useLanguage();
   const chartViewportRef = useRef(null);
-  const chartDragRef = useRef(null);
+  const chartDiagramRef = useRef(null);
+  const [chartMetrics, setChartMetrics] = useState({ scale: 1, height: 0 });
   const committeeTitle = locale === "ko" ? "MMK조직위원회" : "MMK Committee";
   const chart =
     locale === "ko"
@@ -68,71 +69,33 @@ export function OrganizationPage() {
           judging: "Judging Committee",
         };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const viewport = chartViewportRef.current;
+    const diagram = chartDiagramRef.current;
 
-    if (!viewport) {
+    if (!viewport || !diagram) {
       return undefined;
     }
 
-    const frameId = window.requestAnimationFrame(() => {
-      if (window.matchMedia("(max-width: 800px)").matches) {
-        viewport.scrollLeft = Math.max(0, (viewport.scrollWidth - viewport.clientWidth) / 2);
-      }
-    });
+    function updateChartMetrics() {
+      const isMobile = window.matchMedia("(max-width: 800px)").matches;
+      const scale = isMobile
+        ? Math.min(1, Math.max(0.3, viewport.clientWidth / 1050))
+        : 1;
 
-    return () => window.cancelAnimationFrame(frameId);
+      setChartMetrics({
+        scale,
+        height: isMobile ? Math.ceil(diagram.offsetHeight * scale) : 0,
+      });
+    }
+
+    updateChartMetrics();
+    const resizeObserver = new ResizeObserver(updateChartMetrics);
+    resizeObserver.observe(viewport);
+    resizeObserver.observe(diagram);
+
+    return () => resizeObserver.disconnect();
   }, []);
-
-  function handleChartPointerDown(event) {
-    const viewport = chartViewportRef.current;
-
-    if (
-      !viewport ||
-      !window.matchMedia("(max-width: 800px)").matches ||
-      (event.pointerType === "mouse" && event.button !== 0)
-    ) {
-      return;
-    }
-
-    chartDragRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      scrollLeft: viewport.scrollLeft,
-      scrollTop: viewport.scrollTop,
-    };
-    viewport.setPointerCapture(event.pointerId);
-    viewport.classList.add("is-panning");
-  }
-
-  function handleChartPointerMove(event) {
-    const viewport = chartViewportRef.current;
-    const drag = chartDragRef.current;
-
-    if (!viewport || !drag || drag.pointerId !== event.pointerId) {
-      return;
-    }
-
-    event.preventDefault();
-    viewport.scrollLeft = drag.scrollLeft - (event.clientX - drag.startX);
-    viewport.scrollTop = drag.scrollTop - (event.clientY - drag.startY);
-  }
-
-  function handleChartPointerEnd(event) {
-    const viewport = chartViewportRef.current;
-    const drag = chartDragRef.current;
-
-    if (!viewport || !drag || drag.pointerId !== event.pointerId) {
-      return;
-    }
-
-    if (viewport.hasPointerCapture(event.pointerId)) {
-      viewport.releasePointerCapture(event.pointerId);
-    }
-    viewport.classList.remove("is-panning");
-    chartDragRef.current = null;
-  }
 
   return (
     <InfoPage
@@ -143,12 +106,12 @@ export function OrganizationPage() {
         <div
           ref={chartViewportRef}
           className="site-organization-chart__viewport"
-          onPointerDown={handleChartPointerDown}
-          onPointerMove={handleChartPointerMove}
-          onPointerUp={handleChartPointerEnd}
-          onPointerCancel={handleChartPointerEnd}
+          style={{
+            "--organization-chart-scale": chartMetrics.scale,
+            "--organization-chart-height": chartMetrics.height ? `${chartMetrics.height}px` : undefined,
+          }}
         >
-          <div className="site-organization-chart__diagram">
+          <div ref={chartDiagramRef} className="site-organization-chart__diagram">
             <div className="site-organization-chart__top">
               <OrganizationChartCard badge="MM+" title={chart.eventChair} variant="event" />
             </div>

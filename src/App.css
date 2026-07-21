@@ -5305,22 +5305,21 @@ body {
   }
 
   .site-organization-chart__viewport {
-    height: min(72svh, 560px);
-    overflow: auto;
-    cursor: grab;
-    overscroll-behavior: contain;
-    touch-action: none;
-  }
-
-  .site-organization-chart__viewport.is-panning {
-    cursor: grabbing;
-    user-select: none;
+    position: relative;
+    height: var(--organization-chart-height, auto);
+    min-height: 148px;
+    overflow: hidden;
   }
 
   .site-organization-chart__diagram {
+    position: absolute;
+    top: 0;
+    left: 50%;
     width: 1050px;
     max-width: none;
     margin: 0;
+    transform: translateX(-50%) scale(var(--organization-chart-scale, 0.3));
+    transform-origin: top center;
   }
 }
 
