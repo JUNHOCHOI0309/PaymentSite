@@ -317,7 +317,7 @@ export function HomePage() {
   }
 
   return (
-    <PageShell hero>
+    <PageShell hero className="site-shell--home">
       <section className="site-home-hero">
         <div className="site-home-hero__media">
           {heroMedia ? (
