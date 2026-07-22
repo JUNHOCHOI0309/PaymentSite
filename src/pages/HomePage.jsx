@@ -5,6 +5,13 @@ import { getApplicationDisciplineTitleByImageKey } from "../data/applicationDisc
 import { buildApiUrl, getHomeGalleryImages } from "../lib/applicationApi";
 
 const homeUpImageKeys = Array.from({ length: 10 }, (_, index) => `home/home_up_${index + 1}.png`);
+const sponsorLogos = [
+  { key: "home/logo_1.png", href: "https://www.xn--2i4b21aq3g7vaq7vn4ifle.com/" },
+  { key: "home/logo_2.png", href: "https://www.ihq.co.kr/" },
+  { key: "home/logo_3.png", href: "https://www.iwillmedia.co.kr/" },
+  { key: "home/logo_4.png" },
+  { key: "home/logo_5.png", href: "http://modelline.org/?mCode=about/who" },
+];
 
 const localizedHomeItems = {
   ko: {
@@ -428,6 +435,44 @@ export function HomePage() {
         ) : (
           <div className="site-home-showcase site-home-showcase--empty" />
         )}
+      </section>
+
+      <section className="site-home-sponsors" aria-label="Sponsor logos">
+        <div className="site-home-sponsors__viewport">
+          <div className="site-home-sponsors__track">
+            {[0, 1].map((groupIndex) => (
+              <div className="site-home-sponsors__group" key={groupIndex} aria-hidden={groupIndex === 1}>
+                {sponsorLogos.map((logo) => {
+                  const image = (
+                    <img
+                      className="site-home-sponsors__logo"
+                      src={getHomeImageUrl(logo.key)}
+                      alt=""
+                    />
+                  );
+
+                  return logo.href ? (
+                    <a
+                      className="site-home-sponsors__link"
+                      href={logo.href}
+                      key={`${logo.key}-${groupIndex}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      tabIndex={groupIndex === 1 ? -1 : undefined}
+                      aria-label={groupIndex === 0 ? "스폰서 웹사이트 열기" : undefined}
+                    >
+                      {image}
+                    </a>
+                  ) : (
+                    <span className="site-home-sponsors__link" key={`${logo.key}-${groupIndex}`}>
+                      {image}
+                    </span>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
       </section>
     </PageShell>
   );
