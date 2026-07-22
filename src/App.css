@@ -3115,9 +3115,9 @@ body {
 .site-home-sponsors {
   width: 100%;
   padding: 24px 0;
-  border-top: 1px solid #e5e7eb;
-  border-bottom: 1px solid #e5e7eb;
-  background: #fff;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  background: #000;
 }
 
 .site-home-sponsors__viewport {
@@ -3171,10 +3171,6 @@ body {
   height: clamp(64px, 8vw, 96px);
   object-fit: contain;
   transition: filter 180ms ease;
-}
-
-.site-home-sponsors:hover .site-home-sponsors__track {
-  animation-play-state: paused;
 }
 
 .site-home-intro__grid {
