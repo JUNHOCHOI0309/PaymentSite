@@ -15,6 +15,29 @@ import {
 
 const lookupSessionStorageKey = "mmkorea-lookup-session";
 
+function getStoredLookupSession() {
+  try {
+    const rawSession = window.sessionStorage.getItem(lookupSessionStorageKey);
+    const session = rawSession ? JSON.parse(rawSession) : null;
+    const expiresAt = new Date(session?.expiresAt || "");
+
+    if (
+      !session?.name ||
+      !session?.email ||
+      !session?.verificationToken ||
+      Number.isNaN(expiresAt.getTime()) ||
+      expiresAt.getTime() <= Date.now()
+    ) {
+      window.sessionStorage.removeItem(lookupSessionStorageKey);
+      return null;
+    }
+
+    return session;
+  } catch {
+    return null;
+  }
+}
+
 const stageServiceTitles = {
   "stage-photo": "무대 사진 촬영",
   "stage-video": "무대 영상 촬영",
@@ -60,6 +83,7 @@ export function LookupPage() {
   const [actionErrorMessage, setActionErrorMessage] = useState("");
   const [verificationMessage, setVerificationMessage] = useState("");
   const [verificationToken, setVerificationToken] = useState("");
+  const [recentLookupSession, setRecentLookupSession] = useState(getStoredLookupSession);
   const [devVerificationCode, setDevVerificationCode] = useState("");
   const [verificationDeadline, setVerificationDeadline] = useState(null);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
@@ -119,20 +143,21 @@ export function LookupPage() {
       setVerificationMessage("");
       setDevVerificationCode("");
       setVerificationDeadline(null);
+      setRecentLookupSession(null);
       window.sessionStorage.removeItem(lookupSessionStorageKey);
     }
   };
 
-  function validateNameAndEmail() {
-    if (!form.name.trim()) {
+  function validateNameAndEmail(name = form.name, email = form.email) {
+    if (!name.trim()) {
       return t("lookup.nameRequired");
     }
 
-    if (!form.email.trim()) {
+    if (!email.trim()) {
       return t("lookup.emailRequired");
     }
 
-    if (!hasValidEmail(form.email)) {
+    if (!hasValidEmail(email)) {
       return t("lookup.emailInvalid");
     }
 
@@ -213,14 +238,14 @@ export function LookupPage() {
       setVerificationToken(json.verificationToken || "");
       setVerificationMessage(json.message || t("lookup.verified"));
       setVerificationDeadline(null);
-      window.sessionStorage.setItem(
-        lookupSessionStorageKey,
-        JSON.stringify({
-          name: form.name.trim(),
-          email: form.email.trim().toLowerCase(),
-          verificationToken: json.verificationToken || "",
-        })
-      );
+      const nextLookupSession = {
+        name: form.name.trim(),
+        email: form.email.trim().toLowerCase(),
+        verificationToken: json.verificationToken || "",
+        expiresAt: json.sessionExpiresAt || "",
+      };
+      window.sessionStorage.setItem(lookupSessionStorageKey, JSON.stringify(nextLookupSession));
+      setRecentLookupSession(nextLookupSession);
     } catch (error) {
       setVerificationToken("");
       setVerificationMessage("");
@@ -230,15 +255,18 @@ export function LookupPage() {
     }
   }
 
-  async function handleLookup() {
-    const validationMessage = validateNameAndEmail();
+  async function handleLookup(session = null) {
+    const lookupName = session?.name || form.name;
+    const lookupEmail = session?.email || form.email;
+    const lookupVerificationToken = session?.verificationToken || verificationToken;
+    const validationMessage = validateNameAndEmail(lookupName, lookupEmail);
 
     if (validationMessage) {
       setActionErrorMessage(validationMessage);
       return;
     }
 
-    if (!verificationToken) {
+    if (!lookupVerificationToken) {
       setActionErrorMessage(t("lookup.verifyFirst"));
       return;
     }
@@ -249,9 +277,9 @@ export function LookupPage() {
 
     try {
       const json = await lookupApplication({
-        name: form.name,
-        email: form.email,
-        verificationToken,
+        name: lookupName,
+        email: lookupEmail,
+        verificationToken: lookupVerificationToken,
       });
 
       const applications = Array.isArray(json.applications)
@@ -264,9 +292,9 @@ export function LookupPage() {
         applications.map(async (application) => {
           try {
             const refundJson = await getApplicationRefundQuote({
-              name: form.name,
-              email: form.email,
-              verificationToken,
+              name: lookupName,
+              email: lookupEmail,
+              verificationToken: lookupVerificationToken,
               applicationNumber: application.applicationNumber,
             });
 
@@ -293,9 +321,9 @@ export function LookupPage() {
         applicationsWithRefundQuotes.map(async (application) => {
           try {
             const summaryJson = await getStageServiceSummary({
-              name: form.name,
-              email: form.email,
-              verificationToken,
+              name: lookupName,
+              email: lookupEmail,
+              verificationToken: lookupVerificationToken,
               applicationNumber: application.applicationNumber,
             });
 
@@ -322,6 +350,28 @@ export function LookupPage() {
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  async function handleRecentLookup() {
+    const session = getStoredLookupSession();
+
+    if (!session) {
+      setRecentLookupSession(null);
+      setActionErrorMessage(
+        locale === "ko"
+          ? "최근 인증 정보가 만료되었습니다. 이메일 인증을 다시 진행해 주세요."
+          : "Your recent verification has expired. Please verify your email again."
+      );
+      return;
+    }
+
+    setForm({
+      name: session.name,
+      email: session.email,
+      verificationCode: "",
+    });
+    setVerificationToken(session.verificationToken);
+    await handleLookup(session);
   }
 
   const hasStatusMessage = Boolean(actionErrorMessage || verificationMessage || devVerificationCode);
@@ -358,6 +408,19 @@ export function LookupPage() {
             <h1>{t("lookup.title")}</h1>
             <p>{t("lookup.description")}</p>
           </div>
+
+          {recentLookupSession && !verificationToken ? (
+            <section className="site-lookup-recent-session" aria-label={locale === "ko" ? "최근 인증 조회" : "Recent verified lookup"}>
+              <p>
+                {locale === "ko"
+                  ? "최근 이메일 인증이 남아 있습니다. 버튼을 누르면 신청 내역을 조회합니다."
+                  : "A recent email verification is available. Select the button to look up your applications."}
+              </p>
+              <Button onClick={handleRecentLookup} disabled={isSubmitting} variant="ghost">
+                {locale === "ko" ? "최근 인증으로 조회하기" : "Use recent verification"}
+              </Button>
+            </section>
+          ) : null}
 
           <div className="site-form-grid">
             <Input

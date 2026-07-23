@@ -4,4 +4,4 @@
   X-Frame-Options: DENY
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Strict-Transport-Security: max-age=31536000; includeSubDomains
-  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://api.mmkorea.com; connect-src 'self' https://api.mmkorea.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://*.kcp.co.kr; object-src 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://api.mmkorea.com; connect-src 'self' https://api.mmkorea.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://*.kcp.co.kr; object-src 'none'

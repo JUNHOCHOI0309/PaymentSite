@@ -1436,6 +1436,30 @@ body,
   color: #050609;
 }
 
+.site-lookup-recent-session {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 22px 0;
+  padding: 16px 18px;
+  border: 1px solid #cbd8ea;
+  border-radius: 12px;
+  background: #f4f8fd;
+}
+
+.site-lookup-recent-session p {
+  margin: 0;
+  color: #243049;
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.site-lookup-recent-session .site-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .site-apply-review-card .site-review-card__header h1 {
   color: #050609;
 }
@@ -2764,6 +2788,11 @@ body,
 }
 
 @media (max-width: 640px) {
+  .site-lookup-recent-session {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .site-admin-auth,
   .site-admin-page {
     padding: 124px 16px 56px;

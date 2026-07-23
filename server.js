@@ -151,7 +151,7 @@ const lookupVerificationSendCooldownSeconds = Math.max(
 );
 const lookupVerificationSessionTtlMinutes = Math.max(
   1,
-  Number(process.env.LOOKUP_VERIFICATION_SESSION_TTL_MINUTES || 30)
+  Number(process.env.LOOKUP_VERIFICATION_SESSION_TTL_MINUTES || 15)
 );
 const lookupVerificationMaxAttempts = Math.max(
   1,
@@ -9733,6 +9733,9 @@ app.post("/applications/lookup-verification/verify", async function (req, res) {
       ok: true,
       message: "이메일 인증이 완료되었습니다.",
       verificationToken,
+      sessionExpiresAt: new Date(
+        Date.now() + lookupVerificationSessionTtlMinutes * 60 * 1000
+      ).toISOString(),
     });
   } catch (error) {
     if (client) {
