@@ -16,6 +16,7 @@ import {
   formatApplicationEntryFee,
   getApplicationAdditionalDisciplineFee,
   getApplicationEntryFeePricing,
+  getApplicationEntryFeeSchedule,
 } from "../data/applicationEntryFees";
 import { getWeightClassOptions } from "../data/applicationWeightClassOptions";
 import {
@@ -168,6 +169,7 @@ export function ApplyPage() {
   const hasWeightClassOptions = weightClassOptions.length > 0;
   const entryFeePricing = getApplicationEntryFeePricing(selectedImageKey);
   const additionalDisciplineFee = getApplicationAdditionalDisciplineFee();
+  const entryFeeSchedule = getApplicationEntryFeeSchedule();
   const entryFeeCopy =
     locale === "ko"
       ? {
@@ -179,6 +181,22 @@ export function ApplyPage() {
           firstDiscipline: "First discipline fee",
           additionalDiscipline: "Each additional discipline",
           finalPrice: "Current price",
+        };
+  const entryFeeNoticeCopy =
+    locale === "ko"
+      ? {
+          period: "신청 기간",
+          firstDiscipline: "첫 종목 참가비",
+          additionalDiscipline: "추가 종목 참가비",
+          consent:
+            "이 단계에서 신청 정보를 저장한 뒤, 다음 단계에서 개인정보, 환불 규정, 참가 유의사항 동의를 확인합니다.",
+        }
+      : {
+          period: "Application period",
+          firstDiscipline: "First discipline fee",
+          additionalDiscipline: "Additional discipline fee",
+          consent:
+            "Save your application details in this step, then review the privacy, refund policy, and participation terms consents in the next step.",
         };
   const snsPlatformOptions = getSnsPlatformOptions(locale);
   const [additionalInfoTitlePrimary, additionalInfoTitleSecondary] =
@@ -568,7 +586,6 @@ export function ApplyPage() {
             <div className="site-form-card__header">
               <p className="site-kicker">{t("common.kickerApplication")}</p>
               <h1>{t("apply.title")}</h1>
-              <p>{t("apply.description")}</p>
             </div>
 
             <div className="site-form-grid">
@@ -778,11 +795,29 @@ export function ApplyPage() {
         </div>
 
         <NoticeBox title={t("apply.noticeTitle")}>
-          <ul className="site-list">
-            <li>{t("apply.notice1")}</li>
-            <li>{t("apply.notice2")}</li>
-            <li>{t("apply.notice3")}</li>
-          </ul>
+          <div className="site-apply-detail__fee-table-wrap">
+            <table className="site-apply-detail__fee-table">
+              <thead>
+                <tr>
+                  <th>{entryFeeNoticeCopy.period}</th>
+                  <th>{entryFeeNoticeCopy.firstDiscipline}</th>
+                  <th>{entryFeeNoticeCopy.additionalDiscipline}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entryFeeSchedule.map((period) => (
+                  <tr key={period.id}>
+                    <td>{locale === "ko" ? period.label : period.labelEn || period.label}</td>
+                    <td>
+                      <strong>{formatApplicationEntryFee(period.amount, locale)}</strong>
+                    </td>
+                    <td>{formatApplicationEntryFee(additionalDisciplineFee, locale)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="site-apply-detail__fee-note">{entryFeeNoticeCopy.consent}</p>
           <Link className="site-notice__link" to="/apply/guide">
             {t("common.viewApplyGuide")}
           </Link>

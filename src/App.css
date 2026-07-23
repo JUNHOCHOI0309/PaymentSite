@@ -4292,6 +4292,56 @@ body {
   text-align: left;
 }
 
+.site-apply-detail__fee-table-wrap {
+  max-width: 760px;
+  margin: 0 auto;
+  overflow-x: auto;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 12px;
+}
+
+.site-apply-detail__fee-table {
+  width: 100%;
+  min-width: 600px;
+  border-collapse: collapse;
+  color: #fff;
+}
+
+.site-apply-detail__fee-table th,
+.site-apply-detail__fee-table td {
+  padding: 15px 18px;
+  border-right: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  text-align: center;
+  vertical-align: middle;
+}
+
+.site-apply-detail__fee-table th:last-child,
+.site-apply-detail__fee-table td:last-child {
+  border-right: 0;
+}
+
+.site-apply-detail__fee-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.site-apply-detail__fee-table th {
+  background: rgba(0, 0, 0, 0.16);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.site-apply-detail__fee-table strong {
+  color: #fff;
+}
+
+.site-apply-detail__fee-note {
+  max-width: 760px;
+  margin: 22px auto 0;
+  color: rgba(255, 255, 255, 0.88);
+  line-height: 1.7;
+}
+
 .site-apply-detail__additional-info {
   margin-top: 36px;
   padding: clamp(42px, 7vw, 84px);
