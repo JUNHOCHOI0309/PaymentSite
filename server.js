@@ -8892,32 +8892,32 @@ app.post("/applications/lookup", async function (req, res) {
     const result = await pool.query(
       `
         SELECT
-          application_number,
-          draft_id,
-          order_id,
-          payment_key,
-          status,
-          payment_status,
-          name,
-          phone,
-          email,
-          birth_date,
-          organization,
-          instagram_id,
-          introduction,
-          weight_class,
-          division,
-          discipline,
-          image_key,
-          submitted_at,
-          updated_at,
+          applications.application_number,
+          applications.draft_id,
+          applications.order_id,
+          applications.payment_key,
+          applications.status,
+          applications.payment_status,
+          applications.name,
+          applications.phone,
+          applications.email,
+          applications.birth_date,
+          applications.organization,
+          applications.instagram_id,
+          applications.introduction,
+          applications.weight_class,
+          applications.division,
+          applications.discipline,
+          applications.image_key,
+          applications.submitted_at,
+          applications.updated_at,
           orders.amount AS payment_amount
         FROM applications
         LEFT JOIN orders
           ON orders.order_id = applications.order_id
-        WHERE name = $1
-          AND LOWER(email) = $2
-        ORDER BY submitted_at DESC NULLS LAST, updated_at DESC
+        WHERE applications.name = $1
+          AND LOWER(applications.email) = $2
+        ORDER BY applications.submitted_at DESC NULLS LAST, applications.updated_at DESC
         LIMIT 10
       `,
       [name, email]
