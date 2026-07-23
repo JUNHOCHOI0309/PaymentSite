@@ -461,10 +461,23 @@ export function LookupPage() {
             <div className="site-result-card">
               <h3>{t("lookup.resultTitle")}</h3>
               <div className="site-lookup-results">
-                {results.map((result) => (
+                {results.map((result) => {
+                  const canRequestRefund =
+                    result.paymentStatus === "DONE" &&
+                    result.refundQuote?.canAutoRefund === true &&
+                    result.refundRequest?.requestStatus !== "COMPLETED";
+                  const refundDisabledReason =
+                    result.refundRequest?.requestStatus === "COMPLETED"
+                      ? t("lookup.refundProcessed")
+                      : result.refundQuote?.message ||
+                        result.refundQuoteError ||
+                        t("lookup.refundQuoteFailed");
+
+                  return (
                   <div className="site-lookup-result" key={result.applicationNumber}>
                     <div className="site-review-row"><span>{t("lookup.applicationStatus")}</span><strong>{result.status}</strong></div>
                     <div className="site-review-row"><span>{t("lookup.applicationNumber")}</span><strong>{result.applicationNumber}</strong></div>
+                    <div className="site-review-row"><span>{t("lookup.discipline", locale === "ko" ? "신청 종목" : "Applied discipline")}</span><strong>{result.discipline || "-"}</strong></div>
                     <div className="site-review-row"><span>{t("lookup.paymentStatus")}</span><strong>{result.paymentStatus}</strong></div>
                     <div className="site-review-row"><span>{t("lookup.applicant")}</span><strong>{result.name}</strong></div>
                     <div className="site-review-row"><span>{t("lookup.phone")}</span><strong>{result.phone}</strong></div>
@@ -516,9 +529,14 @@ export function LookupPage() {
                       ) : (
                         <p className="site-lookup-refund__pending">{t("lookup.refundPending")}</p>
                       )}
-                      {result.refundQuote?.canAutoRefund && result.paymentStatus === "DONE" ? (
-                        <div className="site-lookup-refund__actions">
+                      <div className="site-lookup-refund__actions">
+                        <span
+                          className="site-lookup-refund__action-tooltip"
+                          tabIndex={canRequestRefund ? -1 : 0}
+                          aria-label={canRequestRefund ? undefined : refundDisabledReason}
+                        >
                           <Button
+                            disabled={!canRequestRefund}
                             onClick={() =>
                               navigate(
                                 `/refund/request?type=application&id=${encodeURIComponent(result.applicationNumber)}`
@@ -527,8 +545,13 @@ export function LookupPage() {
                           >
                             {t("lookup.refundRequest")}
                           </Button>
-                        </div>
-                      ) : null}
+                          {!canRequestRefund ? (
+                            <span className="site-lookup-refund__tooltip" role="tooltip">
+                              {refundDisabledReason}
+                            </span>
+                          ) : null}
+                        </span>
+                      </div>
                     </div>
                     <div className="site-lookup-stage-services">
                       <h4>{t("stageService.lookupTitle")}</h4>
@@ -617,7 +640,8 @@ export function LookupPage() {
                       ) : null}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
               <section className="site-lookup-payment-summary" aria-label={paymentSummaryCopy.title}>
                 <h4>{paymentSummaryCopy.title}</h4>
