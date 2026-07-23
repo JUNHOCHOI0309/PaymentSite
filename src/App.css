@@ -4591,6 +4591,14 @@ body {
   border-top: 1px solid #dbe3ef;
 }
 
+.site-refund-page > h1 {
+  color: #111827;
+}
+
+.site-refund-complete-card h1 {
+  color: #111827;
+}
+
 .site-refund-page__target h2,
 .site-refund-page__policy h2 {
   margin: 0 0 14px;
@@ -4610,6 +4618,7 @@ body {
 .site-refund-page__policy-table td {
   padding: 13px 14px;
   border: 1px solid #dbe3ef;
+  color: #243049;
   text-align: left;
 }
 

@@ -71,6 +71,22 @@ function formatAmount(value, locale) {
   }).format(Number(value));
 }
 
+function formatPaymentCompletedAt(value, locale) {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  return new Intl.DateTimeFormat(locale === "ko" ? "ko-KR" : "en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
 export function LookupPage() {
   const { locale, t } = useLanguage();
   const navigate = useNavigate();
@@ -542,6 +558,7 @@ export function LookupPage() {
                     <div className="site-review-row"><span>{t("lookup.applicationNumber")}</span><strong>{result.applicationNumber}</strong></div>
                     <div className="site-review-row"><span>{t("lookup.discipline", locale === "ko" ? "신청 종목" : "Applied discipline")}</span><strong>{result.discipline || "-"}</strong></div>
                     <div className="site-review-row"><span>{t("lookup.paymentStatus")}</span><strong>{result.paymentStatus}</strong></div>
+                    <div className="site-review-row"><span>{locale === "ko" ? "결제 완료 시점" : "Payment completed at"}</span><strong>{formatPaymentCompletedAt(result.paymentCompletedAt, locale)}</strong></div>
                     <div className="site-review-row"><span>{t("lookup.applicant")}</span><strong>{result.name}</strong></div>
                     <div className="site-review-row"><span>{t("lookup.phone")}</span><strong>{result.phone}</strong></div>
                     <div className="site-review-row"><span>{t("lookup.emailLabel")}</span><strong>{result.email}</strong></div>

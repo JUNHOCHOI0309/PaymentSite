@@ -2633,6 +2633,7 @@ function mapApplicationRow(row) {
     }),
     imageKey: row.image_key,
     paymentAmount: Number.isFinite(paymentAmount) ? paymentAmount : null,
+    paymentCompletedAt: row.approved_at || row.payment_created_at || null,
     submittedAt: row.submitted_at,
     updatedAt: row.updated_at,
   };
@@ -8911,10 +8912,20 @@ app.post("/applications/lookup", async function (req, res) {
           applications.image_key,
           applications.submitted_at,
           applications.updated_at,
-          orders.amount AS payment_amount
+          orders.amount AS payment_amount,
+          latest_payment.approved_at,
+          latest_payment.created_at AS payment_created_at
         FROM applications
         LEFT JOIN orders
           ON orders.order_id = applications.order_id
+        LEFT JOIN LATERAL (
+          SELECT approved_at, created_at
+          FROM payments
+          WHERE payments.order_id = applications.order_id
+          ORDER BY approved_at DESC NULLS LAST, created_at DESC
+          LIMIT 1
+        ) AS latest_payment
+          ON TRUE
         WHERE applications.name = $1
           AND LOWER(applications.email) = $2
         ORDER BY applications.submitted_at DESC NULLS LAST, applications.updated_at DESC
