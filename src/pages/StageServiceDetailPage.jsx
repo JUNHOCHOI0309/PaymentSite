@@ -56,6 +56,19 @@ function getInitialFieldErrors() {
   };
 }
 
+function normalizeDisciplineOptions(options) {
+  return options.map((option) => {
+    if (typeof option === "string") {
+      return { value: option, label: option };
+    }
+
+    return {
+      value: option?.value || "",
+      label: option?.label || option?.value || "",
+    };
+  });
+}
+
 export function StageServiceDetailPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -72,7 +85,7 @@ export function StageServiceDetailPage() {
   const prefillName = searchParams.get("name") || "";
   const prefillEmail = searchParams.get("email") || "";
   const prefillPhone = searchParams.get("phone") || "";
-  const disciplineOptions = getStageServiceDisciplineOptions(locale);
+  const disciplineOptions = normalizeDisciplineOptions(getStageServiceDisciplineOptions(locale));
   const videoTypeOptions = getVideoTypeOptions(locale);
   const hairOptionChoices = getHairOptionChoices(locale).filter((option) =>
     isHairMakeupOptionAllowed(state.formData.hairParticipantDiscipline, option),
