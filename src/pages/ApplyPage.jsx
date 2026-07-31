@@ -4,7 +4,8 @@ import { Button } from "../components/common/Button";
 import { Input } from "../components/common/Input";
 import { NoticeBox } from "../components/common/NoticeBox";
 import { PageShell } from "../components/layout/PageShell";
-import uploadIcon from "../assets/upload-icon.png";
+import documentSelectIcon from "../assets/document-select-icon.png";
+import imageSelectIcon from "../assets/image-select-icon.png";
 import { useApplicationFlow } from "../context/ApplicationFlowContext";
 import { useLanguage } from "../context/LanguageContext";
 import { getApplicationAdditionalInfo } from "../data/applicationAdditionalInfo";
@@ -63,7 +64,8 @@ const allowedDocumentUploadMimeTypes = new Set([
   "image/png",
 ]);
 const documentFileInputAccept =
-  ".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/jpeg,image/png";
+  ".pdf,.doc,.docx,.ppt,.pptx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const imageFileInputAccept = ".jpg,.jpeg,.png,image/jpeg,image/png";
 const introductionMaxLength = 100;
 
 function getRegisterImageUrl(key) {
@@ -157,6 +159,7 @@ export function ApplyPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const documentFileInputRef = useRef(null);
+  const imageFileInputRef = useRef(null);
   const { state, dispatch, isHydrated } = useApplicationFlow();
   const { locale, t } = useLanguage();
   const handledLocationKeyRef = useRef("");
@@ -577,24 +580,42 @@ export function ApplyPage() {
     });
   }
 
-  function handleDocumentFileChange(event) {
-    const files = Array.from(event.target.files || []);
-    const validationMessage = validateSelectedDocumentFiles(files, locale, t);
-
-    event.target.value = "";
+  function appendSelectedDocumentFiles(files) {
+    const nextFiles = [...selectedFiles, ...files];
+    const validationMessage = validateSelectedDocumentFiles(nextFiles, locale, t);
 
     if (validationMessage) {
-      setSelectedFiles([]);
       setFileError(validationMessage);
-      dispatch({ type: "SET_FILE_METAS", payload: [] });
       return;
     }
 
     setFileError("");
-    setSelectedFiles(files);
+    setSelectedFiles(nextFiles);
     dispatch({
       type: "SET_FILE_METAS",
-      payload: files.map((file) => ({
+      payload: nextFiles.map((file) => ({
+        originalFilename: file.name,
+        storedFilename: "",
+        mimeType: file.type,
+        fileSize: file.size,
+      })),
+    });
+  }
+
+  function handleDocumentFileChange(event) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    appendSelectedDocumentFiles(files);
+  }
+
+  function handleRemoveSelectedDocumentFile(fileIndex) {
+    const nextFiles = selectedFiles.filter((_, index) => index !== fileIndex);
+
+    setFileError("");
+    setSelectedFiles(nextFiles);
+    dispatch({
+      type: "SET_FILE_METAS",
+      payload: nextFiles.map((file) => ({
         originalFilename: file.name,
         storedFilename: "",
         mimeType: file.type,
@@ -1070,6 +1091,14 @@ export function ApplyPage() {
                     accept={documentFileInputAccept}
                     onChange={handleDocumentFileChange}
                   />
+                  <input
+                    className="site-file-picker__input"
+                    ref={imageFileInputRef}
+                    type="file"
+                    multiple
+                    accept={imageFileInputAccept}
+                    onChange={handleDocumentFileChange}
+                  />
                   <span
                     className={`site-file-picker__value ${
                       selectedDocumentFilenames.length ? "" : "site-file-picker__value--placeholder"
@@ -1078,18 +1107,32 @@ export function ApplyPage() {
                     {selectedDocumentFilenames.join(", ") ||
                       t("apply.noFileSelected")}
                   </span>
-                  <button
-                    className="site-file-picker__trigger"
-                    type="button"
-                    onClick={() => documentFileInputRef.current?.click()}
-                    aria-label={t("apply.submitFile")}
-                  >
-                    <img
-                      className="site-file-picker__trigger-icon"
-                      src={uploadIcon}
-                      alt=""
-                    />
-                  </button>
+                  <div className="site-file-picker__source-actions">
+                    <button
+                      className="site-file-picker__source-button"
+                      type="button"
+                      onClick={() => documentFileInputRef.current?.click()}
+                    >
+                      <img
+                        className="site-file-picker__trigger-icon"
+                        src={documentSelectIcon}
+                        alt=""
+                      />
+                      {locale === "ko" ? "문서" : "Documents"}
+                    </button>
+                    <button
+                      className="site-file-picker__source-button"
+                      type="button"
+                      onClick={() => imageFileInputRef.current?.click()}
+                    >
+                      <img
+                        className="site-file-picker__trigger-icon"
+                        src={imageSelectIcon}
+                        alt=""
+                      />
+                      <span>{locale === "ko" ? "사진" : "Photos"}</span>
+                    </button>
+                  </div>
                 </div>
                 {fileError ? (
                   <span className="site-field__error">{fileError}</span>
@@ -1097,7 +1140,24 @@ export function ApplyPage() {
                 {selectedDocumentFilenames.length ? (
                   <ul className="site-file-picker__selected-list">
                     {selectedDocumentFilenames.map((filename, index) => (
-                      <li key={`${filename}-${index}`}>{filename}</li>
+                      <li key={`${filename}-${index}`}>
+                        {selectedFiles.length ? (
+                          <button
+                            className="site-file-picker__remove"
+                            type="button"
+                            onClick={() => handleRemoveSelectedDocumentFile(index)}
+                            aria-label={
+                              locale === "ko"
+                                ? `${filename} 삭제`
+                                : `Remove ${filename}`
+                            }
+                            title={locale === "ko" ? "파일 삭제" : "Remove file"}
+                          >
+                            ×
+                          </button>
+                        ) : null}
+                        <span>{filename}</span>
+                      </li>
                     ))}
                   </ul>
                 ) : null}
