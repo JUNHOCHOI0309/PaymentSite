@@ -367,39 +367,24 @@ export function HomePage() {
   return (
     <PageShell hero className="site-shell--home">
       {isParticipantBenefitsOpen ? (
-        <div
-          className="site-home-benefits-modal"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) {
-              closeParticipantBenefits();
-            }
-          }}
-        >
-          <section
-            className="site-home-benefits-modal__dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="participant-benefits-title"
-          >
-            <h1 className="sr-only" id="participant-benefits-title">
-              {locale === "ko" ? "참가자 혜택 안내" : "Participant benefits"}
-            </h1>
-            <img
-              className="site-home-benefits-modal__image"
-              src={getHomeImageUrl("home/participant_benefits.png")}
-              alt={locale === "ko" ? "참가자 혜택 안내" : "Participant benefits"}
-            />
-            <div className="site-home-benefits-modal__actions">
-              <button type="button" onClick={() => closeParticipantBenefits({ hideForToday: true })}>
-                {locale === "ko" ? "오늘 하루 열지 않기" : "Do not show again today"}
-              </button>
-              <button type="button" onClick={() => closeParticipantBenefits()}>
-                {locale === "ko" ? "닫기" : "Close"}
-              </button>
-            </div>
-          </section>
-        </div>
+        <aside className="site-home-benefits-modal" aria-labelledby="participant-benefits-title">
+          <h1 className="sr-only" id="participant-benefits-title">
+            {locale === "ko" ? "참가자 혜택 안내" : "Participant benefits"}
+          </h1>
+          <img
+            className="site-home-benefits-modal__image"
+            src={getHomeImageUrl("home/participant_benefits.png")}
+            alt={locale === "ko" ? "참가자 혜택 안내" : "Participant benefits"}
+          />
+          <div className="site-home-benefits-modal__actions">
+            <button type="button" onClick={() => closeParticipantBenefits({ hideForToday: true })}>
+              {locale === "ko" ? "오늘 하루 열지 않기" : "Do not show again today"}
+            </button>
+            <button type="button" onClick={() => closeParticipantBenefits()}>
+              {locale === "ko" ? "닫기" : "Close"}
+            </button>
+          </div>
+        </aside>
       ) : null}
 
       <section className="site-home-hero">
