@@ -108,6 +108,38 @@ function getUploadExtension(filename) {
   return match ? match[1].toLowerCase() : "";
 }
 
+function getCompactFilename(filename, maxLength = 20) {
+  const normalizedFilename = String(filename || "");
+
+  if (normalizedFilename.length <= maxLength) {
+    return normalizedFilename;
+  }
+
+  const extension = getUploadExtension(normalizedFilename);
+  const filenameWithoutExtension = extension
+    ? normalizedFilename.slice(0, -extension.length)
+    : normalizedFilename;
+  const filenameLimit = Math.max(6, maxLength - extension.length - 3);
+
+  return `${filenameWithoutExtension.slice(0, filenameLimit)}...${extension}`;
+}
+
+function getSelectedDocumentSummary(filenames, locale) {
+  if (!filenames.length) {
+    return "";
+  }
+
+  const firstFilename = getCompactFilename(filenames[0]);
+
+  if (filenames.length === 1) {
+    return firstFilename;
+  }
+
+  return locale === "ko"
+    ? `${firstFilename} 외 ${filenames.length - 1}개`
+    : `${firstFilename} + ${filenames.length - 1} more`;
+}
+
 function validateSelectedFile(file, t) {
   if (!file) {
     return "";
@@ -271,6 +303,7 @@ export function ApplyPage() {
       : state.uploadedFileMeta.originalFilename
         ? [state.uploadedFileMeta.originalFilename]
         : [];
+  const selectedDocumentSummary = getSelectedDocumentSummary(selectedDocumentFilenames, locale);
 
   useEffect(() => {
     if (!isHydrated) {
@@ -1105,7 +1138,7 @@ export function ApplyPage() {
                     }`.trim()}
                     title={selectedDocumentFilenames.join(", ") || undefined}
                   >
-                    {selectedDocumentFilenames.join(", ") ||
+                    {selectedDocumentSummary ||
                       t("apply.noFileSelected")}
                   </span>
                   <div className="site-file-picker__source-actions">
@@ -1157,7 +1190,7 @@ export function ApplyPage() {
                             ×
                           </button>
                         ) : null}
-                        <span title={filename}>{filename}</span>
+                        <span title={filename}>{getCompactFilename(filename)}</span>
                       </li>
                     ))}
                   </ul>
