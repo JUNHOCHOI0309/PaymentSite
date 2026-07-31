@@ -633,18 +633,18 @@ export function StageServiceDetailPage() {
               <li>{t("stageService.notice2")}</li>
               <li>{t("stageService.notice3")}</li>
             </ul>
-            {serviceKey === "hair-makeup" ? (
-              <div className="site-stage-service-notice-images">
-                {["hairmakeup_1.png", "hairmakeup_2.png"].map((filename) => (
-                  <img
-                    key={filename}
-                    src={buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(`register/${filename}`)}`)}
-                    alt=""
-                  />
-                ))}
-              </div>
-            ) : null}
           </NoticeBox>
+          {serviceKey === "hair-makeup" ? (
+            <div className="site-stage-service-notice-images">
+              {["hairmakeup_1.png", "hairmakeup_2.png"].map((filename) => (
+                <img
+                  key={filename}
+                  src={buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(`register/${filename}`)}`)}
+                  alt=""
+                />
+              ))}
+            </div>
+          ) : null}
         </div>
       </section>
     </PageShell>
