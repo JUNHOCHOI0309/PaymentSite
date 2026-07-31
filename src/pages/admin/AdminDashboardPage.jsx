@@ -6,6 +6,7 @@ import applicationDisciplineCatalog from "../../data/applicationDisciplineCatalo
 import {
   getHairOptionChoices,
   getHairOptionalChoices,
+  stageServiceItems,
   getStageServiceTitle,
   getStageVideoAdditionalDisciplineMeta,
   getVideoTypeOptions,
@@ -18,8 +19,9 @@ import {
   deleteAdminApplication,
   getAdminApplications,
   getAdminAuditLogs,
+  getAdminCanceledPayments,
   getAdminMe,
-  getAdminRefunds,
+  getAdminRefundRequests,
   getAdminStageServices,
   getAdminUsers,
   keepAliveAdminSession,
@@ -327,6 +329,7 @@ function SectionControls({
   filterValue = "all",
   onFilterChange = null,
   filterOptions = [],
+  additionalFilters = [],
   onDownload = null,
   downloadLabel = "엑셀 다운로드",
   downloadDisabled = false,
@@ -366,6 +369,21 @@ function SectionControls({
           ))}
         </select>
       ) : null}
+      {additionalFilters.map((filter) => (
+        <select
+          className="site-admin-controls__select"
+          key={filter.key}
+          onChange={(event) => filter.onChange(event.target.value)}
+          value={filter.value}
+        >
+          <option value="all">{filter.allLabel || "전체"}</option>
+          {filter.options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      ))}
       {onDownload ? (
         <button
           className="site-admin-controls__download"
@@ -394,6 +412,11 @@ function TableSection({
   pageSize = 20,
   defaultSortKey: preferredDefaultSortKey = "",
   defaultSortDirection = "desc",
+  pagination = null,
+  onPageChange = null,
+  controlledSortKey = null,
+  controlledSortDirection = null,
+  onSortChange = null,
 }) {
   const isColumnSortable = useCallback(
     (column) =>
@@ -412,13 +435,16 @@ function TableSection({
   )
     ? preferredDefaultSortKey
     : fallbackDefaultSortKey;
-  const [sortKey, setSortKey] = useState(defaultSortKey);
-  const [sortDirection, setSortDirection] = useState(defaultSortDirection);
+  const [localSortKey, setLocalSortKey] = useState(defaultSortKey);
+  const [localSortDirection, setLocalSortDirection] = useState(defaultSortDirection);
   const [page, setPage] = useState(1);
+  const isRemotePagination = Boolean(pagination && onPageChange);
+  const sortKey = controlledSortKey || localSortKey;
+  const sortDirection = controlledSortDirection || localSortDirection;
 
   useEffect(() => {
     if (!sortableColumns.some((column) => column.key === sortKey)) {
-      setSortKey(defaultSortKey);
+      setLocalSortKey(defaultSortKey);
     }
   }, [defaultSortKey, sortKey, sortableColumns]);
 
@@ -427,6 +453,9 @@ function TableSection({
   }, [rows]);
 
   const sortedRows = useMemo(() => {
+    if (isRemotePagination) {
+      return rows;
+    }
     if (!sortKey) {
       return rows;
     }
@@ -448,14 +477,21 @@ function TableSection({
 
       return sortDirection === "asc" ? comparison : -comparison;
     });
-  }, [columns, rows, sortDirection, sortKey]);
+  }, [columns, isRemotePagination, rows, sortDirection, sortKey]);
 
-  const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
+  const totalPages = isRemotePagination
+    ? Math.max(1, Number(pagination.totalPages) || 1)
+    : Math.max(1, Math.ceil(sortedRows.length / pageSize));
+  const currentPage = isRemotePagination
+    ? Math.min(Number(pagination.page) || 1, totalPages)
+    : Math.min(page, totalPages);
   const pagedRows = useMemo(() => {
+    if (isRemotePagination) {
+      return sortedRows;
+    }
     const startIndex = (currentPage - 1) * pageSize;
     return sortedRows.slice(startIndex, startIndex + pageSize);
-  }, [currentPage, pageSize, sortedRows]);
+  }, [currentPage, isRemotePagination, pageSize, sortedRows]);
 
   useEffect(() => {
     if (page > totalPages) {
@@ -469,12 +505,21 @@ function TableSection({
     }
 
     if (sortKey === column.key) {
-      setSortDirection((current) => (current === "asc" ? "desc" : "asc"));
+      const nextDirection = sortDirection === "asc" ? "desc" : "asc";
+      if (onSortChange) {
+        onSortChange({ sortKey, sortDirection: nextDirection });
+      } else {
+        setLocalSortDirection(nextDirection);
+      }
       return;
     }
 
-    setSortKey(column.key);
-    setSortDirection("asc");
+    if (onSortChange) {
+      onSortChange({ sortKey: column.key, sortDirection: "desc" });
+    } else {
+      setLocalSortKey(column.key);
+      setLocalSortDirection("asc");
+    }
   }
 
   return (
@@ -538,13 +583,13 @@ function TableSection({
       {rows.length ? (
         <div className="site-admin-pagination">
           <span className="site-admin-pagination__summary">
-            총 {rows.length}건 / {currentPage} / {totalPages} 페이지
+            총 {isRemotePagination ? pagination.totalCount : rows.length}건 / {currentPage} / {totalPages} 페이지
           </span>
           <div className="site-admin-pagination__actions">
             <button
               className="site-admin-pagination__button"
               disabled={currentPage <= 1}
-              onClick={() => setPage(1)}
+              onClick={() => (isRemotePagination ? onPageChange(1) : setPage(1))}
               type="button"
             >
               처음
@@ -552,7 +597,7 @@ function TableSection({
             <button
               className="site-admin-pagination__button"
               disabled={currentPage <= 1}
-              onClick={() => setPage((value) => Math.max(1, value - 1))}
+              onClick={() => (isRemotePagination ? onPageChange(Math.max(1, currentPage - 1)) : setPage((value) => Math.max(1, value - 1)))}
               type="button"
             >
               이전
@@ -560,7 +605,7 @@ function TableSection({
             <button
               className="site-admin-pagination__button"
               disabled={currentPage >= totalPages}
-              onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+              onClick={() => (isRemotePagination ? onPageChange(Math.min(totalPages, currentPage + 1)) : setPage((value) => Math.min(totalPages, value + 1)))}
               type="button"
             >
               다음
@@ -568,7 +613,7 @@ function TableSection({
             <button
               className="site-admin-pagination__button"
               disabled={currentPage >= totalPages}
-              onClick={() => setPage(totalPages)}
+              onClick={() => (isRemotePagination ? onPageChange(totalPages) : setPage(totalPages))}
               type="button"
             >
               마지막
@@ -739,6 +784,7 @@ export function AdminDashboardPage() {
   const [adminUser, setAdminUser] = useState(null);
   const [sessionExpiresAt, setSessionExpiresAt] = useState(null);
   const [applications, setApplications] = useState([]);
+  const [applicationSummary, setApplicationSummary] = useState({ totalCount: 0, paidCount: 0 });
   const [stageServices, setStageServices] = useState([]);
   const [refundRequests, setRefundRequests] = useState([]);
   const [refunds, setRefunds] = useState([]);
@@ -747,14 +793,77 @@ export function AdminDashboardPage() {
   const [activeSection, setActiveSection] = useState("overview");
   const [applicationSearch, setApplicationSearch] = useState("");
   const [applicationPaymentStatusFilter, setApplicationPaymentStatusFilter] = useState("all");
+  const [applicationDivisionFilter, setApplicationDivisionFilter] = useState("all");
+  const [applicationDisciplineFilter, setApplicationDisciplineFilter] = useState("all");
+  const [applicationPage, setApplicationPage] = useState(1);
+  const [applicationPagination, setApplicationPagination] = useState({
+    page: 1,
+    pageSize: 50,
+    totalCount: 0,
+    totalPages: 1,
+  });
+  const [applicationSort, setApplicationSort] = useState({
+    sortKey: "submittedAt",
+    sortDirection: "desc",
+  });
   const [stageServiceSearch, setStageServiceSearch] = useState("");
   const [stageServiceTypeFilter, setStageServiceTypeFilter] = useState("all");
+  const [stageServicePage, setStageServicePage] = useState(1);
+  const [stageServicePagination, setStageServicePagination] = useState({
+    page: 1,
+    pageSize: 50,
+    totalCount: 0,
+    totalPages: 1,
+  });
+  const [stageServiceSort, setStageServiceSort] = useState({
+    sortKey: "purchasedAt",
+    sortDirection: "desc",
+  });
   const [refundRequestSearch, setRefundRequestSearch] = useState("");
   const [refundRequestStatusFilter, setRefundRequestStatusFilter] = useState("all");
+  const [refundRequestPage, setRefundRequestPage] = useState(1);
+  const [refundRequestPagination, setRefundRequestPagination] = useState({
+    page: 1,
+    pageSize: 50,
+    totalCount: 0,
+    totalPages: 1,
+  });
+  const [refundRequestSummary, setRefundRequestSummary] = useState({
+    totalCount: 0,
+    processingCount: 0,
+    completedCount: 0,
+    failedCount: 0,
+  });
+  const [refundRequestSort, setRefundRequestSort] = useState({
+    sortKey: "createdAt",
+    sortDirection: "desc",
+  });
   const [refundPaymentSearch, setRefundPaymentSearch] = useState("");
   const [refundPaymentStatusFilter, setRefundPaymentStatusFilter] = useState("all");
+  const [refundPaymentPage, setRefundPaymentPage] = useState(1);
+  const [refundPaymentPagination, setRefundPaymentPagination] = useState({
+    page: 1,
+    pageSize: 50,
+    totalCount: 0,
+    totalPages: 1,
+  });
+  const [refundPaymentSort, setRefundPaymentSort] = useState({
+    sortKey: "updatedAt",
+    sortDirection: "desc",
+  });
   const [auditSearch, setAuditSearch] = useState("");
   const [auditActionFilter, setAuditActionFilter] = useState("all");
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditPagination, setAuditPagination] = useState({
+    page: 1,
+    pageSize: 50,
+    totalCount: 0,
+    totalPages: 1,
+  });
+  const [auditSort, setAuditSort] = useState({
+    sortKey: "createdAt",
+    sortDirection: "desc",
+  });
   const [retryingRefundRequestId, setRetryingRefundRequestId] = useState(null);
   const [kcpReconcileOrderId, setKcpReconcileOrderId] = useState("");
   const [isReconcilingKcp, setIsReconcilingKcp] = useState(false);
@@ -774,6 +883,12 @@ export function AdminDashboardPage() {
   const isIdleWarningOpenRef = useRef(false);
   const isAutoLogoutRunningRef = useRef(false);
   const resetIdleTimersRef = useRef(null);
+  const hasInitializedAdminDataRef = useRef(false);
+  const skipInitialApplicationQueryRef = useRef(true);
+  const skipInitialStageServiceQueryRef = useRef(true);
+  const skipInitialAuditQueryRef = useRef(true);
+  const skipInitialRefundRequestQueryRef = useRef(true);
+  const skipInitialRefundPaymentQueryRef = useRef(true);
 
   const forceAdminLogout = useCallback(async () => {
     if (isAutoLogoutRunningRef.current) {
@@ -792,8 +907,142 @@ export function AdminDashboardPage() {
   }, [navigate]);
   const [errorMessage, setErrorMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [isInitialAdminDataLoaded, setIsInitialAdminDataLoaded] = useState(false);
+
+  const applicationQuery = useMemo(
+    () => ({
+      page: applicationPage,
+      pageSize: 50,
+      paymentStatus: applicationPaymentStatusFilter,
+      division: applicationDivisionFilter,
+      discipline: applicationDisciplineFilter,
+      search: applicationSearch,
+      sortKey: applicationSort.sortKey,
+      sortDirection: applicationSort.sortDirection,
+    }),
+    [
+      applicationDisciplineFilter,
+      applicationDivisionFilter,
+      applicationPage,
+      applicationPaymentStatusFilter,
+      applicationSearch,
+      applicationSort,
+    ],
+  );
+
+  const stageServiceQuery = useMemo(
+    () => ({
+      page: stageServicePage,
+      pageSize: 50,
+      search: stageServiceSearch,
+      serviceType: stageServiceTypeFilter,
+      sortKey: stageServiceSort.sortKey,
+      sortDirection: stageServiceSort.sortDirection,
+    }),
+    [stageServicePage, stageServiceSearch, stageServiceSort, stageServiceTypeFilter],
+  );
+
+  const auditQuery = useMemo(
+    () => ({
+      page: auditPage,
+      pageSize: 50,
+      search: auditSearch,
+      action: auditActionFilter,
+      sortKey: auditSort.sortKey,
+      sortDirection: auditSort.sortDirection,
+    }),
+    [auditActionFilter, auditPage, auditSearch, auditSort],
+  );
+
+  const refundRequestQuery = useMemo(
+    () => ({
+      page: refundRequestPage,
+      pageSize: 50,
+      search: refundRequestSearch,
+      requestStatus: refundRequestStatusFilter,
+      sortKey: refundRequestSort.sortKey,
+      sortDirection: refundRequestSort.sortDirection,
+    }),
+    [refundRequestPage, refundRequestSearch, refundRequestSort, refundRequestStatusFilter],
+  );
+
+  const refundPaymentQuery = useMemo(
+    () => ({
+      page: refundPaymentPage,
+      pageSize: 50,
+      search: refundPaymentSearch,
+      paymentStatus: refundPaymentStatusFilter,
+      sortKey: refundPaymentSort.sortKey,
+      sortDirection: refundPaymentSort.sortDirection,
+    }),
+    [refundPaymentPage, refundPaymentSearch, refundPaymentSort, refundPaymentStatusFilter],
+  );
+
+  const loadApplications = useCallback(async () => {
+    const response = await getAdminApplications(applicationQuery);
+    setApplications(response.applications || []);
+    setApplicationSummary(response.summary || { totalCount: response.applications?.length || 0, paidCount: 0 });
+    setApplicationPagination(response.pagination || {
+      page: 1,
+      pageSize: 50,
+      totalCount: response.applications?.length || 0,
+      totalPages: 1,
+    });
+  }, [applicationQuery]);
+
+  const loadStageServices = useCallback(async () => {
+    const response = await getAdminStageServices(stageServiceQuery);
+    setStageServices(response.stageServices || []);
+    setStageServicePagination(response.pagination || {
+      page: 1,
+      pageSize: 50,
+      totalCount: response.stageServices?.length || 0,
+      totalPages: 1,
+    });
+  }, [stageServiceQuery]);
+
+  const loadAuditLogs = useCallback(async () => {
+    const response = await getAdminAuditLogs(auditQuery);
+    setAuditLogs(response.auditLogs || []);
+    setAuditPagination(response.pagination || {
+      page: 1,
+      pageSize: 50,
+      totalCount: response.auditLogs?.length || 0,
+      totalPages: 1,
+    });
+  }, [auditQuery]);
+
+  const loadRefundRequests = useCallback(async () => {
+    const response = await getAdminRefundRequests(refundRequestQuery);
+    setRefundRequests(response.refundRequests || []);
+    setRefundRequestPagination(response.pagination || {
+      page: 1,
+      pageSize: 50,
+      totalCount: response.refundRequests?.length || 0,
+      totalPages: 1,
+    });
+    setRefundRequestSummary(response.summary || {
+      totalCount: response.refundRequests?.length || 0,
+      processingCount: 0,
+      completedCount: 0,
+      failedCount: 0,
+    });
+  }, [refundRequestQuery]);
+
+  const loadCanceledPayments = useCallback(async () => {
+    const response = await getAdminCanceledPayments(refundPaymentQuery);
+    setRefunds(response.refunds || []);
+    setRefundPaymentPagination(response.pagination || {
+      page: 1,
+      pageSize: 50,
+      totalCount: response.refunds?.length || 0,
+      totalPages: 1,
+    });
+  }, [refundPaymentQuery]);
 
   const loadAdminData = useCallback(async ({ silent = false } = {}) => {
+    let didLoad = false;
+
     if (!silent) {
       setIsLoading(true);
     }
@@ -808,10 +1057,13 @@ export function AdminDashboardPage() {
         auditLogsResponse,
         adminUsersResponse,
       ] = await Promise.all([
-        getAdminApplications(),
-        getAdminStageServices(),
-        getAdminRefunds(),
-        getAdminAuditLogs(),
+        getAdminApplications(applicationQuery),
+        getAdminStageServices(stageServiceQuery),
+        Promise.all([
+          getAdminRefundRequests(refundRequestQuery),
+          getAdminCanceledPayments(refundPaymentQuery),
+        ]),
+        getAdminAuditLogs(auditQuery),
         meResponse.adminUser?.role === "superadmin"
           ? getAdminUsers()
           : Promise.resolve({ adminUsers: [] }),
@@ -820,11 +1072,53 @@ export function AdminDashboardPage() {
       setAdminUser(meResponse.adminUser);
       setSessionExpiresAt(meResponse.session?.expiresAt || null);
       setApplications(applicationsResponse.applications || []);
+      setApplicationSummary(applicationsResponse.summary || {
+        totalCount: applicationsResponse.applications?.length || 0,
+        paidCount: 0,
+      });
+      setApplicationPagination(applicationsResponse.pagination || {
+        page: 1,
+        pageSize: 50,
+        totalCount: applicationsResponse.applications?.length || 0,
+        totalPages: 1,
+      });
       setStageServices(stageServicesResponse.stageServices || []);
-      setRefundRequests(refundsResponse.refundRequests || []);
-      setRefunds(refundsResponse.refunds || []);
+      setStageServicePagination(stageServicesResponse.pagination || {
+        page: 1,
+        pageSize: 50,
+        totalCount: stageServicesResponse.stageServices?.length || 0,
+        totalPages: 1,
+      });
+      const [refundRequestsResponse, canceledPaymentsResponse] = refundsResponse;
+      setRefundRequests(refundRequestsResponse.refundRequests || []);
+      setRefundRequestPagination(refundRequestsResponse.pagination || {
+        page: 1,
+        pageSize: 50,
+        totalCount: refundRequestsResponse.refundRequests?.length || 0,
+        totalPages: 1,
+      });
+      setRefundRequestSummary(refundRequestsResponse.summary || {
+        totalCount: refundRequestsResponse.refundRequests?.length || 0,
+        processingCount: 0,
+        completedCount: 0,
+        failedCount: 0,
+      });
+      setRefunds(canceledPaymentsResponse.refunds || []);
+      setRefundPaymentPagination(canceledPaymentsResponse.pagination || {
+        page: 1,
+        pageSize: 50,
+        totalCount: canceledPaymentsResponse.refunds?.length || 0,
+        totalPages: 1,
+      });
       setAuditLogs(auditLogsResponse.auditLogs || []);
+      setAuditPagination(auditLogsResponse.pagination || {
+        page: 1,
+        pageSize: 50,
+        totalCount: auditLogsResponse.auditLogs?.length || 0,
+        totalPages: 1,
+      });
       setAdminUsers(adminUsersResponse.adminUsers || []);
+      didLoad = true;
     } catch (error) {
       if (
         error.code === "ADMIN_AUTH_REQUIRED"
@@ -839,13 +1133,178 @@ export function AdminDashboardPage() {
     } finally {
       if (!silent) {
         setIsLoading(false);
+        setIsInitialAdminDataLoaded(didLoad);
       }
     }
-  }, [forceAdminLogout]);
+  }, [
+    applicationQuery,
+    auditQuery,
+    forceAdminLogout,
+    refundPaymentQuery,
+    refundRequestQuery,
+    stageServiceQuery,
+  ]);
 
   useEffect(() => {
+    if (hasInitializedAdminDataRef.current) {
+      return;
+    }
+
+    hasInitializedAdminDataRef.current = true;
     loadAdminData();
   }, [loadAdminData]);
+
+  useEffect(() => {
+    if (!isInitialAdminDataLoaded) {
+      return undefined;
+    }
+
+    if (skipInitialApplicationQueryRef.current) {
+      skipInitialApplicationQueryRef.current = false;
+      return undefined;
+    }
+
+    const timerId = window.setTimeout(() => {
+      loadApplications().catch((error) => {
+        if (
+          error.code === "ADMIN_AUTH_REQUIRED"
+          || error.code === "ADMIN_SESSION_EXPIRED"
+          || error.code === "ADMIN_SESSION_IDLE_EXPIRED"
+        ) {
+          forceAdminLogout();
+          return;
+        }
+
+        setErrorMessage(error.message || "등록 현황을 불러오지 못했습니다.");
+      });
+    }, applicationSearch ? 300 : 0);
+
+    return () => window.clearTimeout(timerId);
+  }, [applicationQuery, applicationSearch, forceAdminLogout, isInitialAdminDataLoaded, loadApplications]);
+
+  useEffect(() => {
+    if (!isInitialAdminDataLoaded) {
+      return undefined;
+    }
+
+    if (skipInitialStageServiceQueryRef.current) {
+      skipInitialStageServiceQueryRef.current = false;
+      return undefined;
+    }
+
+    const timerId = window.setTimeout(() => {
+      loadStageServices().catch((error) => {
+        if (
+          error.code === "ADMIN_AUTH_REQUIRED"
+          || error.code === "ADMIN_SESSION_EXPIRED"
+          || error.code === "ADMIN_SESSION_IDLE_EXPIRED"
+        ) {
+          forceAdminLogout();
+          return;
+        }
+
+        setErrorMessage(error.message || "무대 서비스 등록 현황을 불러오지 못했습니다.");
+      });
+    }, stageServiceSearch ? 300 : 0);
+
+    return () => window.clearTimeout(timerId);
+  }, [forceAdminLogout, isInitialAdminDataLoaded, loadStageServices, stageServiceQuery, stageServiceSearch]);
+
+  useEffect(() => {
+    if (!isInitialAdminDataLoaded) {
+      return undefined;
+    }
+
+    if (skipInitialAuditQueryRef.current) {
+      skipInitialAuditQueryRef.current = false;
+      return undefined;
+    }
+
+    const timerId = window.setTimeout(() => {
+      loadAuditLogs().catch((error) => {
+        if (
+          error.code === "ADMIN_AUTH_REQUIRED"
+          || error.code === "ADMIN_SESSION_EXPIRED"
+          || error.code === "ADMIN_SESSION_IDLE_EXPIRED"
+        ) {
+          forceAdminLogout();
+          return;
+        }
+
+        setErrorMessage(error.message || "감사 로그를 불러오지 못했습니다.");
+      });
+    }, auditSearch ? 300 : 0);
+
+    return () => window.clearTimeout(timerId);
+  }, [auditQuery, auditSearch, forceAdminLogout, isInitialAdminDataLoaded, loadAuditLogs]);
+
+  useEffect(() => {
+    if (!isInitialAdminDataLoaded) {
+      return undefined;
+    }
+
+    if (skipInitialRefundRequestQueryRef.current) {
+      skipInitialRefundRequestQueryRef.current = false;
+      return undefined;
+    }
+
+    const timerId = window.setTimeout(() => {
+      loadRefundRequests().catch((error) => {
+        if (
+          error.code === "ADMIN_AUTH_REQUIRED"
+          || error.code === "ADMIN_SESSION_EXPIRED"
+          || error.code === "ADMIN_SESSION_IDLE_EXPIRED"
+        ) {
+          forceAdminLogout();
+          return;
+        }
+
+        setErrorMessage(error.message || "환불 요청 이력을 불러오지 못했습니다.");
+      });
+    }, refundRequestSearch ? 300 : 0);
+
+    return () => window.clearTimeout(timerId);
+  }, [
+    forceAdminLogout,
+    isInitialAdminDataLoaded,
+    loadRefundRequests,
+    refundRequestQuery,
+    refundRequestSearch,
+  ]);
+
+  useEffect(() => {
+    if (!isInitialAdminDataLoaded) {
+      return undefined;
+    }
+
+    if (skipInitialRefundPaymentQueryRef.current) {
+      skipInitialRefundPaymentQueryRef.current = false;
+      return undefined;
+    }
+
+    const timerId = window.setTimeout(() => {
+      loadCanceledPayments().catch((error) => {
+        if (
+          error.code === "ADMIN_AUTH_REQUIRED"
+          || error.code === "ADMIN_SESSION_EXPIRED"
+          || error.code === "ADMIN_SESSION_IDLE_EXPIRED"
+        ) {
+          forceAdminLogout();
+          return;
+        }
+
+        setErrorMessage(error.message || "환불 결제 결과를 불러오지 못했습니다.");
+      });
+    }, refundPaymentSearch ? 300 : 0);
+
+    return () => window.clearTimeout(timerId);
+  }, [
+    forceAdminLogout,
+    isInitialAdminDataLoaded,
+    loadCanceledPayments,
+    refundPaymentQuery,
+    refundPaymentSearch,
+  ]);
 
   useEffect(() => {
     let warningTimerId = null;
@@ -1009,31 +1468,28 @@ export function AdminDashboardPage() {
   }, [forceAdminLogout]);
 
   const paidApplicationCount = useMemo(
-    () => applications.filter((item) => item.paymentStatus === "DONE").length,
-    [applications],
+    () => applicationSummary.paidCount,
+    [applicationSummary.paidCount],
   );
   const latestApplications = useMemo(() => applications.slice(0, 5), [applications]);
   const latestStageServices = useMemo(() => stageServices.slice(0, 5), [stageServices]);
   const latestRefunds = useMemo(() => refundRequests.slice(0, 5), [refundRequests]);
   const latestAuditLogs = useMemo(() => auditLogs.slice(0, 5), [auditLogs]);
   const refundProcessingCount = useMemo(
-    () =>
-      refundRequests.filter((item) =>
-        ["REQUESTED", "PROCESSING", "SYNC_FAILED"].includes(item.requestStatus),
-      ).length,
-    [refundRequests],
+    () => refundRequestSummary.processingCount,
+    [refundRequestSummary.processingCount],
   );
   const refundCompletedCount = useMemo(
-    () => refundRequests.filter((item) => item.requestStatus === "COMPLETED").length,
-    [refundRequests],
+    () => refundRequestSummary.completedCount,
+    [refundRequestSummary.completedCount],
   );
   const refundFailedCount = useMemo(
-    () => refundRequests.filter((item) => item.requestStatus === "FAILED").length,
-    [refundRequests],
+    () => refundRequestSummary.failedCount,
+    [refundRequestSummary.failedCount],
   );
   const applicationPaymentStatusOptions = useMemo(
     () =>
-      Array.from(new Set(applications.map((item) => item.paymentStatus).filter(Boolean))).map(
+      Array.from(new Set(["DONE", "CANCELED", "FAILED", ...applications.map((item) => item.paymentStatus).filter(Boolean)])).map(
         (value) => ({
           value,
           label: value,
@@ -1041,33 +1497,33 @@ export function AdminDashboardPage() {
       ),
     [applications],
   );
+  const applicationDivisionOptions = useMemo(
+    () => [
+      { value: "man", label: "남성" },
+      { value: "woman", label: "여성" },
+      { value: "TEST", label: "테스트" },
+    ],
+    [],
+  );
+  const applicationDisciplineOptions = useMemo(
+    () => (Array.isArray(applicationDisciplineCatalog.items) ? applicationDisciplineCatalog.items : [])
+      .map((item) => ({ value: item.title, label: item.title })),
+    [],
+  );
   const stageServiceTypeOptions = useMemo(
-    () =>
-      Array.from(new Set(stageServices.map((item) => item.serviceType).filter(Boolean))).map(
-        (value) => ({
-          value,
-          label: getStageServiceTitle(value) || value,
-        }),
-      ),
-    [stageServices],
+    () => stageServiceItems.map((item) => ({
+      value: item.key,
+      label: getStageServiceTitle(item.key) || item.key,
+    })),
+    [],
   );
   const refundRequestStatusOptions = useMemo(
-    () =>
-      Array.from(new Set(refundRequests.map((item) => item.requestStatus).filter(Boolean))).map(
-        (value) => ({
-          value,
-          label: value,
-        }),
-      ),
-    [refundRequests],
+    () => ["REQUESTED", "PROCESSING", "COMPLETED", "FAILED", "SYNC_FAILED"].map((value) => ({ value, label: value })),
+    [],
   );
   const refundPaymentStatusOptions = useMemo(
-    () =>
-      Array.from(new Set(refunds.map((item) => item.paymentStatus).filter(Boolean))).map((value) => ({
-        value,
-        label: value,
-      })),
-    [refunds],
+    () => ["CANCELED", "PARTIAL_CANCELED"].map((value) => ({ value, label: value })),
+    [],
   );
   const auditActionOptions = useMemo(
     () =>
@@ -1078,141 +1534,13 @@ export function AdminDashboardPage() {
     [auditLogs],
   );
   const filteredApplications = useMemo(
-    () =>
-      applications.filter((row) => {
-        if (
-          applicationPaymentStatusFilter !== "all"
-          && row.paymentStatus !== applicationPaymentStatusFilter
-        ) {
-          return false;
-        }
-
-        return matchesSearch(
-          applicationSearch,
-          row.applicationNumber,
-          row.orderId,
-          row.name,
-          row.phone,
-          row.email,
-          row.birthDate,
-          row.organization,
-          row.division,
-          row.discipline,
-          row.weightClass,
-          row.paymentStatus,
-          row.introduction,
-          formatStoredSnsIdentity(row.snsIdentity || row.instagramId, "ko", "-"),
-          row.documentOriginalFilename,
-        );
-      }),
-    [applicationPaymentStatusFilter, applicationSearch, applications],
+    () => applications,
+    [applications],
   );
-  const filteredStageServices = useMemo(
-    () =>
-      stageServices.filter((row) => {
-        if (stageServiceTypeFilter !== "all" && row.serviceType !== stageServiceTypeFilter) {
-          return false;
-        }
-
-        const meta = getStageServiceMeta(row);
-
-        return matchesSearch(
-          stageServiceSearch,
-          row.serviceOrderNumber,
-          row.orderId,
-          row.paymentKey,
-          row.name,
-          row.phone,
-          row.email,
-          row.linkedApplicationNumber,
-          row.linkedDiscipline,
-          row.serviceType,
-          meta.primary,
-          meta.secondary,
-          row.paymentStatus,
-          row.serviceStatus,
-        );
-      }),
-    [stageServiceSearch, stageServiceTypeFilter, stageServices],
-  );
-  const filteredRefundRequests = useMemo(
-    () =>
-      refundRequests.filter((row) => {
-        if (refundRequestStatusFilter !== "all" && row.requestStatus !== refundRequestStatusFilter) {
-          return false;
-        }
-
-        return matchesSearch(
-          refundRequestSearch,
-          row.applicationNumber,
-          row.serviceOrderNumber,
-          row.serviceType,
-          row.orderId,
-          row.paymentKey,
-          row.name,
-          row.phone,
-          row.email,
-          row.requestReason,
-          row.requestStatus,
-          row.policyRuleLabel,
-          row.policyRuleId,
-          row.providerStatusCode,
-          row.providerErrorCode,
-          row.providerErrorMessage,
-          row.requestedByName,
-          row.requestedByEmail,
-        );
-      }),
-    [refundRequestSearch, refundRequestStatusFilter, refundRequests],
-  );
-  const filteredRefundPayments = useMemo(
-    () =>
-      refunds.filter((row) => {
-        if (refundPaymentStatusFilter !== "all" && row.paymentStatus !== refundPaymentStatusFilter) {
-          return false;
-        }
-
-        return matchesSearch(
-          refundPaymentSearch,
-          row.orderId,
-          row.paymentKey,
-          row.applicationNumber,
-          row.serviceOrderNumber,
-          row.serviceType,
-          row.name,
-          row.phone,
-          row.email,
-          row.division,
-          row.discipline,
-          row.paymentStatus,
-          row.orderStatus,
-        );
-      }),
-    [refundPaymentSearch, refundPaymentStatusFilter, refunds],
-  );
-  const filteredAuditLogs = useMemo(
-    () =>
-      auditLogs.filter((row) => {
-        if (auditActionFilter !== "all" && row.action !== auditActionFilter) {
-          return false;
-        }
-
-        return matchesSearch(
-          auditSearch,
-          row.action,
-          row.targetType,
-          row.targetId,
-          row.ipAddress,
-          row.userAgent,
-          row.adminUserDisplayName,
-          row.adminUserEmail,
-          row.adminUserRole,
-          row.createdAt,
-          row.metadata ? JSON.stringify(row.metadata) : "",
-        );
-      }),
-    [auditActionFilter, auditLogs, auditSearch],
-  );
+  const filteredStageServices = useMemo(() => stageServices, [stageServices]);
+  const filteredRefundRequests = useMemo(() => refundRequests, [refundRequests]);
+  const filteredRefundPayments = useMemo(() => refunds, [refunds]);
+  const filteredAuditLogs = useMemo(() => auditLogs, [auditLogs]);
 
   const dashboardSections = [
     { id: "overview", label: "개요" },
@@ -1415,11 +1743,11 @@ export function AdminDashboardPage() {
       {errorMessage ? <p className="site-error-message">{errorMessage}</p> : null}
 
       <div className="site-admin-summary">
-        <SummaryCard label="전체 등록 건수" value={applications.length} />
+        <SummaryCard label="전체 등록 건수" value={applicationSummary.totalCount} />
         <SummaryCard label="결제 완료" value={paidApplicationCount} />
-        <SummaryCard label="무대 서비스 주문" value={stageServices.length} />
+        <SummaryCard label="무대 서비스 주문" value={stageServicePagination.totalCount} />
         <SummaryCard label="환불 요청" value={refundRequests.length} />
-        <SummaryCard label="최근 감사 로그" value={auditLogs.length} />
+        <SummaryCard label="최근 감사 로그" value={auditPagination.totalCount} />
         {adminUser?.role === "superadmin" ? <SummaryCard label="활성 관리자" value={adminUsers.filter((item) => item.isActive).length} /> : null}
       </div>
 
@@ -1569,12 +1897,46 @@ export function AdminDashboardPage() {
               <SectionControls
                 searchPlaceholder="신청번호, 이름, 이메일, 종목, SNS, 파일명 검색"
                 searchValue={applicationSearch}
-                onSearchChange={setApplicationSearch}
+                onSearchChange={(value) => {
+                  setApplicationSearch(value);
+                  setApplicationPage(1);
+                }}
                 filterValue={applicationPaymentStatusFilter}
-                onFilterChange={setApplicationPaymentStatusFilter}
+                onFilterChange={(value) => {
+                  setApplicationPaymentStatusFilter(value);
+                  setApplicationPage(1);
+                }}
                 filterOptions={applicationPaymentStatusOptions}
-                onDownload={() =>
-                  downloadWorkbookFile(
+                additionalFilters={[
+                  {
+                    key: "division",
+                    value: applicationDivisionFilter,
+                    onChange: (value) => {
+                      setApplicationDivisionFilter(value);
+                      setApplicationPage(1);
+                    },
+                    allLabel: "전체 부문",
+                    options: applicationDivisionOptions,
+                  },
+                  {
+                    key: "discipline",
+                    value: applicationDisciplineFilter,
+                    onChange: (value) => {
+                      setApplicationDisciplineFilter(value);
+                      setApplicationPage(1);
+                    },
+                    allLabel: "전체 종목",
+                    options: applicationDisciplineOptions,
+                  },
+                ]}
+                onDownload={async () => {
+                  const exportResponse = await getAdminApplications({
+                    ...applicationQuery,
+                    page: 1,
+                    export: 1,
+                  });
+
+                  await downloadWorkbookFile(
                     "admin-applications.xlsx",
                     "대회 신청",
                     [
@@ -1606,9 +1968,9 @@ export function AdminDashboardPage() {
                         getValue: (row) => formatDateTime(row.submittedAt),
                       },
                     ],
-                    filteredApplications,
-                  )
-                }
+                    exportResponse.applications || [],
+                  );
+                }}
                 downloadDisabled={!filteredApplications.length}
               />
               <TableSection
@@ -1708,6 +2070,15 @@ export function AdminDashboardPage() {
                 ]}
                 rows={filteredApplications}
                 emptyText="조건에 맞는 신청 내역이 없습니다."
+                pageSize={50}
+                pagination={applicationPagination}
+                onPageChange={setApplicationPage}
+                controlledSortKey={applicationSort.sortKey}
+                controlledSortDirection={applicationSort.sortDirection}
+                onSortChange={(nextSort) => {
+                  setApplicationSort(nextSort);
+                  setApplicationPage(1);
+                }}
               />
             </>
           ) : null}
@@ -1717,12 +2088,24 @@ export function AdminDashboardPage() {
               <SectionControls
                 searchPlaceholder="주문번호, 신청자, 연동 신청번호, 서비스 내용 검색"
                 searchValue={stageServiceSearch}
-                onSearchChange={setStageServiceSearch}
+                onSearchChange={(value) => {
+                  setStageServiceSearch(value);
+                  setStageServicePage(1);
+                }}
                 filterValue={stageServiceTypeFilter}
-                onFilterChange={setStageServiceTypeFilter}
+                onFilterChange={(value) => {
+                  setStageServiceTypeFilter(value);
+                  setStageServicePage(1);
+                }}
                 filterOptions={stageServiceTypeOptions}
-                onDownload={() =>
-                  downloadWorkbookFile(
+                onDownload={async () => {
+                  const exportResponse = await getAdminStageServices({
+                    ...stageServiceQuery,
+                    page: 1,
+                    export: 1,
+                  });
+
+                  return downloadWorkbookFile(
                     "admin-stage-services.xlsx",
                     "무대 서비스",
                     [
@@ -1752,9 +2135,9 @@ export function AdminDashboardPage() {
                       { key: "serviceStatus", label: "서비스상태" },
                       { key: "purchasedAt", label: "구매일시", getValue: (row) => formatDateTime(row.purchasedAt) },
                     ],
-                    filteredStageServices,
-                  )
-                }
+                    exportResponse.stageServices || [],
+                  );
+                }}
                 downloadDisabled={!filteredStageServices.length}
               />
               <TableSection
@@ -1822,6 +2205,15 @@ export function AdminDashboardPage() {
                 ]}
                 rows={filteredStageServices}
                 emptyText="조건에 맞는 무대 서비스 주문이 없습니다."
+                pageSize={50}
+                pagination={stageServicePagination}
+                onPageChange={setStageServicePage}
+                controlledSortKey={stageServiceSort.sortKey}
+                controlledSortDirection={stageServiceSort.sortDirection}
+                onSortChange={(nextSort) => {
+                  setStageServiceSort(nextSort);
+                  setStageServicePage(1);
+                }}
               />
             </>
           ) : null}
@@ -1855,22 +2247,34 @@ export function AdminDashboardPage() {
               </form>
 
               <div className="site-admin-mini-summary">
-                <SummaryCard label="전체 요청" value={refundRequests.length} />
+                <SummaryCard label="전체 요청" value={refundRequestSummary.totalCount} />
                 <SummaryCard label="처리 중/동기화 필요" value={refundProcessingCount} />
                 <SummaryCard label="완료" value={refundCompletedCount} />
                 <SummaryCard label="실패" value={refundFailedCount} />
-                <SummaryCard label="취소 결제 기록" value={refunds.length} />
+                <SummaryCard label="취소 결제 기록" value={refundPaymentPagination.totalCount} />
               </div>
 
               <SectionControls
                 searchPlaceholder="신청번호, 주문번호, 신청자, 사유, 정책, 오류 검색"
                 searchValue={refundRequestSearch}
-                onSearchChange={setRefundRequestSearch}
+                onSearchChange={(value) => {
+                  setRefundRequestSearch(value);
+                  setRefundRequestPage(1);
+                }}
                 filterValue={refundRequestStatusFilter}
-                onFilterChange={setRefundRequestStatusFilter}
+                onFilterChange={(value) => {
+                  setRefundRequestStatusFilter(value);
+                  setRefundRequestPage(1);
+                }}
                 filterOptions={refundRequestStatusOptions}
-                onDownload={() =>
-                  downloadWorkbookFile(
+                onDownload={async () => {
+                  const exportResponse = await getAdminRefundRequests({
+                    ...refundRequestQuery,
+                    page: 1,
+                    export: 1,
+                  });
+
+                  return downloadWorkbookFile(
                     "admin-refund-requests.xlsx",
                     "환불 요청",
                     [
@@ -1894,9 +2298,9 @@ export function AdminDashboardPage() {
                       { key: "createdAt", label: "요청시각", getValue: (row) => formatDateTime(row.createdAt) },
                       { key: "processedAt", label: "처리시각", getValue: (row) => formatDateTime(row.processedAt) },
                     ],
-                    filteredRefundRequests,
-                  )
-                }
+                    exportResponse.refundRequests || [],
+                  );
+                }}
                 downloadDisabled={!filteredRefundRequests.length}
               />
               <TableSection
@@ -1994,17 +2398,38 @@ export function AdminDashboardPage() {
                 ]}
                 rows={filteredRefundRequests}
                 emptyText="조건에 맞는 환불 요청 이력이 없습니다."
+                pageSize={50}
+                pagination={refundRequestPagination}
+                onPageChange={setRefundRequestPage}
+                controlledSortKey={refundRequestSort.sortKey}
+                controlledSortDirection={refundRequestSort.sortDirection}
+                onSortChange={(nextSort) => {
+                  setRefundRequestSort(nextSort);
+                  setRefundRequestPage(1);
+                }}
               />
 
               <SectionControls
                 searchPlaceholder="주문번호, 신청번호, 신청자, 결제상태 검색"
                 searchValue={refundPaymentSearch}
-                onSearchChange={setRefundPaymentSearch}
+                onSearchChange={(value) => {
+                  setRefundPaymentSearch(value);
+                  setRefundPaymentPage(1);
+                }}
                 filterValue={refundPaymentStatusFilter}
-                onFilterChange={setRefundPaymentStatusFilter}
+                onFilterChange={(value) => {
+                  setRefundPaymentStatusFilter(value);
+                  setRefundPaymentPage(1);
+                }}
                 filterOptions={refundPaymentStatusOptions}
-                onDownload={() =>
-                  downloadWorkbookFile(
+                onDownload={async () => {
+                  const exportResponse = await getAdminCanceledPayments({
+                    ...refundPaymentQuery,
+                    page: 1,
+                    export: 1,
+                  });
+
+                  return downloadWorkbookFile(
                     "admin-refund-payments.xlsx",
                     "환불 결과",
                     [
@@ -2024,9 +2449,9 @@ export function AdminDashboardPage() {
                       { key: "approvedAt", label: "승인시각", getValue: (row) => formatDateTime(row.approvedAt) },
                       { key: "updatedAt", label: "변경시각", getValue: (row) => formatDateTime(row.updatedAt) },
                     ],
-                    filteredRefundPayments,
-                  )
-                }
+                    exportResponse.refunds || [],
+                  );
+                }}
                 downloadDisabled={!filteredRefundPayments.length}
               />
               <TableSection
@@ -2079,6 +2504,15 @@ export function AdminDashboardPage() {
                 ]}
                 rows={filteredRefundPayments}
                 emptyText="조건에 맞는 환불 또는 취소 상태의 결제 내역이 없습니다."
+                pageSize={50}
+                pagination={refundPaymentPagination}
+                onPageChange={setRefundPaymentPage}
+                controlledSortKey={refundPaymentSort.sortKey}
+                controlledSortDirection={refundPaymentSort.sortDirection}
+                onSortChange={(nextSort) => {
+                  setRefundPaymentSort(nextSort);
+                  setRefundPaymentPage(1);
+                }}
               />
             </>
           ) : null}
@@ -2144,12 +2578,24 @@ export function AdminDashboardPage() {
               <SectionControls
                 searchPlaceholder="action, 관리자, target, IP 검색"
                 searchValue={auditSearch}
-                onSearchChange={setAuditSearch}
+                onSearchChange={(value) => {
+                  setAuditSearch(value);
+                  setAuditPage(1);
+                }}
                 filterValue={auditActionFilter}
-                onFilterChange={setAuditActionFilter}
+                onFilterChange={(value) => {
+                  setAuditActionFilter(value);
+                  setAuditPage(1);
+                }}
                 filterOptions={auditActionOptions}
-                onDownload={() =>
-                  downloadWorkbookFile(
+                onDownload={async () => {
+                  const exportResponse = await getAdminAuditLogs({
+                    ...auditQuery,
+                    page: 1,
+                    export: 1,
+                  });
+
+                  return downloadWorkbookFile(
                     "admin-audit-logs.xlsx",
                     "감사 로그",
                     [
@@ -2168,9 +2614,9 @@ export function AdminDashboardPage() {
                       },
                       { key: "createdAt", label: "발생시각", getValue: (row) => formatDateTime(row.createdAt) },
                     ],
-                    filteredAuditLogs,
-                  )
-                }
+                    exportResponse.auditLogs || [],
+                  );
+                }}
                 downloadDisabled={!filteredAuditLogs.length}
               />
               <TableSection
@@ -2221,6 +2667,15 @@ export function AdminDashboardPage() {
                 ]}
                 rows={filteredAuditLogs}
                 emptyText="조건에 맞는 감사 로그가 없습니다."
+                pageSize={50}
+                pagination={auditPagination}
+                onPageChange={setAuditPage}
+                controlledSortKey={auditSort.sortKey}
+                controlledSortDirection={auditSort.sortDirection}
+                onSortChange={(nextSort) => {
+                  setAuditSort(nextSort);
+                  setAuditPage(1);
+                }}
               />
             </>
           ) : null}
