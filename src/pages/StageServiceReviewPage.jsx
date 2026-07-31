@@ -9,6 +9,7 @@ import {
   formatStageServiceAmount,
   getHairOptionChoices,
   getHairOptionalChoices,
+  getStageServiceDisciplineLabel,
   getStageServiceTitle,
   getStageVideoAdditionalDisciplineMeta,
   getVideoTypeOptions,
@@ -32,7 +33,7 @@ function ReviewRow({ label, value }) {
 export function StageServiceReviewPage() {
   const navigate = useNavigate();
   const { state, dispatch } = useStageServiceFlow();
-  const { t, language } = useLanguage();
+  const { locale, t } = useLanguage();
   const [draftSnapshot, setDraftSnapshot] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
   const [isPreparingPayment, setIsPreparingPayment] = useState(false);
@@ -44,18 +45,21 @@ export function StageServiceReviewPage() {
     phone: state.applicantInfo.phone,
   });
   const videoTypeLabel =
-    getVideoTypeOptions().find((option) => option.value === (draftSnapshot?.draft?.videoType || state.formData.videoType))
+    getVideoTypeOptions(locale).find((option) => option.value === (draftSnapshot?.draft?.videoType || state.formData.videoType))
       ?.label || "-";
   const videoAdditionalOptionLabel =
     getStageVideoAdditionalDisciplineMeta(
       draftSnapshot?.draft?.videoAdditionalDiscipline || state.formData.videoAdditionalDiscipline,
       draftSnapshot?.draft?.videoType || state.formData.videoType,
+      locale,
     )?.label ||
-    draftSnapshot?.draft?.videoAdditionalDiscipline ||
-    state.formData.videoAdditionalDiscipline ||
+    getStageServiceDisciplineLabel(
+      draftSnapshot?.draft?.videoAdditionalDiscipline || state.formData.videoAdditionalDiscipline,
+      locale,
+    ) ||
     "-";
   const hairOptionLabel =
-    getHairOptionChoices().find((option) => option.value === (draftSnapshot?.draft?.hairOption || state.formData.hairOption))
+    getHairOptionChoices(locale).find((option) => option.value === (draftSnapshot?.draft?.hairOption || state.formData.hairOption))
       ?.label || "-";
   const hairOptionalLabel =
     getHairOptionalChoices({
@@ -63,6 +67,7 @@ export function StageServiceReviewPage() {
       hasAdditionalDiscipline: Boolean(
         draftSnapshot?.draft?.hairAdditionalDiscipline || state.formData.hairAdditionalDiscipline,
       ),
+      locale,
     }).find((option) => option.value === (draftSnapshot?.draft?.hairOptionalOption || state.formData.hairOptionalOption))
       ?.label || "-";
 
@@ -144,7 +149,7 @@ export function StageServiceReviewPage() {
 
   return (
     <PageShell>
-      <section className="site-page site-page--narrow">
+      <section className="site-page site-page--stage-service">
         <div className="site-review-card site-stage-service-review-card">
           <div className="site-review-card__header">
             <p className="site-kicker">{t("common.kickerReview")}</p>
@@ -153,7 +158,7 @@ export function StageServiceReviewPage() {
           </div>
 
           <div className="site-review-grid">
-            <ReviewRow label={t("stageService.serviceType")} value={getStageServiceTitle(state.serviceKey)} />
+            <ReviewRow label={t("stageService.serviceType")} value={getStageServiceTitle(state.serviceKey, locale)} />
             <ReviewRow label={t("review.name")} value={reviewDraft?.name || state.applicantInfo.name} />
             <ReviewRow label={t("review.phone")} value={reviewDraft?.phone || state.applicantInfo.phone} />
             <ReviewRow label={t("review.email")} value={reviewDraft?.email || state.applicantInfo.email} />
@@ -173,7 +178,10 @@ export function StageServiceReviewPage() {
                 />
                 <ReviewRow
                   label={t("stageService.additionalDiscipline")}
-                  value={reviewDraft?.photoAdditionalDiscipline || state.formData.photoAdditionalDiscipline}
+                  value={getStageServiceDisciplineLabel(
+                    reviewDraft?.photoAdditionalDiscipline || state.formData.photoAdditionalDiscipline,
+                    locale,
+                  )}
                 />
               </>
             ) : null}
@@ -190,19 +198,25 @@ export function StageServiceReviewPage() {
               <>
                 <ReviewRow
                   label={t("stageService.participantDiscipline")}
-                  value={reviewDraft?.hairParticipantDiscipline || state.formData.hairParticipantDiscipline}
+                  value={getStageServiceDisciplineLabel(
+                    reviewDraft?.hairParticipantDiscipline || state.formData.hairParticipantDiscipline,
+                    locale,
+                  )}
                 />
                 <ReviewRow label={t("stageService.hairOption")} value={hairOptionLabel} />
                 <ReviewRow
                   label={t("stageService.additionalDiscipline")}
-                  value={reviewDraft?.hairAdditionalDiscipline || state.formData.hairAdditionalDiscipline}
+                  value={getStageServiceDisciplineLabel(
+                    reviewDraft?.hairAdditionalDiscipline || state.formData.hairAdditionalDiscipline,
+                    locale,
+                  )}
                 />
                 <ReviewRow label={t("stageService.optionalOption")} value={hairOptionalLabel} />
               </>
             ) : null}
             <ReviewRow
               label={t("stageService.totalAmount")}
-              value={formatStageServiceAmount(reviewDraft?.totalAmount || state.totalAmount, language)}
+              value={formatStageServiceAmount(reviewDraft?.totalAmount || state.totalAmount, locale)}
             />
           </div>
 

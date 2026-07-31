@@ -904,6 +904,10 @@ body,
   width: min(900px, calc(100% - 48px));
 }
 
+.site-page--stage-service {
+  width: min(1180px, calc(100% - 48px));
+}
+
 .site-hero {
   min-height: 620px;
   padding: 72px 0;
@@ -2041,6 +2045,10 @@ body,
     width: min(100%, calc(100% - 32px));
   }
 
+  .site-page--stage-service {
+    width: min(100%, calc(100% - 32px));
+  }
+
   .site-header {
     flex-wrap: wrap;
   }
@@ -2312,6 +2320,11 @@ body,
 
 .site-admin-controls__select {
   flex: 0 0 180px;
+}
+
+.site-admin-controls__select option {
+  background: #ffffff;
+  color: #10131a;
 }
 
 .site-admin-controls__download {
@@ -4601,6 +4614,63 @@ body {
 
 .site-stage-service-detail__actions {
   grid-column: 1 / -1;
+}
+
+.site-stage-service-application-picker {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+}
+
+.site-stage-service-application-picker__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.site-stage-service-application-picker__header .site-button {
+  min-height: 38px;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+}
+
+.site-stage-service-application-picker__options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.site-stage-service-application-picker__option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 12px 14px;
+  border: 1px solid #d7dde8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #111827;
+  cursor: pointer;
+}
+
+.site-stage-service-application-picker__option input {
+  grid-row: span 2;
+  margin: 0;
+}
+
+.site-stage-service-application-picker__option span {
+  font-weight: 700;
+}
+
+.site-stage-service-application-picker__option small {
+  color: #6c788d;
+}
+
+.site-stage-service-application-picker__option.is-selected {
+  border-color: #20518a;
+  box-shadow: inset 0 0 0 1px #20518a;
+  background: #edf5ff;
 }
 
 .site-stage-service-notice-images {

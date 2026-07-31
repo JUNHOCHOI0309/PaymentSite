@@ -8,7 +8,7 @@ import { getStageServiceOrderByNumber, getStageServiceOrderByOrder } from "../li
 
 export function StageServiceCompletePage() {
   const [searchParams] = useSearchParams();
-  const { t, language } = useLanguage();
+  const { locale, t } = useLanguage();
   const [serviceOrder, setServiceOrder] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -37,7 +37,7 @@ export function StageServiceCompletePage() {
 
   return (
     <PageShell>
-      <section className="site-page site-page--narrow">
+      <section className="site-page site-page--stage-service">
         <div className="site-complete-card site-apply-complete-card">
           <p className="site-kicker">{t("common.kickerComplete")}</p>
           <h1>{t("stageService.completeTitle")}</h1>
@@ -47,11 +47,11 @@ export function StageServiceCompletePage() {
 
           <div className="site-review-grid">
             <div className="site-review-row"><span>{t("stageService.serviceOrderNumber")}</span><strong>{serviceOrder?.serviceOrderNumber || "-"}</strong></div>
-            <div className="site-review-row"><span>{t("stageService.serviceType")}</span><strong>{getStageServiceTitle(serviceOrder?.serviceType) || "-"}</strong></div>
+            <div className="site-review-row"><span>{t("stageService.serviceType")}</span><strong>{getStageServiceTitle(serviceOrder?.serviceType, locale) || "-"}</strong></div>
             <div className="site-review-row"><span>{t("complete.name")}</span><strong>{serviceOrder?.name || "-"}</strong></div>
             <div className="site-review-row"><span>{t("complete.phone")}</span><strong>{serviceOrder?.phone || "-"}</strong></div>
             <div className="site-review-row"><span>{t("complete.email")}</span><strong>{serviceOrder?.email || "-"}</strong></div>
-            <div className="site-review-row"><span>{t("stageService.totalAmount")}</span><strong>{serviceOrder ? formatStageServiceAmount(serviceOrder.totalAmount, language) : "-"}</strong></div>
+            <div className="site-review-row"><span>{t("stageService.totalAmount")}</span><strong>{serviceOrder ? formatStageServiceAmount(serviceOrder.totalAmount, locale) : "-"}</strong></div>
             <div className="site-review-row"><span>{t("complete.paymentStatus")}</span><strong>{serviceOrder?.paymentStatus || "-"}</strong></div>
             <div className="site-review-row"><span>{t("complete.submittedAt")}</span><strong>{serviceOrder?.purchasedAt || "-"}</strong></div>
           </div>

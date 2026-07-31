@@ -28,6 +28,13 @@ export function PaymentCheckoutPage() {
         paymentMethod: selectedPaymentMethod,
       });
 
+      if (
+        kcpPayment.priceChanged &&
+        !window.confirm(`참가비가 현재 접수 기간 기준으로 ${Number(kcpPayment.amount || 0).toLocaleString("ko-KR")}원으로 변경되었습니다. 이 금액으로 결제를 진행할까요?`)
+      ) {
+        return;
+      }
+
       submitKcpPayment(kcpPayment.payUrl, kcpPayment.formFields);
     } catch (error) {
       setErrorMessage(error.message || t("payment.prepareError"));
@@ -43,7 +50,6 @@ export function PaymentCheckoutPage() {
           {[
             ["CARD", t("payment.card")],
             ["TRANSFER", t("payment.transfer")],
-            ["VIRTUAL_ACCOUNT", t("payment.virtualAccount")],
             ["MOBILE_PHONE", t("payment.mobilePhone")],
           ].map(([value, label]) => (
             <button

@@ -5,6 +5,51 @@ export const stageServiceDisciplineOptions = config.disciplineOptions || [];
 const stageVideoTypeOptions = config.services["stage-video"]?.videoTypes || [];
 const stageVideoTypeMap = new Map(stageVideoTypeOptions.map((option) => [option.value, option]));
 const stageVideoAdditionalDisciplineSeparator = "::";
+const localizedServiceTitles = {
+  "stage-photo": { ko: "무대 사진 촬영", en: "Stage Photo Shoot" },
+  "stage-video": { ko: "무대 영상 촬영", en: "Stage Video Shoot" },
+  "hair-makeup": { ko: "헤어&메이크업", en: "Hair & Makeup" },
+};
+const localizedDisciplineLabels = {
+  보디빌딩: { ko: "보디빌딩", en: "Bodybuilding" },
+  클래식: { ko: "클래식 피지크", en: "Classic Physique" },
+  피지크: { ko: "피지크", en: "Physique" },
+  "남성 모델": { ko: "남성 모델", en: "Men's Model" },
+  "남성 피트니스": { ko: "남성 피트니스", en: "Men's Fitness" },
+  "남성 데님": { ko: "남성 데님", en: "Men's Denim" },
+  미즈비키니: { ko: "미즈비키니", en: "Ms.Bikini" },
+  피규어: { ko: "피규어", en: "Figure" },
+  "여성 모델": { ko: "여성 모델", en: "Women's Model" },
+  "여성 피트니스": { ko: "여성 피트니스", en: "Women's Fitness" },
+  "여성 데님": { ko: "여성 데님", en: "Women's Denim" },
+};
+const localizedHairOptionLabels = {
+  MALE_HAIR_MAKEUP: { ko: "남자 헤어&메이크업", en: "Men's Hair & Makeup" },
+  MALE_MAKEUP: { ko: "남자 메이크업", en: "Men's Makeup" },
+  MALE_HAIR: { ko: "남자 헤어", en: "Men's Hair" },
+  FEMALE_HAIR_MAKEUP: { ko: "여자 헤어&메이크업", en: "Women's Hair & Makeup" },
+  FEMALE_MAKEUP: { ko: "여자 메이크업", en: "Women's Makeup" },
+  FEMALE_HAIR: { ko: "여자 헤어", en: "Women's Hair" },
+};
+const localizedHairOptionalLabels = {
+  BODY_MAKEUP: { ko: "바디메이크업", en: "Body Makeup" },
+  MALE_RETOUCH: { ko: "남자 리터치", en: "Men's Retouch" },
+  FEMALE_RETOUCH: { ko: "여자 리터치", en: "Women's Retouch" },
+};
+
+function resolveLocale(locale = "ko") {
+  return locale === "en" ? "en" : "ko";
+}
+
+function getLocalizedText(localizedValue, locale, fallback = "") {
+  if (!localizedValue) {
+    return fallback;
+  }
+
+  const normalizedLocale = resolveLocale(locale);
+  return localizedValue[normalizedLocale] || localizedValue.ko || fallback;
+}
+
 export const stageServiceItems = [
   { key: "stage-photo", title: config.services["stage-photo"].title },
   { key: "stage-video", title: config.services["stage-video"].title },
@@ -15,12 +60,27 @@ export function getStageServiceByKey(serviceKey) {
   return config.services[serviceKey] || null;
 }
 
-export function getStageServiceDisciplineOptions() {
-  return stageServiceDisciplineOptions;
+export function getStageServiceDisciplineLabel(discipline, locale = "ko") {
+  return getLocalizedText(
+    localizedDisciplineLabels[discipline],
+    locale,
+    discipline || "",
+  );
 }
 
-export function getStageServiceTitle(serviceKey) {
-  return getStageServiceByKey(serviceKey)?.title || "";
+export function getStageServiceDisciplineOptions(locale = "ko") {
+  return stageServiceDisciplineOptions.map((discipline) => ({
+    value: discipline,
+    label: getStageServiceDisciplineLabel(discipline, locale),
+  }));
+}
+
+export function getStageServiceTitle(serviceKey, locale = "ko") {
+  return getLocalizedText(
+    localizedServiceTitles[serviceKey],
+    locale,
+    getStageServiceByKey(serviceKey)?.title || "",
+  );
 }
 
 export function formatStageServiceAmount(value, locale = "ko") {
@@ -31,16 +91,22 @@ export function formatStageServiceAmount(value, locale = "ko") {
   }).format(Number(value || 0));
 }
 
-export function getVideoTypeOptions() {
-  return stageVideoTypeOptions;
+export function getVideoTypeOptions(locale = "ko") {
+  return stageVideoTypeOptions.map((option) => ({
+    ...option,
+    label: getLocalizedText({ ko: option.label, en: option.label }, locale, option.label),
+  }));
 }
 
-export function getHairOptionChoices() {
-  return getStageServiceByKey("hair-makeup")?.hairOptions || [];
+export function getHairOptionChoices(locale = "ko") {
+  return (getStageServiceByKey("hair-makeup")?.hairOptions || []).map((option) => ({
+    ...option,
+    label: getLocalizedText(localizedHairOptionLabels[option.value], locale, option.label),
+  }));
 }
 
-export function getHairOptionalChoices({ hairOptionValue, hasAdditionalDiscipline }) {
-  const hairOptions = getHairOptionChoices();
+export function getHairOptionalChoices({ hairOptionValue, hasAdditionalDiscipline, locale = "ko" }) {
+  const hairOptions = getHairOptionChoices(locale);
   const selectedHairOption = hairOptions.find((option) => option.value === hairOptionValue);
   const selectedGender = selectedHairOption?.gender || "all";
   const optionalOptions = getStageServiceByKey("hair-makeup")?.optionalOptions || [];
@@ -55,7 +121,10 @@ export function getHairOptionalChoices({ hairOptionValue, hasAdditionalDisciplin
     }
 
     return option.gender === selectedGender;
-  });
+  }).map((option) => ({
+    ...option,
+    label: getLocalizedText(localizedHairOptionalLabels[option.value], locale, option.label),
+  }));
 }
 
 export function buildStageVideoAdditionalDisciplineValue(videoTypeValue, discipline) {
@@ -66,7 +135,7 @@ export function buildStageVideoAdditionalDisciplineValue(videoTypeValue, discipl
   return `${videoTypeValue}${stageVideoAdditionalDisciplineSeparator}${discipline}`;
 }
 
-export function getStageVideoAdditionalDisciplineMeta(value, fallbackVideoTypeValue = "") {
+export function getStageVideoAdditionalDisciplineMeta(value, fallbackVideoTypeValue = "", locale = "ko") {
   const normalizedValue = typeof value === "string" ? value.trim() : "";
 
   if (!normalizedValue) {
@@ -92,9 +161,9 @@ export function getStageVideoAdditionalDisciplineMeta(value, fallbackVideoTypeVa
       typeLabel: selectedVideoType.label,
       discipline,
       price: Number(selectedVideoType.price || 0),
-      label: `${selectedVideoType.label}: ${discipline} (${formatStageServiceAmount(
+      label: `${selectedVideoType.label}: ${getStageServiceDisciplineLabel(discipline, locale)} (${formatStageServiceAmount(
         selectedVideoType.price,
-        "ko",
+        locale,
       )})`,
     };
   }
@@ -109,9 +178,9 @@ export function getStageVideoAdditionalDisciplineMeta(value, fallbackVideoTypeVa
       typeLabel: selectedVideoType.label,
       discipline: normalizedValue,
       price: Number(selectedVideoType.price || 0),
-      label: `${selectedVideoType.label}: ${normalizedValue} (${formatStageServiceAmount(
+      label: `${selectedVideoType.label}: ${getStageServiceDisciplineLabel(normalizedValue, locale)} (${formatStageServiceAmount(
         selectedVideoType.price,
-        "ko",
+        locale,
       )})`,
       isLegacy: true,
     };
@@ -120,11 +189,11 @@ export function getStageVideoAdditionalDisciplineMeta(value, fallbackVideoTypeVa
   return null;
 }
 
-export function getStageVideoAdditionalDisciplineChoices() {
-  return getVideoTypeOptions().flatMap((videoType) =>
+export function getStageVideoAdditionalDisciplineChoices(locale = "ko") {
+  return getVideoTypeOptions(locale).flatMap((videoType) =>
     stageServiceDisciplineOptions.map((discipline) => ({
       value: buildStageVideoAdditionalDisciplineValue(videoType.value, discipline),
-      label: `${videoType.label}: ${discipline} (${formatStageServiceAmount(videoType.price, "ko")})`,
+      label: `${videoType.label}: ${getStageServiceDisciplineLabel(discipline, locale)} (${formatStageServiceAmount(videoType.price, locale)})`,
       price: Number(videoType.price || 0),
       typeValue: videoType.value,
       discipline,

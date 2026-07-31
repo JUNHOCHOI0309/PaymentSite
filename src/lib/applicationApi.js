@@ -123,6 +123,18 @@ export async function cancelKcpTestOrder(orderId, payload) {
   return readJson(response);
 }
 
+export async function cancelPendingApplicationOrder(orderId, payload) {
+  const response = await apiFetch(`/api/orders/${encodeURIComponent(orderId)}/cancel`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
 export async function createKcpTestStageServiceDraft(payload) {
   const response = await apiFetch("/api/kcp/test/stage-services/draft", {
     method: "POST",
@@ -331,6 +343,33 @@ export async function getStageServiceSummary(payload) {
   return readJson(response);
 }
 
+export async function cancelPendingStageServiceOrder(orderId, payload) {
+  const response = await apiFetch(
+    `/api/stage-services/orders/${encodeURIComponent(orderId)}/cancel`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  return readJson(response);
+}
+
+export async function getEligibleStageServiceApplications(payload) {
+  const response = await apiFetch("/api/stage-services/eligible-applications", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
 export async function getStageServiceRefundQuote(payload) {
   const response = await apiFetch("/api/stage-services/refund/quote", {
     method: "POST",
@@ -388,8 +427,18 @@ export async function keepAliveAdminSession() {
   return readJson(response);
 }
 
-export async function getAdminApplications() {
-  const response = await adminApiFetch("/api/admin/applications");
+export async function getAdminApplications(params = {}) {
+  const query = new URLSearchParams();
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value != null && value !== "" && value !== "all") {
+      query.set(key, String(value));
+    }
+  });
+
+  const response = await adminApiFetch(
+    `/api/admin/applications${query.size ? `?${query.toString()}` : ""}`,
+  );
   return readJson(response);
 }
 
@@ -451,13 +500,45 @@ export async function updateAdminUser(adminUserId, payload) {
   return readJson(response);
 }
 
-export async function getAdminStageServices() {
-  const response = await adminApiFetch("/api/admin/stage-services");
+export async function getAdminStageServices(params = {}) {
+  const query = new URLSearchParams();
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value != null && value !== "" && value !== "all") {
+      query.set(key, String(value));
+    }
+  });
+
+  const response = await adminApiFetch(
+    `/api/admin/stage-services${query.size ? `?${query.toString()}` : ""}`,
+  );
   return readJson(response);
 }
 
 export async function getAdminRefunds() {
   const response = await adminApiFetch("/api/admin/refunds");
+  return readJson(response);
+}
+
+function buildAdminQuery(params = {}) {
+  const query = new URLSearchParams();
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value != null && value !== "" && value !== "all") {
+      query.set(key, String(value));
+    }
+  });
+
+  return query.size ? `?${query.toString()}` : "";
+}
+
+export async function getAdminRefundRequests(params = {}) {
+  const response = await adminApiFetch(`/api/admin/refund-requests${buildAdminQuery(params)}`);
+  return readJson(response);
+}
+
+export async function getAdminCanceledPayments(params = {}) {
+  const response = await adminApiFetch(`/api/admin/canceled-payments${buildAdminQuery(params)}`);
   return readJson(response);
 }
 
@@ -486,8 +567,18 @@ export async function reconcileAdminKcpPayment(orderId) {
   return readJson(response);
 }
 
-export async function getAdminAuditLogs() {
-  const response = await adminApiFetch("/api/admin/audit-logs");
+export async function getAdminAuditLogs(params = {}) {
+  const query = new URLSearchParams();
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value != null && value !== "" && value !== "all") {
+      query.set(key, String(value));
+    }
+  });
+
+  const response = await adminApiFetch(
+    `/api/admin/audit-logs${query.size ? `?${query.toString()}` : ""}`,
+  );
   return readJson(response);
 }
 

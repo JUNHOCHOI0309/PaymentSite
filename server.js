@@ -46,6 +46,10 @@ const applicationDraftCookieName = "mmk_application_draft";
 const stageServiceDraftCookieName = "mmk_stage_service_draft";
 const paymentResultAccessTtlHours = 24;
 const draftAccessTtlHours = 24;
+const paymentOrderTtlMinutes = Math.max(
+  1,
+  Number(process.env.PAYMENT_ORDER_TTL_MINUTES || 20)
+);
 const paymentResultTokenSecret = normalizeText(process.env.PAYMENT_RESULT_TOKEN_SECRET);
 const adminSessionTtlHours = Math.max(
   1,
@@ -1182,7 +1186,9 @@ async function getApplicationEntryFeeQuote({ queryable = pool, name, phone, emai
   const additionalAmount = getPositiveInteger(
     applicationEntryFeeConfig.additionalDisciplineAmount
   );
-  const isAdditional = completedApplicationCount > 0;
+  // A paid order keeps its charged amount. Refunds only affect quotes created later.
+  const hasCompletedApplication = completedApplicationCount > 0;
+  const isAdditional = hasCompletedApplication;
 
   return {
     ...baseFee,
@@ -2324,6 +2330,175 @@ async function findLookupOwnedApplication({ name, email, applicationNumber }) {
   return result.rows[0] || null;
 }
 
+function isPaymentOrderExpired(createdAt, now = Date.now()) {
+  const createdAtMs = new Date(createdAt).getTime();
+
+  return (
+    !Number.isFinite(createdAtMs) ||
+    createdAtMs + paymentOrderTtlMinutes * 60 * 1000 <= now
+  );
+}
+
+async function releaseReusableDraftOrder({ client, draftTable, draftId, orderId }) {
+  const orderResult = await client.query(
+    `
+      SELECT order_id, status, created_at
+      FROM orders
+      WHERE order_id = $1
+      FOR UPDATE
+    `,
+    [orderId]
+  );
+  const order = orderResult.rows[0] || null;
+
+  if (!order) {
+    await client.query(
+      `
+        UPDATE ${draftTable}
+        SET order_id = NULL, status = 'DRAFT', updated_at = NOW()
+        WHERE draft_id = $1
+          AND order_id = $2
+      `,
+      [draftId, orderId]
+    );
+    return { reusable: true, reason: "ORDER_NOT_FOUND" };
+  }
+
+  if (order.status === "READY" && isPaymentOrderExpired(order.created_at)) {
+    await client.query(
+      `
+        UPDATE orders
+        SET status = 'CANCELED', updated_at = NOW()
+        WHERE order_id = $1
+          AND status = 'READY'
+      `,
+      [order.order_id]
+    );
+    await client.query(
+      `
+        UPDATE ${draftTable}
+        SET order_id = NULL, status = 'DRAFT', updated_at = NOW()
+        WHERE draft_id = $1
+          AND order_id = $2
+      `,
+      [draftId, order.order_id]
+    );
+    return { reusable: true, reason: "ORDER_EXPIRED" };
+  }
+
+  if (["FAILED", "CANCELED"].includes(order.status)) {
+    await client.query(
+      `
+        UPDATE ${draftTable}
+        SET order_id = NULL, status = 'DRAFT', updated_at = NOW()
+        WHERE draft_id = $1
+          AND order_id = $2
+      `,
+      [draftId, order.order_id]
+    );
+    return { reusable: true, reason: order.status };
+  }
+
+  return { reusable: false, order };
+}
+
+async function cancelPendingDraftOrder({ draftTable, draftId, orderId }) {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const draftResult = await client.query(
+      `
+        SELECT draft_id, order_id, status
+        FROM ${draftTable}
+        WHERE draft_id = $1
+        FOR UPDATE
+      `,
+      [draftId]
+    );
+    const draft = draftResult.rows[0] || null;
+
+    if (!draft || draft.order_id !== orderId) {
+      await client.query("ROLLBACK");
+      return { ok: false, code: "KCP_DRAFT_ORDER_MISMATCH" };
+    }
+
+    const orderResult = await client.query(
+      `
+        SELECT order_id, status
+        FROM orders
+        WHERE order_id = $1
+        FOR UPDATE
+      `,
+      [orderId]
+    );
+    const order = orderResult.rows[0] || null;
+
+    if (!order) {
+      await client.query("ROLLBACK");
+      return { ok: false, code: "ORDER_NOT_FOUND" };
+    }
+
+    if (order.status === "PAID") {
+      await client.query("ROLLBACK");
+      return { ok: false, code: "PAYMENT_ALREADY_COMPLETED" };
+    }
+
+    if (order.status === "READY") {
+      await client.query(
+        `
+          UPDATE orders
+          SET status = 'CANCELED', updated_at = NOW()
+          WHERE order_id = $1
+            AND status = 'READY'
+        `,
+        [orderId]
+      );
+    }
+
+    if (["READY", "FAILED", "CANCELED"].includes(order.status)) {
+      await client.query(
+        `
+          UPDATE ${draftTable}
+          SET order_id = NULL, status = 'DRAFT', updated_at = NOW()
+          WHERE draft_id = $1
+            AND order_id = $2
+        `,
+        [draftId, orderId]
+      );
+    }
+
+    await client.query("COMMIT");
+    return { ok: true, orderId, status: "CANCELED" };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function findCompletedDuplicateApplication({ client = pool, name, phone, email, imageKey }) {
+  const result = await client.query(
+    `
+      SELECT application_number
+      FROM applications
+      WHERE name = $1
+        AND phone = $2
+        AND LOWER(email) = $3
+        AND image_key = $4
+        AND division <> 'TEST'
+        AND payment_status = 'DONE'
+        AND admin_deleted_at IS NULL
+      LIMIT 1
+    `,
+    [name, phone, email, imageKey]
+  );
+
+  return result.rows[0] || null;
+}
+
 async function findLookupOwnedStageService({ name, email, serviceOrderNumber }) {
   const result = await pool.query(
     `
@@ -2831,6 +3006,7 @@ function validateStageServiceDraftPayload(body) {
   const name = normalizeText(body.name);
   const phone = normalizeText(formatPhoneNumber(body.phone));
   const email = normalizeEmail(body.email);
+  const linkedApplicationNumber = normalizeText(body.linkedApplicationNumber);
 
   if (!serviceType) {
     return {
@@ -2860,12 +3036,20 @@ function validateStageServiceDraftPayload(body) {
     };
   }
 
+  if (!linkedApplicationNumber) {
+    return {
+      ok: false,
+      message: "무대 서비스를 연결할 결제 완료 종목을 선택해 주세요.",
+    };
+  }
+
   const payload = {
     serviceType,
     paymentMethod,
     name,
     phone,
     email,
+    linkedApplicationNumber,
     photoHasAdditionalDiscipline: false,
     photoAdditionalDiscipline: null,
     videoType: null,
@@ -3007,6 +3191,7 @@ async function findEligibleCompletedApplicationForStageService({
   name,
   phone,
   email,
+  applicationNumber = null,
 }) {
   const result = await client.query(
     `
@@ -3014,17 +3199,19 @@ async function findEligibleCompletedApplicationForStageService({
         id,
         application_number,
         discipline,
-        image_key
+        image_key,
+        division
       FROM applications
       WHERE name = $1
         AND phone = $2
         AND LOWER(email) = $3
         AND payment_status = 'DONE'
         AND admin_deleted_at IS NULL
+        AND ($4::text IS NULL OR application_number = $4)
       ORDER BY submitted_at DESC NULLS LAST, updated_at DESC
       LIMIT 1
     `,
-    [name, phone, email]
+    [name, phone, email, applicationNumber]
   );
 
   if (result.rowCount === 0) {
@@ -3123,6 +3310,7 @@ async function hasPurchasedStageService({
   phone,
   email,
   serviceType,
+  linkedApplicationNumber,
 }) {
   const result = await client.query(
     `
@@ -3132,10 +3320,11 @@ async function hasPurchasedStageService({
         AND phone = $2
         AND LOWER(email) = $3
         AND service_type = $4
+        AND linked_application_number = $5
         AND payment_status = 'DONE'
       LIMIT 1
     `,
-    [name, phone, email, serviceType]
+    [name, phone, email, serviceType, linkedApplicationNumber]
   );
 
   return result.rowCount > 0;
@@ -3872,7 +4061,10 @@ app.post("/kcp/test/stage-services/draft", async function (req, res) {
     });
   }
 
-  const validation = validateStageServiceDraftPayload(req.body);
+  const validation = validateStageServiceDraftPayload({
+    ...req.body,
+    linkedApplicationNumber: "KCP_TEST_INTERNAL",
+  });
 
   if (!validation.ok) {
     return res.status(400).json({ ok: false, message: validation.message });
@@ -4292,7 +4484,8 @@ app.post("/kcp/trade/register", async function (req, res) {
           customer_name,
           customer_email,
           payment_provider,
-          status
+          status,
+          created_at
         FROM orders
         WHERE order_id = $1
         LIMIT 1
@@ -4307,7 +4500,7 @@ app.post("/kcp/trade/register", async function (req, res) {
       });
     }
 
-    const order = orderResult.rows[0];
+    let order = orderResult.rows[0];
 
     const orderAccessValidation = validateOrderPaymentResultAccess(req, order);
 
@@ -4330,7 +4523,7 @@ app.post("/kcp/trade/register", async function (req, res) {
       });
     }
 
-    const amount = normalizeAmount(order.amount);
+    let amount = normalizeAmount(order.amount);
 
     if (amount === null) {
       return res.status(400).json({
@@ -4379,10 +4572,39 @@ app.post("/kcp/trade/register", async function (req, res) {
 
     const trustedDraftId = draftBindingResult.rows[0].draft_id;
 
+    if (isPaymentOrderExpired(order.created_at)) {
+      await pool.query(
+        `
+          UPDATE orders
+          SET status = 'CANCELED', updated_at = NOW()
+          WHERE order_id = $1
+            AND status = 'READY'
+        `,
+        [order.order_id]
+      );
+      await pool.query(
+        `
+          UPDATE ${draftBindingTable}
+          SET order_id = NULL, status = 'DRAFT', updated_at = NOW()
+          WHERE draft_id = $1
+            AND order_id = $2
+        `,
+        [trustedDraftId, order.order_id]
+      );
+      return res.status(409).json({
+        ok: false,
+        code: "PAYMENT_ORDER_EXPIRED",
+        message: `결제 대기 시간이 ${paymentOrderTtlMinutes}분을 초과했습니다. 신청 내용을 확인한 뒤 다시 결제를 시도해 주세요.`,
+      });
+    }
+
+    let pricing = null;
+    let priceChanged = false;
+
     if (context === "application") {
       const applicationDraftResult = await pool.query(
         `
-          SELECT image_key
+          SELECT name, phone, email, division, discipline, image_key
           FROM application_drafts
           WHERE draft_id = $1
           LIMIT 1
@@ -4390,15 +4612,88 @@ app.post("/kcp/trade/register", async function (req, res) {
         [trustedDraftId]
       );
 
-      if (
-        applicationDraftResult.rowCount === 0 ||
-        !resolveApplicationBaseFee(applicationDraftResult.rows[0].image_key).isRegistrationOpen
-      ) {
+      const applicationDraft = applicationDraftResult.rows[0];
+
+      if (!applicationDraft || !resolveApplicationBaseFee(applicationDraft.image_key).isRegistrationOpen) {
         return res.status(409).json({
           ok: false,
           code: "APPLICATION_REGISTRATION_CLOSED",
           message: "현재 대회 참가 접수 기간이 아닙니다. 접수 기간을 확인해 주세요.",
         });
+      }
+
+      const duplicateApplication = await findCompletedDuplicateApplication({
+        name: applicationDraft.name,
+        phone: applicationDraft.phone,
+        email: applicationDraft.email,
+        imageKey: applicationDraft.image_key,
+      });
+
+      if (duplicateApplication) {
+        return res.status(409).json({
+          ok: false,
+          code: "DUPLICATE_DISCIPLINE_APPLICATION",
+          message: "이미 결제 완료된 동일 종목 신청이 있습니다. 신청 조회에서 기존 내역을 확인해 주세요.",
+        });
+      }
+
+      pricing = await getApplicationEntryFeeQuote({
+        name: applicationDraft.name,
+        phone: applicationDraft.phone,
+        email: applicationDraft.email,
+        imageKey: applicationDraft.image_key,
+      });
+      const orderDetails = resolveApplicationOrderDetails({
+        draft: applicationDraft,
+        pricing,
+      });
+
+      if (!orderDetails.ok) {
+        return res.status(409).json({
+          ok: false,
+          code: orderDetails.code,
+          message: orderDetails.message,
+        });
+      }
+
+      priceChanged =
+        normalizeAmount(order.amount) !== orderDetails.amount ||
+        order.order_name !== orderDetails.orderName;
+
+      if (priceChanged) {
+        const orderUpdateResult = await pool.query(
+          `
+            UPDATE orders
+            SET amount = $2, order_name = $3, updated_at = NOW()
+            WHERE order_id = $1
+              AND status = 'READY'
+            RETURNING amount, order_name
+          `,
+          [order.order_id, orderDetails.amount, orderDetails.orderName]
+        );
+
+        if (orderUpdateResult.rowCount !== 1) {
+          return res.status(409).json({
+            ok: false,
+            code: "KCP_TRADE_BINDING_CHANGED",
+            message: "결제 준비 중 주문 상태가 변경되었습니다. 다시 시도해 주세요.",
+          });
+        }
+
+        order = {
+          ...order,
+          amount: orderUpdateResult.rows[0].amount,
+          order_name: orderUpdateResult.rows[0].order_name,
+        };
+        amount = normalizeAmount(order.amount);
+
+        if (amount === null) {
+          return res.status(400).json({
+            ok: false,
+            code: "INVALID_UPDATED_ORDER_AMOUNT",
+            message: "변경된 결제 금액을 확인할 수 없습니다. 다시 시도해 주세요.",
+          });
+        }
       }
     }
 
@@ -4424,6 +4719,9 @@ app.post("/kcp/trade/register", async function (req, res) {
     const failUrl = buildKcpRedirectUrl(req, failPath, {
       code: "KCP_AUTH_FAILED",
       message: "KCP 결제 인증에 실패했습니다.",
+      context,
+      draftId: trustedDraftId,
+      orderId: order.order_id,
     });
     const registerBody = {
       site_cd: kcpSiteCode,
@@ -4500,6 +4798,9 @@ app.post("/kcp/trade/register", async function (req, res) {
       ok: true,
       paymentProvider: paymentProviders.KCP,
       payUrl,
+      amount,
+      priceChanged,
+      pricing,
       formFields: {
         ordr_idxx: order.order_id,
         ...(kcpMethod.payMethod === "MOBX"
@@ -4516,18 +4817,382 @@ app.post("/kcp/trade/register", async function (req, res) {
   }
 });
 
-app.get("/kcp/return", function (req, res) {
+app.post("/orders/:orderId/cancel", async function (req, res) {
+  if (!hasTrustedWriteOrigin(req)) {
+    return res.status(403).json({ ok: false, code: "UNTRUSTED_REQUEST_ORIGIN", message: "허용되지 않은 요청 출처입니다." });
+  }
+
+  const orderId = normalizeText(req.params.orderId);
+  const draftId = normalizeText(req.body?.draftId);
+
+  if (!orderId || !draftId) {
+    return res.status(400).json({ ok: false, message: "Missing orderId or draftId" });
+  }
+
+  if (!requireRequestDraftAccess(req, res, {
+    draftId,
+    draftType: "application",
+    cookieName: applicationDraftCookieName,
+  })) {
+    return;
+  }
+
+  try {
+    const cancellation = await cancelPendingDraftOrder({
+      draftTable: "application_drafts",
+      draftId,
+      orderId,
+    });
+
+    if (!cancellation.ok) {
+      return res.status(cancellation.code === "PAYMENT_ALREADY_COMPLETED" ? 409 : 404).json({
+        ok: false,
+        code: cancellation.code,
+        message: cancellation.code === "PAYMENT_ALREADY_COMPLETED"
+          ? "이미 결제 완료된 주문은 취소할 수 없습니다. 신청 조회에서 환불을 진행해 주세요."
+          : "주문과 신청 초안이 일치하지 않습니다.",
+      });
+    }
+
+    return res.status(200).json({ ok: true, orderId, status: "CANCELED" });
+  } catch (error) {
+    console.error("Failed to cancel pending application order:", error);
+    return res.status(500).json({ ok: false, message: "Failed to cancel pending order" });
+  }
+});
+
+app.post("/stage-services/orders/:orderId/cancel", async function (req, res) {
+  if (!hasTrustedWriteOrigin(req)) {
+    return res.status(403).json({ ok: false, code: "UNTRUSTED_REQUEST_ORIGIN", message: "허용되지 않은 요청 출처입니다." });
+  }
+
+  const orderId = normalizeText(req.params.orderId);
+  const draftId = normalizeText(req.body?.draftId);
+
+  if (!orderId || !draftId) {
+    return res.status(400).json({ ok: false, message: "Missing orderId or draftId" });
+  }
+
+  if (!requireRequestDraftAccess(req, res, {
+    draftId,
+    draftType: "stage-service",
+    cookieName: stageServiceDraftCookieName,
+  })) {
+    return;
+  }
+
+  try {
+    const cancellation = await cancelPendingDraftOrder({
+      draftTable: "stage_service_drafts",
+      draftId,
+      orderId,
+    });
+
+    if (!cancellation.ok) {
+      return res.status(cancellation.code === "PAYMENT_ALREADY_COMPLETED" ? 409 : 404).json({
+        ok: false,
+        code: cancellation.code,
+        message: cancellation.code === "PAYMENT_ALREADY_COMPLETED"
+          ? "이미 결제 완료된 주문은 취소할 수 없습니다. 신청 조회에서 환불을 진행해 주세요."
+          : "주문과 무대 서비스 초안이 일치하지 않습니다.",
+      });
+    }
+
+    return res.status(200).json({ ok: true, orderId, status: "CANCELED" });
+  } catch (error) {
+    console.error("Failed to cancel pending stage service order:", error);
+    return res.status(500).json({ ok: false, message: "Failed to cancel pending order" });
+  }
+});
+
+async function finalizePaidApplicationOrder({ draftId, orderId }) {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const existingResult = await client.query(
+      `
+        SELECT application_number, draft_id, order_id, payment_key, status, payment_status,
+          name, phone, email, birth_date, organization, instagram_id, introduction,
+          weight_class, division, discipline, image_key, submitted_at, updated_at
+        FROM applications
+        WHERE draft_id = $1
+        LIMIT 1
+      `,
+      [draftId]
+    );
+
+    if (existingResult.rowCount > 0) {
+      const application = existingResult.rows[0];
+
+      if (application.order_id !== orderId) {
+        throw Object.assign(new Error("Completed application order does not match"), {
+          code: "DRAFT_ORDER_MISMATCH",
+        });
+      }
+
+      await client.query("COMMIT");
+      return { application: mapApplicationRow(application), idempotent: true };
+    }
+
+    const draftResult = await client.query(
+      `
+        SELECT id, draft_id, order_id, payment_method, name, phone, email, birth_date,
+          organization, instagram_id, introduction, weight_class, division, discipline, image_key
+        FROM application_drafts
+        WHERE draft_id = $1
+        FOR UPDATE
+      `,
+      [draftId]
+    );
+    const orderResult = await client.query(
+      `
+        SELECT order_id, amount, status, payment_provider, payment_method, customer_name, customer_email
+        FROM orders
+        WHERE order_id = $1
+        FOR UPDATE
+      `,
+      [orderId]
+    );
+    const paymentResult = await client.query(
+      `
+        SELECT order_id, payment_key, provider_payment_id, payment_provider, status, total_amount
+        FROM payments
+        WHERE order_id = $1
+        ORDER BY updated_at DESC
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [orderId]
+    );
+    const draft = draftResult.rows[0];
+    const order = orderResult.rows[0];
+    const payment = paymentResult.rows[0];
+    const bindingValidation = validateCompletionPaymentBinding({ draft, order, payment });
+
+    if (!bindingValidation.ok) {
+      throw Object.assign(new Error(bindingValidation.message), { code: bindingValidation.code });
+    }
+
+    const applicationResult = await client.query(
+      `
+        INSERT INTO applications (
+          application_number, draft_id, order_id, payment_key, status, payment_status,
+          name, phone, email, birth_date, organization, instagram_id, introduction,
+          weight_class, division, discipline, image_key, submitted_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, 'SUBMITTED', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW())
+        RETURNING id, application_number, draft_id, order_id, payment_key, status, payment_status,
+          name, phone, email, birth_date, organization, instagram_id, introduction,
+          weight_class, division, discipline, image_key, submitted_at, updated_at
+      `,
+      [
+        generateApplicationNumber(),
+        draft.draft_id,
+        orderId,
+        payment.payment_key,
+        payment.status,
+        draft.name,
+        draft.phone,
+        draft.email,
+        draft.birth_date,
+        draft.organization,
+        draft.instagram_id,
+        draft.introduction,
+        draft.weight_class,
+        draft.division,
+        draft.discipline,
+        draft.image_key,
+      ]
+    );
+    const application = applicationResult.rows[0];
+
+    await client.query(
+      `UPDATE application_drafts SET status = 'COMPLETED', updated_at = NOW() WHERE draft_id = $1`,
+      [draftId]
+    );
+    await client.query(
+      `UPDATE application_consents SET application_id = $2 WHERE draft_id = $1 AND application_id IS NULL`,
+      [draftId, application.id]
+    );
+    await client.query(
+      `UPDATE application_files SET application_id = $2 WHERE draft_id = $1 AND application_id IS NULL`,
+      [draft.id, application.id]
+    );
+    await client.query("COMMIT");
+
+    return { application: mapApplicationRow(application), idempotent: false };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function finalizePaidStageServiceOrder({ draftId, orderId }) {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const existingResult = await client.query(
+      `
+        SELECT service_order_number, order_id, payment_key, service_type, name, phone, email,
+          linked_application_number, linked_discipline, photo_has_additional_discipline,
+          photo_additional_discipline, video_type, video_additional_discipline,
+          hair_participant_discipline, hair_option, hair_additional_discipline,
+          hair_optional_option, total_amount, payment_status, service_status, purchased_at, updated_at
+        FROM stage_service_orders
+        WHERE draft_id = $1
+        LIMIT 1
+      `,
+      [draftId]
+    );
+
+    if (existingResult.rowCount > 0) {
+      const serviceOrder = existingResult.rows[0];
+
+      if (serviceOrder.order_id !== orderId) {
+        throw Object.assign(new Error("Completed stage service order does not match"), {
+          code: "DRAFT_ORDER_MISMATCH",
+        });
+      }
+
+      await client.query("COMMIT");
+      return { serviceOrder: mapStageServiceOrderRow(serviceOrder), idempotent: true };
+    }
+
+    const draftResult = await client.query(
+      `
+        SELECT draft_id, order_id, payment_method, service_type, name, phone, email,
+          linked_application_number, linked_discipline, photo_has_additional_discipline,
+          photo_additional_discipline, video_type, video_additional_discipline,
+          hair_participant_discipline, hair_option, hair_additional_discipline,
+          hair_optional_option, total_amount
+        FROM stage_service_drafts
+        WHERE draft_id = $1
+        FOR UPDATE
+      `,
+      [draftId]
+    );
+    const orderResult = await client.query(
+      `
+        SELECT order_id, amount, status, payment_provider, payment_method, customer_name, customer_email
+        FROM orders
+        WHERE order_id = $1
+        FOR UPDATE
+      `,
+      [orderId]
+    );
+    const paymentResult = await client.query(
+      `
+        SELECT order_id, payment_key, provider_payment_id, payment_provider, status, total_amount
+        FROM payments
+        WHERE order_id = $1
+        ORDER BY updated_at DESC
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [orderId]
+    );
+    const draft = draftResult.rows[0];
+    const order = orderResult.rows[0];
+    const payment = paymentResult.rows[0];
+    const bindingValidation = validateCompletionPaymentBinding({
+      draft,
+      order,
+      payment,
+      expectedAmount: draft?.total_amount,
+    });
+
+    if (!bindingValidation.ok) {
+      throw Object.assign(new Error(bindingValidation.message), { code: bindingValidation.code });
+    }
+
+    const serviceOrderResult = await client.query(
+      `
+        INSERT INTO stage_service_orders (
+          service_order_number, draft_id, order_id, payment_key, payment_status, service_status,
+          service_type, name, phone, email, linked_application_number, linked_discipline,
+          photo_has_additional_discipline, photo_additional_discipline, video_type,
+          video_additional_discipline, hair_participant_discipline, hair_option,
+          hair_additional_discipline, hair_optional_option, total_amount, purchased_at, updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, 'PURCHASED', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW(), NOW())
+        RETURNING service_order_number, order_id, payment_key, service_type, name, phone, email,
+          linked_application_number, linked_discipline, photo_has_additional_discipline,
+          photo_additional_discipline, video_type, video_additional_discipline,
+          hair_participant_discipline, hair_option, hair_additional_discipline,
+          hair_optional_option, total_amount, payment_status, service_status, purchased_at, updated_at
+      `,
+      [
+        generateStageServiceOrderNumber(),
+        draft.draft_id,
+        orderId,
+        payment.payment_key,
+        payment.status,
+        draft.service_type,
+        draft.name,
+        draft.phone,
+        draft.email,
+        draft.linked_application_number,
+        draft.linked_discipline,
+        draft.photo_has_additional_discipline,
+        draft.photo_additional_discipline,
+        draft.video_type,
+        draft.video_additional_discipline,
+        draft.hair_participant_discipline,
+        draft.hair_option,
+        draft.hair_additional_discipline,
+        draft.hair_optional_option,
+        draft.total_amount,
+      ]
+    );
+
+    await client.query(
+      `UPDATE stage_service_drafts SET status = 'COMPLETED', updated_at = NOW() WHERE draft_id = $1`,
+      [draftId]
+    );
+    await client.query("COMMIT");
+
+    return { serviceOrder: mapStageServiceOrderRow(serviceOrderResult.rows[0]), idempotent: false };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+app.get("/kcp/return", async function (req, res) {
   const context = normalizeKcpPaymentContext(req.query.context);
+  const draftId = normalizeText(req.query.draftId);
+  const orderId = normalizeText(req.query.orderId);
   const failPath = getKcpFailPath(context);
   const message =
     normalizeText(req.query.res_msg) ||
     normalizeText(req.query.message) ||
     "결제가 취소되었습니다. 다시 결제를 시도해 주세요.";
 
+  if (draftId && orderId) {
+    try {
+      await cancelPendingDraftOrder({
+        draftTable: getKcpDraftBindingTable(context),
+        draftId,
+        orderId,
+      });
+    } catch (error) {
+      console.error("Failed to release canceled KCP order:", error);
+    }
+  }
+
   return res.redirect(
     buildKcpRedirectUrl(req, failPath, {
       code: "KCP_PAYMENT_CANCELED",
       message,
+      context,
+      draftId,
+      orderId,
     })
   );
 });
@@ -4553,6 +5218,9 @@ app.post("/kcp/return", async function (req, res) {
       buildKcpRedirectUrl(req, failPath, {
         code,
         message,
+        context,
+        draftId,
+        orderId,
       })
     );
   }
@@ -4662,6 +5330,27 @@ app.post("/kcp/return", async function (req, res) {
       }
 
       await client.query("COMMIT");
+      let finalizationPending = false;
+
+      if (context === "application" || context === "stageService") {
+        try {
+          if (context === "application") {
+            await finalizePaidApplicationOrder({ draftId: trustedDraftId, orderId: order.order_id });
+          } else {
+            await finalizePaidStageServiceOrder({ draftId: trustedDraftId, orderId: order.order_id });
+          }
+        } catch (error) {
+          finalizationPending = true;
+          console.error("KCP payment replay finalization is pending:", {
+            context,
+            draftId: trustedDraftId,
+            orderId: order.order_id,
+            code: error.code,
+            message: error.message,
+          });
+        }
+      }
+
       return res.redirect(
         buildKcpRedirectUrl(req, successPath, {
           draftId: trustedDraftId,
@@ -4670,6 +5359,7 @@ app.post("/kcp/return", async function (req, res) {
           paymentKey: payment.payment_key,
           provider: paymentProviders.KCP,
           confirmed: "1",
+          finalizationPending: finalizationPending ? "1" : undefined,
         })
       );
     }
@@ -4811,6 +5501,27 @@ app.post("/kcp/return", async function (req, res) {
 
     await client.query("COMMIT");
 
+    let finalizationPending = false;
+
+    if (context === "application" || context === "stageService") {
+      try {
+        if (context === "application") {
+          await finalizePaidApplicationOrder({ draftId: trustedDraftId, orderId: order.order_id });
+        } else {
+          await finalizePaidStageServiceOrder({ draftId: trustedDraftId, orderId: order.order_id });
+        }
+      } catch (error) {
+        finalizationPending = true;
+        console.error("KCP payment approved but finalization is pending:", {
+          context,
+          draftId: trustedDraftId,
+          orderId: order.order_id,
+          code: error.code,
+          message: error.message,
+        });
+      }
+    }
+
     return res.redirect(
       buildKcpRedirectUrl(req, successPath, {
         draftId: trustedDraftId,
@@ -4819,6 +5530,7 @@ app.post("/kcp/return", async function (req, res) {
         paymentKey: kcpTransactionNo,
         provider: paymentProviders.KCP,
         confirmed: "1",
+        finalizationPending: finalizationPending ? "1" : undefined,
       })
     );
   } catch (error) {
@@ -5402,6 +6114,78 @@ app.patch("/admin/users/:adminUserId", requireAdminAuth, requireSuperAdmin, asyn
 
 app.get("/admin/applications", requireAdminAuth, async function (req, res) {
   try {
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const requestedPageSize = Number.parseInt(req.query.pageSize, 10) || 50;
+    const exportAll = normalizeText(req.query.export) === "1";
+    const pageSize = exportAll ? 5000 : Math.min(50, Math.max(1, requestedPageSize));
+    const paymentStatus = normalizeText(req.query.paymentStatus);
+    const division = normalizeText(req.query.division);
+    const discipline = getCanonicalApplicationDisciplineTitle({
+      discipline: normalizeText(req.query.discipline),
+    });
+    const search = normalizeText(req.query.search);
+    const requestedSortKey = normalizeText(req.query.sortKey) || "submittedAt";
+    const sortDirection = normalizeText(req.query.sortDirection) === "asc" ? "ASC" : "DESC";
+    const sortColumns = {
+      applicationNumber: "a.application_number",
+      name: "a.name",
+      birthDate: "a.birth_date",
+      discipline: "a.discipline",
+      paymentStatus: "a.payment_status",
+      submittedAt: "a.submitted_at",
+    };
+    const sortColumn = sortColumns[requestedSortKey] || sortColumns.submittedAt;
+    const clauses = ["a.admin_deleted_at IS NULL"];
+    const values = [];
+
+    function addFilter(clause, value) {
+      values.push(value);
+      clauses.push(clause.replace("?", `$${values.length}`));
+    }
+
+    if (paymentStatus && paymentStatus !== "all") {
+      addFilter("a.payment_status = ?", paymentStatus);
+    }
+    if (division && division !== "all") {
+      addFilter("a.division = ?", division);
+    }
+    if (discipline && discipline !== "all") {
+      addFilter("a.discipline = ?", discipline);
+    }
+    if (search) {
+      addFilter(
+        `(
+          a.application_number ILIKE ? OR a.order_id ILIKE ? OR a.name ILIKE ? OR
+          a.phone ILIKE ? OR a.email ILIKE ? OR a.organization ILIKE ? OR
+          a.division ILIKE ? OR a.discipline ILIKE ? OR a.weight_class ILIKE ? OR
+          a.instagram_id ILIKE ? OR a.introduction ILIKE ?
+        )`,
+        `%${search}%`
+      );
+      const parameter = `$${values.length}`;
+      clauses[clauses.length - 1] = clauses[clauses.length - 1].replaceAll("?", parameter);
+    }
+
+    const whereClause = clauses.join(" AND ");
+    const totalResult = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM applications a WHERE ${whereClause}`,
+      values
+    );
+    const summaryResult = await pool.query(
+      `
+        SELECT
+          COUNT(*)::int AS total_count,
+          COUNT(*) FILTER (WHERE payment_status = 'DONE')::int AS paid_count
+        FROM applications
+        WHERE admin_deleted_at IS NULL
+      `
+    );
+    const totalCount = totalResult.rows[0]?.count || 0;
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+    const effectivePage = exportAll ? 1 : Math.min(page, totalPages);
+    const offset = exportAll ? 0 : (effectivePage - 1) * pageSize;
+    const pageValues = exportAll ? values : [...values, pageSize, offset];
+    const pageLimit = exportAll ? "LIMIT 5000" : `LIMIT $${values.length + 1} OFFSET $${values.length + 2}`;
     const result = await pool.query(
       `
         SELECT
@@ -5434,10 +6218,11 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
           WHERE af.application_id = a.id
             AND lower(af.original_filename) NOT LIKE '%.mp3'
         ) document_files ON TRUE
-        WHERE a.admin_deleted_at IS NULL
-        ORDER BY a.submitted_at DESC
-        LIMIT 200
-      `
+        WHERE ${whereClause}
+        ORDER BY ${sortColumn} ${sortDirection} NULLS LAST, a.application_number DESC
+        ${pageLimit}
+      `,
+      pageValues
     );
 
     await writeAdminAuditLog({
@@ -5446,11 +6231,21 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
       targetType: "applications",
       ipAddress: getRequestIp(req),
       userAgent: getRequestUserAgent(req),
-      metadata: { count: result.rowCount },
+      metadata: { count: result.rowCount, page: effectivePage, pageSize, exportAll },
     });
 
     return res.status(200).json({
       ok: true,
+      pagination: {
+        page: effectivePage,
+        pageSize,
+        totalCount,
+        totalPages,
+      },
+      summary: {
+        totalCount: summaryResult.rows[0]?.total_count || 0,
+        paidCount: summaryResult.rows[0]?.paid_count || 0,
+      },
       applications: result.rows.map((row) => {
         const documentFiles = Array.isArray(row.document_files)
           ? row.document_files.map((file) => ({
@@ -5707,6 +6502,63 @@ app.delete("/admin/applications/:applicationNumber", requireAdminAuth, requireSu
 
 app.get("/admin/stage-services", requireAdminAuth, async function (req, res) {
   try {
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const requestedPageSize = Number.parseInt(req.query.pageSize, 10) || 50;
+    const exportAll = normalizeText(req.query.export) === "1";
+    const pageSize = exportAll ? 5000 : Math.min(50, Math.max(1, requestedPageSize));
+    const search = normalizeText(req.query.search);
+    const serviceType = normalizeStageServiceType(req.query.serviceType);
+    const requestedSortKey = normalizeText(req.query.sortKey) || "purchasedAt";
+    const sortDirection = normalizeText(req.query.sortDirection) === "asc" ? "ASC" : "DESC";
+    const sortColumns = {
+      serviceOrderNumber: "service_order_number",
+      name: "name",
+      linkedApplicationNumber: "linked_application_number",
+      serviceType: "service_type",
+      totalAmount: "total_amount",
+      paymentStatus: "payment_status",
+      serviceStatus: "service_status",
+      purchasedAt: "purchased_at",
+    };
+    const sortColumn = sortColumns[requestedSortKey] || sortColumns.purchasedAt;
+    const clauses = ["1 = 1"];
+    const values = [];
+
+    function addFilter(clause, value) {
+      values.push(value);
+      clauses.push(clause.replace("?", `$${values.length}`));
+    }
+
+    if (serviceType) {
+      addFilter("service_type = ?", serviceType);
+    }
+    if (search) {
+      addFilter(
+        `(
+          service_order_number ILIKE ? OR order_id ILIKE ? OR payment_key ILIKE ? OR
+          name ILIKE ? OR phone ILIKE ? OR email ILIKE ? OR
+          linked_application_number ILIKE ? OR linked_discipline ILIKE ? OR
+          service_type ILIKE ?
+        )`,
+        `%${search}%`
+      );
+      const parameter = `$${values.length}`;
+      clauses[clauses.length - 1] = clauses[clauses.length - 1].replaceAll("?", parameter);
+    }
+
+    const whereClause = clauses.join(" AND ");
+    const totalResult = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM stage_service_orders WHERE ${whereClause}`,
+      values
+    );
+    const totalCount = totalResult.rows[0]?.count || 0;
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+    const effectivePage = exportAll ? 1 : Math.min(page, totalPages);
+    const offset = exportAll ? 0 : (effectivePage - 1) * pageSize;
+    const pageValues = exportAll ? values : [...values, pageSize, offset];
+    const pageLimit = exportAll
+      ? "LIMIT 5000"
+      : `LIMIT $${values.length + 1} OFFSET $${values.length + 2}`;
     const result = await pool.query(
       `
         SELECT
@@ -5733,9 +6585,11 @@ app.get("/admin/stage-services", requireAdminAuth, async function (req, res) {
           purchased_at,
           updated_at
         FROM stage_service_orders
-        ORDER BY purchased_at DESC NULLS LAST, updated_at DESC
-        LIMIT 200
-      `
+        WHERE ${whereClause}
+        ORDER BY ${sortColumn} ${sortDirection} NULLS LAST, service_order_number DESC
+        ${pageLimit}
+      `,
+      pageValues
     );
 
     await writeAdminAuditLog({
@@ -5744,11 +6598,17 @@ app.get("/admin/stage-services", requireAdminAuth, async function (req, res) {
       targetType: "stage_service_orders",
       ipAddress: getRequestIp(req),
       userAgent: getRequestUserAgent(req),
-      metadata: { count: result.rowCount },
+      metadata: { count: result.rowCount, page: effectivePage, pageSize, exportAll },
     });
 
     return res.status(200).json({
       ok: true,
+      pagination: {
+        page: effectivePage,
+        pageSize,
+        totalCount,
+        totalPages,
+      },
       stageServices: result.rows.map((row) => ({
         serviceOrderNumber: row.service_order_number,
         orderId: row.order_id,
@@ -5872,6 +6732,298 @@ app.get("/admin/applications/:applicationNumber/files/:fileReference/download", 
       ok: false,
       message: "Failed to download application file",
     });
+  }
+});
+
+app.get("/admin/refund-requests", requireAdminAuth, async function (req, res) {
+  try {
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const requestedPageSize = Number.parseInt(req.query.pageSize, 10) || 50;
+    const exportAll = normalizeText(req.query.export) === "1";
+    const pageSize = exportAll ? 5000 : Math.min(50, Math.max(1, requestedPageSize));
+    const requestStatus = normalizeText(req.query.requestStatus);
+    const search = (normalizeText(req.query.search) || "").toLowerCase();
+    const requestedSortKey = normalizeText(req.query.sortKey) || "createdAt";
+    const sortDirection = normalizeText(req.query.sortDirection) === "asc" ? "asc" : "desc";
+
+    const applicationRequestsResult = await pool.query(
+      `
+        SELECT
+          requests.*,
+          applications.name AS application_name,
+          applications.phone AS application_phone,
+          applications.email AS application_email,
+          applications.division,
+          applications.discipline,
+          payments.status AS payment_status
+        FROM application_refund_requests AS requests
+        LEFT JOIN applications
+          ON applications.application_number = requests.application_number
+        LEFT JOIN payments
+          ON payments.payment_key = requests.payment_key
+          OR payments.order_id = requests.order_id
+        ORDER BY requests.created_at DESC
+        LIMIT 5000
+      `
+    );
+    const stageRefundRequestTableResult = await pool.query(
+      "SELECT to_regclass('public.stage_service_refund_requests') AS table_name"
+    );
+    const stageRequestsResult = stageRefundRequestTableResult.rows[0]?.table_name
+      ? await pool.query(
+          `
+            SELECT
+              requests.*,
+              service_orders.name AS service_name,
+              service_orders.phone AS service_phone,
+              service_orders.email AS service_email,
+              service_orders.service_type,
+              service_orders.linked_application_number,
+              payments.status AS payment_status
+            FROM stage_service_refund_requests AS requests
+            LEFT JOIN stage_service_orders AS service_orders
+              ON service_orders.service_order_number = requests.service_order_number
+            LEFT JOIN payments
+              ON payments.payment_key = requests.payment_key
+              OR payments.order_id = requests.order_id
+            ORDER BY requests.created_at DESC
+            LIMIT 5000
+          `
+        )
+      : { rows: [] };
+
+    const allRequests = [
+      ...applicationRequestsResult.rows.map((row) => ({
+        ...mapRefundRequestRow(row),
+        refundTarget: "application",
+        serviceOrderNumber: null,
+        serviceType: null,
+        name: row.application_name,
+        phone: row.application_phone,
+        email: row.application_email,
+        division: row.division,
+        discipline: getCanonicalApplicationDisciplineTitle({ discipline: row.discipline }),
+        paymentStatus: row.payment_status,
+      })),
+      ...stageRequestsResult.rows.map(mapAdminStageServiceRefundRequestRow),
+    ];
+    const filteredRequests = allRequests.filter((row) => {
+      if (requestStatus && requestStatus !== "all" && row.requestStatus !== requestStatus) {
+        return false;
+      }
+
+      if (!search) {
+        return true;
+      }
+
+      return [
+        row.applicationNumber,
+        row.serviceOrderNumber,
+        row.serviceType,
+        row.orderId,
+        row.paymentKey,
+        row.name,
+        row.phone,
+        row.email,
+        row.discipline,
+        row.requestReason,
+        row.requestStatus,
+        row.policyRuleLabel,
+        row.policyRuleId,
+        row.providerStatusCode,
+        row.providerErrorCode,
+        row.providerErrorMessage,
+      ].some((value) => String(value || "").toLowerCase().includes(search));
+    });
+    const sortValue = (row) => {
+      if (requestedSortKey === "requestStatus") return row.requestStatus || "";
+      if (requestedSortKey === "refundAmount") return Number(row.refundAmount) || 0;
+      if (requestedSortKey === "name") return row.name || "";
+      if (requestedSortKey === "applicationNumber") {
+        return row.applicationNumber || row.serviceOrderNumber || "";
+      }
+      if (requestedSortKey === "discipline") return row.discipline || "";
+      return new Date(row.createdAt || 0).getTime();
+    };
+    filteredRequests.sort((left, right) => {
+      const leftValue = sortValue(left);
+      const rightValue = sortValue(right);
+      const comparison =
+        typeof leftValue === "string"
+          ? leftValue.localeCompare(String(rightValue), "ko")
+          : leftValue - rightValue;
+      return sortDirection === "asc" ? comparison : -comparison;
+    });
+
+    const totalCount = filteredRequests.length;
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+    const effectivePage = exportAll ? 1 : Math.min(page, totalPages);
+    const startIndex = exportAll ? 0 : (effectivePage - 1) * pageSize;
+    const requests = filteredRequests.slice(startIndex, startIndex + pageSize);
+
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_VIEW_REFUND_REQUESTS",
+      targetType: "application_refund_requests",
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+      metadata: { count: requests.length, page: effectivePage, pageSize, exportAll },
+    });
+
+    return res.status(200).json({
+      ok: true,
+      pagination: { page: effectivePage, pageSize, totalCount, totalPages },
+      summary: {
+        totalCount,
+        processingCount: filteredRequests.filter((row) =>
+          ["REQUESTED", "PROCESSING", "SYNC_FAILED"].includes(row.requestStatus)
+        ).length,
+        completedCount: filteredRequests.filter((row) => row.requestStatus === "COMPLETED").length,
+        failedCount: filteredRequests.filter((row) => row.requestStatus === "FAILED").length,
+      },
+      refundRequests: requests,
+    });
+  } catch (error) {
+    console.error("Failed to fetch admin refund requests:", error);
+    return res.status(500).json({ ok: false, message: "Failed to fetch admin refund requests" });
+  }
+});
+
+app.get("/admin/canceled-payments", requireAdminAuth, async function (req, res) {
+  try {
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const requestedPageSize = Number.parseInt(req.query.pageSize, 10) || 50;
+    const exportAll = normalizeText(req.query.export) === "1";
+    const pageSize = exportAll ? 5000 : Math.min(50, Math.max(1, requestedPageSize));
+    const paymentStatus = normalizeText(req.query.paymentStatus);
+    const search = normalizeText(req.query.search);
+    const requestedSortKey = normalizeText(req.query.sortKey) || "updatedAt";
+    const sortDirection = normalizeText(req.query.sortDirection) === "asc" ? "ASC" : "DESC";
+    const sortColumns = {
+      orderId: "payments.order_id",
+      paymentStatus: "payments.status",
+      totalAmount: "payments.total_amount",
+      updatedAt: "payments.updated_at",
+    };
+    const sortColumn = sortColumns[requestedSortKey] || sortColumns.updatedAt;
+    const clauses = ["payments.status IN ('CANCELED', 'PARTIAL_CANCELED')"];
+    const values = [];
+
+    function addFilter(clause, value) {
+      values.push(value);
+      clauses.push(clause.replace("?", `$${values.length}`));
+    }
+
+    if (paymentStatus && paymentStatus !== "all") {
+      addFilter("payments.status = ?", paymentStatus);
+    }
+    if (search) {
+      addFilter(
+        `(
+          payments.order_id ILIKE ? OR payments.payment_key ILIKE ? OR
+          applications.application_number ILIKE ? OR applications.name ILIKE ? OR
+          applications.phone ILIKE ? OR applications.email ILIKE ? OR
+          stage_service_orders.service_order_number ILIKE ? OR
+          stage_service_orders.name ILIKE ? OR stage_service_orders.phone ILIKE ? OR
+          stage_service_orders.email ILIKE ? OR orders.customer_name ILIKE ? OR orders.customer_email ILIKE ?
+        )`,
+        `%${search}%`
+      );
+      const parameter = `$${values.length}`;
+      clauses[clauses.length - 1] = clauses[clauses.length - 1].replaceAll("?", parameter);
+    }
+
+    const whereClause = clauses.join(" AND ");
+    const totalResult = await pool.query(
+      `
+        SELECT COUNT(*)::int AS count
+        FROM payments
+        LEFT JOIN applications ON applications.order_id = payments.order_id
+        LEFT JOIN stage_service_orders ON stage_service_orders.order_id = payments.order_id
+        LEFT JOIN orders ON orders.order_id = payments.order_id
+        WHERE ${whereClause}
+      `,
+      values
+    );
+    const totalCount = totalResult.rows[0]?.count || 0;
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+    const effectivePage = exportAll ? 1 : Math.min(page, totalPages);
+    const offset = exportAll ? 0 : (effectivePage - 1) * pageSize;
+    const pageValues = exportAll ? values : [...values, pageSize, offset];
+    const pageLimit = exportAll
+      ? "LIMIT 5000"
+      : `LIMIT $${values.length + 1} OFFSET $${values.length + 2}`;
+    const result = await pool.query(
+      `
+        SELECT
+          payments.order_id,
+          payments.payment_key,
+          payments.status,
+          payments.total_amount,
+          payments.approved_at,
+          payments.updated_at,
+          applications.application_number,
+          applications.name,
+          applications.phone,
+          applications.email,
+          applications.division,
+          applications.discipline,
+          stage_service_orders.service_order_number,
+          stage_service_orders.service_type,
+          stage_service_orders.linked_application_number AS stage_linked_application_number,
+          stage_service_orders.name AS stage_service_name,
+          stage_service_orders.phone AS stage_service_phone,
+          stage_service_orders.email AS stage_service_email,
+          orders.customer_name,
+          orders.customer_email,
+          orders.status AS order_status
+        FROM payments
+        LEFT JOIN applications ON applications.order_id = payments.order_id
+        LEFT JOIN stage_service_orders ON stage_service_orders.order_id = payments.order_id
+        LEFT JOIN orders ON orders.order_id = payments.order_id
+        WHERE ${whereClause}
+        ORDER BY ${sortColumn} ${sortDirection} NULLS LAST, payments.order_id DESC
+        ${pageLimit}
+      `,
+      pageValues
+    );
+
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_VIEW_CANCELED_PAYMENTS",
+      targetType: "payments",
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+      metadata: { count: result.rowCount, page: effectivePage, pageSize, exportAll },
+    });
+
+    return res.status(200).json({
+      ok: true,
+      pagination: { page: effectivePage, pageSize, totalCount, totalPages },
+      refunds: result.rows.map((row) => ({
+        orderId: row.order_id,
+        paymentKey: row.payment_key,
+        refundTarget: row.service_order_number ? "stage-service" : "application",
+        applicationNumber: row.application_number || row.stage_linked_application_number,
+        serviceOrderNumber: row.service_order_number,
+        serviceType: row.service_type,
+        name: row.name || row.stage_service_name || row.customer_name,
+        phone: row.phone || row.stage_service_phone,
+        email: row.email || row.stage_service_email || row.customer_email,
+        division: row.service_order_number ? "무대 서비스" : row.division,
+        discipline: row.service_order_number
+          ? stageServiceDefinitions[row.service_type]?.title || row.service_type
+          : getCanonicalApplicationDisciplineTitle({ discipline: row.discipline }),
+        paymentStatus: row.status,
+        totalAmount: row.total_amount,
+        approvedAt: row.approved_at,
+        orderStatus: row.order_status,
+        updatedAt: row.updated_at,
+      })),
+    });
+  } catch (error) {
+    console.error("Failed to fetch admin canceled payments:", error);
+    return res.status(500).json({ ok: false, message: "Failed to fetch admin canceled payments" });
   }
 });
 
@@ -6723,6 +7875,16 @@ app.post("/admin/stage-service-refunds/:refundRequestId/retry-sync", requireAdmi
 
     return res.status(200).json({
       ok: true,
+      pagination: {
+        page: effectivePage,
+        pageSize,
+        totalCount,
+        totalPages,
+      },
+      summary: {
+        totalCount: summaryResult.rows[0]?.total_count || 0,
+        paidCount: summaryResult.rows[0]?.paid_count || 0,
+      },
       refundRequest: mapStageServiceRefundRequestRow(completedRequestResult.rows[0]),
     });
   } catch (error) {
@@ -6736,6 +7898,65 @@ app.post("/admin/stage-service-refunds/:refundRequestId/retry-sync", requireAdmi
 
 app.get("/admin/audit-logs", requireAdminAuth, async function (req, res) {
   try {
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const requestedPageSize = Number.parseInt(req.query.pageSize, 10) || 50;
+    const exportAll = normalizeText(req.query.export) === "1";
+    const pageSize = exportAll ? 5000 : Math.min(50, Math.max(1, requestedPageSize));
+    const action = normalizeText(req.query.action);
+    const search = normalizeText(req.query.search);
+    const requestedSortKey = normalizeText(req.query.sortKey) || "createdAt";
+    const sortDirection = normalizeText(req.query.sortDirection) === "asc" ? "ASC" : "DESC";
+    const sortColumns = {
+      action: "logs.action",
+      targetType: "logs.target_type",
+      targetId: "logs.target_id",
+      ipAddress: "logs.ip_address",
+      adminUserEmail: "users.email",
+      createdAt: "logs.created_at",
+    };
+    const sortColumn = sortColumns[requestedSortKey] || sortColumns.createdAt;
+    const clauses = ["1 = 1"];
+    const values = [];
+
+    function addFilter(clause, value) {
+      values.push(value);
+      clauses.push(clause.replace("?", `$${values.length}`));
+    }
+
+    if (action && action !== "all") {
+      addFilter("logs.action = ?", action);
+    }
+    if (search) {
+      addFilter(
+        `(
+          logs.action ILIKE ? OR logs.target_type ILIKE ? OR logs.target_id ILIKE ? OR
+          logs.ip_address ILIKE ? OR logs.user_agent ILIKE ? OR
+          COALESCE(users.email, '') ILIKE ? OR COALESCE(users.display_name, '') ILIKE ?
+        )`,
+        `%${search}%`
+      );
+      const parameter = `$${values.length}`;
+      clauses[clauses.length - 1] = clauses[clauses.length - 1].replaceAll("?", parameter);
+    }
+
+    const whereClause = clauses.join(" AND ");
+    const totalResult = await pool.query(
+      `
+        SELECT COUNT(*)::int AS count
+        FROM admin_audit_logs AS logs
+        LEFT JOIN admin_users AS users ON users.id = logs.admin_user_id
+        WHERE ${whereClause}
+      `,
+      values
+    );
+    const totalCount = totalResult.rows[0]?.count || 0;
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+    const effectivePage = exportAll ? 1 : Math.min(page, totalPages);
+    const offset = exportAll ? 0 : (effectivePage - 1) * pageSize;
+    const pageValues = exportAll ? values : [...values, pageSize, offset];
+    const pageLimit = exportAll
+      ? "LIMIT 5000"
+      : `LIMIT $${values.length + 1} OFFSET $${values.length + 2}`;
     const result = await pool.query(
       `
         SELECT
@@ -6753,9 +7974,11 @@ app.get("/admin/audit-logs", requireAdminAuth, async function (req, res) {
         FROM admin_audit_logs AS logs
         LEFT JOIN admin_users AS users
           ON users.id = logs.admin_user_id
-        ORDER BY logs.created_at DESC
-        LIMIT 200
-      `
+        WHERE ${whereClause}
+        ORDER BY ${sortColumn} ${sortDirection} NULLS LAST, logs.id DESC
+        ${pageLimit}
+      `,
+      pageValues
     );
 
     await writeAdminAuditLog({
@@ -6764,11 +7987,17 @@ app.get("/admin/audit-logs", requireAdminAuth, async function (req, res) {
       targetType: "admin_audit_logs",
       ipAddress: getRequestIp(req),
       userAgent: getRequestUserAgent(req),
-      metadata: { count: result.rowCount },
+      metadata: { count: result.rowCount, page: effectivePage, pageSize, exportAll },
     });
 
     return res.status(200).json({
       ok: true,
+      pagination: {
+        page: effectivePage,
+        pageSize,
+        totalCount,
+        totalPages,
+      },
       auditLogs: result.rows.map((row) => ({
         id: row.id,
         action: row.action,
@@ -7131,18 +8360,14 @@ app.patch("/applications/draft/:draftId", async function (req, res) {
     }
 
     if (currentDraft.order_id) {
-      const linkedOrderResult = await client.query(
-        `
-          SELECT status
-          FROM orders
-          WHERE order_id = $1
-          FOR UPDATE
-        `,
-        [currentDraft.order_id]
-      );
-      const linkedOrderStatus = linkedOrderResult.rows[0]?.status;
+      const linkedOrderState = await releaseReusableDraftOrder({
+        client,
+        draftTable: "application_drafts",
+        draftId,
+        orderId: currentDraft.order_id,
+      });
 
-      if (!linkedOrderStatus || !["FAILED", "CANCELED"].includes(linkedOrderStatus)) {
+      if (!linkedOrderState.reusable) {
         await client.query("ROLLBACK");
         return res.status(409).json({
           ok: false,
@@ -7377,6 +8602,63 @@ app.get("/applications/draft/:draftId", async function (req, res) {
   }
 });
 
+app.post("/stage-services/eligible-applications", async function (req, res) {
+  if (!hasTrustedWriteOrigin(req)) {
+    return res.status(403).json({
+      ok: false,
+      code: "UNTRUSTED_REQUEST_ORIGIN",
+      message: "허용되지 않은 요청 출처입니다.",
+    });
+  }
+
+  const name = normalizeText(req.body?.name);
+  const phone = normalizeText(formatPhoneNumber(req.body?.phone));
+  const email = normalizeEmail(req.body?.email);
+
+  if (!name || !hasValidEmail(email) || String(phone).replace(/\D/g, "").length !== 11) {
+    return res.status(400).json({
+      ok: false,
+      message: "성함, 연락처, 이메일을 정확히 입력해 주세요.",
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      `
+        SELECT application_number, discipline, image_key, division, submitted_at
+        FROM applications
+        WHERE name = $1
+          AND phone = $2
+          AND LOWER(email) = $3
+          AND payment_status = 'DONE'
+          AND admin_deleted_at IS NULL
+        ORDER BY submitted_at DESC NULLS LAST, updated_at DESC
+      `,
+      [name, phone, email]
+    );
+
+    return res.status(200).json({
+      ok: true,
+      applications: result.rows.map((application) => ({
+        applicationNumber: application.application_number,
+        discipline: getCanonicalApplicationDisciplineTitle({
+          imageKey: application.image_key,
+          discipline: application.discipline,
+        }),
+        imageKey: application.image_key,
+        division: application.division,
+        submittedAt: application.submitted_at,
+      })),
+    });
+  } catch (error) {
+    console.error("Failed to load eligible stage service applications:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to load eligible stage service applications",
+    });
+  }
+});
+
 app.post("/stage-services/draft", async function (req, res) {
   if (!hasTrustedWriteOrigin(req)) {
     return res.status(403).json({
@@ -7406,6 +8688,7 @@ app.post("/stage-services/draft", async function (req, res) {
       name: payload.name,
       phone: payload.phone,
       email: payload.email,
+      applicationNumber: payload.linkedApplicationNumber,
     });
 
     if (!linkedApplication) {
@@ -7422,6 +8705,7 @@ app.post("/stage-services/draft", async function (req, res) {
       phone: payload.phone,
       email: payload.email,
       serviceType: payload.serviceType,
+      linkedApplicationNumber: linkedApplication.application_number,
     });
 
     if (alreadyPurchased) {
@@ -7593,18 +8877,14 @@ app.patch("/stage-services/draft/:draftId", async function (req, res) {
     }
 
     if (currentDraft.order_id) {
-      const linkedOrderResult = await client.query(
-        `
-          SELECT status
-          FROM orders
-          WHERE order_id = $1
-          FOR UPDATE
-        `,
-        [currentDraft.order_id]
-      );
-      const linkedOrderStatus = linkedOrderResult.rows[0]?.status;
+      const linkedOrderState = await releaseReusableDraftOrder({
+        client,
+        draftTable: "stage_service_drafts",
+        draftId,
+        orderId: currentDraft.order_id,
+      });
 
-      if (!linkedOrderStatus || !["FAILED", "CANCELED"].includes(linkedOrderStatus)) {
+      if (!linkedOrderState.reusable) {
         await client.query("ROLLBACK");
         return res.status(409).json({
           ok: false,
@@ -7619,6 +8899,7 @@ app.patch("/stage-services/draft/:draftId", async function (req, res) {
       name: payload.name,
       phone: payload.phone,
       email: payload.email,
+      applicationNumber: payload.linkedApplicationNumber,
     });
 
     if (!linkedApplication) {
@@ -7629,21 +8910,16 @@ app.patch("/stage-services/draft/:draftId", async function (req, res) {
       });
     }
 
-    const existingPurchasedResult = await client.query(
-      `
-        SELECT 1
-        FROM stage_service_orders
-        WHERE name = $1
-          AND phone = $2
-          AND LOWER(email) = $3
-          AND service_type = $4
-          AND payment_status = 'DONE'
-        LIMIT 1
-      `,
-      [payload.name, payload.phone, payload.email, payload.serviceType]
-    );
+    const alreadyPurchased = await hasPurchasedStageService({
+      client,
+      name: payload.name,
+      phone: payload.phone,
+      email: payload.email,
+      serviceType: payload.serviceType,
+      linkedApplicationNumber: linkedApplication.application_number,
+    });
 
-    if (existingPurchasedResult.rowCount > 0) {
+    if (alreadyPurchased) {
       await client.query("ROLLBACK");
       return res.status(409).json({
         ok: false,
@@ -7852,7 +9128,9 @@ app.post("/stage-services/orders", async function (req, res) {
           order_id,
           service_type,
           name,
+          phone,
           email,
+          linked_application_number,
           total_amount
         FROM stage_service_drafts
         WHERE draft_id = $1
@@ -7872,26 +9150,15 @@ app.post("/stage-services/orders", async function (req, res) {
     const draft = draftResult.rows[0];
 
     if (draft.order_id) {
-      const orderResult = await client.query(
-        `
-          SELECT
-            order_id,
-            order_name,
-            amount,
-            customer_name,
-            customer_email,
-            payment_provider,
-            status,
-            created_at
-          FROM orders
-          WHERE order_id = $1
-          LIMIT 1
-        `,
-        [draft.order_id]
-      );
+      const existingOrderState = await releaseReusableDraftOrder({
+        client,
+        draftTable: "stage_service_drafts",
+        draftId: draft.draft_id,
+        orderId: draft.order_id,
+      });
 
-      if (orderResult.rowCount > 0) {
-        const order = orderResult.rows[0];
+      if (!existingOrderState.reusable) {
+        const order = existingOrderState.order;
         const resultAccessToken = createPaymentResultAccessToken({
           orderId: order.order_id,
           secret: paymentResultTokenSecret,
@@ -7913,6 +9180,66 @@ app.post("/stage-services/orders", async function (req, res) {
           },
         });
       }
+    }
+
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+      `${draft.linked_application_number}|${draft.service_type}`,
+    ]);
+
+    const completedPurchase = await hasPurchasedStageService({
+      client,
+      name: draft.name,
+      phone: draft.phone,
+      email: draft.email,
+      serviceType: draft.service_type,
+      linkedApplicationNumber: draft.linked_application_number,
+    });
+
+    if (completedPurchase) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        code: "DUPLICATE_STAGE_SERVICE_PURCHASE",
+        message: "선택한 신청 종목에는 이미 같은 무대 서비스 결제가 완료되었습니다.",
+      });
+    }
+
+    const activeOrderResult = await client.query(
+      `
+        SELECT d.draft_id, o.status
+        FROM stage_service_drafts AS d
+        INNER JOIN orders AS o ON o.order_id = d.order_id
+        WHERE d.linked_application_number = $1
+          AND d.service_type = $2
+          AND d.draft_id <> $3
+          AND (
+            o.status = 'PAID'
+            OR (
+              o.status = 'READY'
+              AND o.created_at > NOW() - ($4::int * INTERVAL '1 minute')
+            )
+          )
+        LIMIT 1
+      `,
+      [
+        draft.linked_application_number,
+        draft.service_type,
+        draft.draft_id,
+        paymentOrderTtlMinutes,
+      ]
+    );
+
+    if (activeOrderResult.rowCount > 0) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        code: activeOrderResult.rows[0].status === "PAID"
+          ? "STAGE_SERVICE_PAYMENT_FINALIZING"
+          : "STAGE_SERVICE_PAYMENT_IN_PROGRESS",
+        message: activeOrderResult.rows[0].status === "PAID"
+          ? "같은 무대 서비스 결제를 저장하고 있습니다. 잠시 후 신청 조회에서 확인해 주세요."
+          : `같은 무대 서비스의 결제가 이미 진행 중입니다. ${paymentOrderTtlMinutes}분 후 다시 시도해 주세요.`,
+      });
     }
 
     const orderId = generateOrderId();
@@ -10330,26 +11657,15 @@ app.post("/orders", async function (req,res) {
     }
 
     if (draft.order_id) {
-      const existingOrderResult = await client.query(
-        `
-          SELECT
-            order_id,
-            order_name,
-            amount,
-            customer_name,
-            customer_email,
-            payment_provider,
-            status,
-            created_at
-          FROM orders
-          WHERE order_id = $1
-          LIMIT 1
-        `,
-        [draft.order_id]
-      );
+      const existingOrderState = await releaseReusableDraftOrder({
+        client,
+        draftTable: "application_drafts",
+        draftId: draft.draft_id,
+        orderId: draft.order_id,
+      });
 
-      if (existingOrderResult.rowCount > 0) {
-        const existingOrder = existingOrderResult.rows[0];
+      if (!existingOrderState.reusable) {
+        const existingOrder = existingOrderState.order;
         const resultAccessToken = createPaymentResultAccessToken({
           orderId: existingOrder.order_id,
           secret: paymentResultTokenSecret,
@@ -10377,6 +11693,63 @@ app.post("/orders", async function (req,res) {
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
       `${draft.name}|${draft.phone}|${draft.email.toLowerCase()}`,
     ]);
+    const activeOrderResult = await client.query(
+      `
+        SELECT d.draft_id, o.status
+        FROM application_drafts AS d
+        INNER JOIN orders AS o ON o.order_id = d.order_id
+        WHERE d.name = $1
+          AND d.phone = $2
+          AND LOWER(d.email) = $3
+          AND d.image_key = $4
+          AND d.draft_id <> $5
+          AND (
+            o.status = 'PAID'
+            OR (
+              o.status = 'READY'
+              AND o.created_at > NOW() - ($6::int * INTERVAL '1 minute')
+            )
+          )
+        LIMIT 1
+      `,
+      [
+        draft.name,
+        draft.phone,
+        draft.email,
+        draft.image_key,
+        draft.draft_id,
+        paymentOrderTtlMinutes,
+      ]
+    );
+
+    if (activeOrderResult.rowCount > 0) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        code: activeOrderResult.rows[0].status === "PAID"
+          ? "DISCIPLINE_PAYMENT_FINALIZING"
+          : "DISCIPLINE_PAYMENT_IN_PROGRESS",
+        message: activeOrderResult.rows[0].status === "PAID"
+          ? "동일 종목 결제를 저장하고 있습니다. 잠시 후 신청 조회에서 확인해 주세요."
+          : `동일 종목의 결제가 이미 진행 중입니다. ${paymentOrderTtlMinutes}분 후 다시 시도해 주세요.`,
+      });
+    }
+    const duplicateApplication = await findCompletedDuplicateApplication({
+      client,
+      name: draft.name,
+      phone: draft.phone,
+      email: draft.email,
+      imageKey: draft.image_key,
+    });
+
+    if (duplicateApplication) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        code: "DUPLICATE_DISCIPLINE_APPLICATION",
+        message: "이미 결제 완료된 동일 종목 신청이 있습니다. 신청 조회에서 기존 내역을 확인해 주세요.",
+      });
+    }
     const pricing = await getApplicationEntryFeeQuote({
       queryable: client,
       name: draft.name,

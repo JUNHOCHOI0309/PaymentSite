@@ -20,6 +20,7 @@ import {
 import {
   buildApiUrl,
   createStageServiceDraft,
+  getEligibleStageServiceApplications,
   updateStageServiceDraft,
 } from "../lib/applicationApi";
 import {
@@ -48,6 +49,7 @@ function getInitialFieldErrors() {
     name: "",
     phone: "",
     email: "",
+    linkedApplication: "",
     photoHasAdditionalDiscipline: "",
     photoAdditionalDiscipline: "",
     videoType: "",
@@ -78,6 +80,8 @@ export function StageServiceDetailPage() {
   const handledLocationKeyRef = useRef("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoadingApplications, setIsLoadingApplications] = useState(false);
+  const [eligibleApplications, setEligibleApplications] = useState([]);
   const [fieldErrors, setFieldErrors] = useState(getInitialFieldErrors);
 
   const serviceKey = searchParams.get("service") || "";
@@ -262,6 +266,10 @@ export function StageServiceDetailPage() {
         return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(normalizedValue || ""))
           ? ""
           : t("stageService.emailError");
+      case "linkedApplication":
+        return state.linkedApplication.applicationNumber
+          ? ""
+          : "신청한 종목 내역에서 연결할 종목을 선택해 주세요.";
       case "photoHasAdditionalDiscipline":
         return normalizedValue ? "" : t("stageService.photoAdditionalFlagError");
       case "photoAdditionalDiscipline":
@@ -284,6 +292,7 @@ export function StageServiceDetailPage() {
       name: validateField("name", state.applicantInfo.name),
       phone: validateField("phone", state.applicantInfo.phone),
       email: validateField("email", state.applicantInfo.email),
+      linkedApplication: validateField("linkedApplication", state.linkedApplication.applicationNumber),
       photoHasAdditionalDiscipline:
         serviceKey === "stage-photo"
           ? validateField("photoHasAdditionalDiscipline", state.formData.photoHasAdditionalDiscipline)
@@ -310,11 +319,78 @@ export function StageServiceDetailPage() {
     return (event) => {
       const nextValue = field === "phone" ? formatPhoneNumber(event.target.value) : event.target.value;
       dispatch({ type: "SET_APPLICANT_FIELD", field, value: nextValue });
+      setEligibleApplications([]);
+      dispatch({ type: "SET_LINKED_APPLICATION", value: { applicationNumber: "", discipline: "" } });
       setFieldErrors((current) => ({
         ...current,
         [field]: validateField(field, nextValue),
+        linkedApplication: "",
       }));
     };
+  }
+
+  async function loadEligibleApplications() {
+    const nextErrors = {
+      name: validateField("name", state.applicantInfo.name),
+      phone: validateField("phone", state.applicantInfo.phone),
+      email: validateField("email", state.applicantInfo.email),
+    };
+
+    setFieldErrors((current) => ({ ...current, ...nextErrors }));
+
+    if (Object.values(nextErrors).some(Boolean)) {
+      return;
+    }
+
+    setIsLoadingApplications(true);
+    setErrorMessage("");
+
+    try {
+      const json = await getEligibleStageServiceApplications({
+        name: state.applicantInfo.name,
+        phone: state.applicantInfo.phone,
+        email: state.applicantInfo.email,
+      });
+      const applications = json.applications || [];
+
+      setEligibleApplications(applications);
+
+      if (!applications.length) {
+        dispatch({ type: "SET_LINKED_APPLICATION", value: { applicationNumber: "", discipline: "" } });
+        setFieldErrors((current) => ({
+          ...current,
+          linkedApplication: "결제 완료된 대회 신청 내역을 찾지 못했습니다.",
+        }));
+        return;
+      }
+
+      const selectedStillExists = applications.some(
+        (application) => application.applicationNumber === state.linkedApplication.applicationNumber,
+      );
+
+      if (!selectedStillExists) {
+        dispatch({ type: "SET_LINKED_APPLICATION", value: { applicationNumber: "", discipline: "" } });
+      }
+      setFieldErrors((current) => ({ ...current, linkedApplication: "" }));
+    } catch (error) {
+      setEligibleApplications([]);
+      dispatch({ type: "SET_LINKED_APPLICATION", value: { applicationNumber: "", discipline: "" } });
+      setErrorMessage(error.message || "신청한 종목 내역을 불러오지 못했습니다.");
+    } finally {
+      setIsLoadingApplications(false);
+    }
+  }
+
+  function selectLinkedApplication(application) {
+    dispatch({
+      type: "SET_LINKED_APPLICATION",
+      value: {
+        applicationNumber: application.applicationNumber,
+        discipline: application.discipline,
+      },
+    });
+    setFieldErrors((current) => ({ ...current, linkedApplication: "" }));
+    setErrorMessage("");
   }
 
   function setFormField(field) {
@@ -347,6 +423,7 @@ export function StageServiceDetailPage() {
       name: state.applicantInfo.name,
       phone: state.applicantInfo.phone,
       email: state.applicantInfo.email,
+      linkedApplicationNumber: state.linkedApplication.applicationNumber,
       photoHasAdditionalDiscipline: state.formData.photoHasAdditionalDiscipline,
       photoAdditionalDiscipline: state.formData.photoAdditionalDiscipline,
       videoType: state.formData.videoType,
@@ -381,7 +458,7 @@ export function StageServiceDetailPage() {
 
   return (
     <PageShell>
-      <section className="site-page site-page--narrow">
+      <section className="site-page site-page--stage-service">
         <div className="site-apply-detail site-stage-service-detail">
           <div className="site-apply-detail__layout">
             <aside className="site-apply-detail__summary site-stage-service-detail__summary">
@@ -445,6 +522,51 @@ export function StageServiceDetailPage() {
                   type="email"
                   inputMode="email"
                 />
+
+                <div className="site-stage-service-application-picker">
+                  <div className="site-stage-service-application-picker__header">
+                    <span className="site-field__label">
+                      신청한 종목 내역
+                      <span className="site-field__requirement">({t("apply.required")})</span>
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={loadEligibleApplications}
+                      disabled={isLoadingApplications}
+                    >
+                      {isLoadingApplications ? "불러오는 중" : "신청한 종목 내역 불러오기"}
+                    </Button>
+                  </div>
+                  {eligibleApplications.length ? (
+                    <div className="site-stage-service-application-picker__options" role="radiogroup">
+                      {eligibleApplications.map((application) => {
+                        const selected =
+                          state.linkedApplication.applicationNumber === application.applicationNumber;
+
+                        return (
+                          <label
+                            className={`site-stage-service-application-picker__option${selected ? " is-selected" : ""}`}
+                            key={application.applicationNumber}
+                          >
+                            <input
+                              checked={selected}
+                              name="linked-stage-application"
+                              onChange={() => selectLinkedApplication(application)}
+                              type="radio"
+                              value={application.applicationNumber}
+                            />
+                            <span>{application.discipline}</span>
+                            <small>{application.applicationNumber}</small>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                  {fieldErrors.linkedApplication ? (
+                    <span className="site-field__error">{fieldErrors.linkedApplication}</span>
+                  ) : null}
+                </div>
 
                 {serviceKey === "stage-photo" ? (
                   <>
