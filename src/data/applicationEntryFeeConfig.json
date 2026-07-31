@@ -9,6 +9,7 @@
       "labelEn": "Early bird registration (Aug 3 - Aug 31)",
       "startDate": "2026-08-03",
       "endDate": "2026-08-31",
+      "displayOriginalAmount": 300000,
       "amount": 200000
     },
     {
@@ -17,6 +18,7 @@
       "labelEn": "First registration (Sep 1 - Sep 30)",
       "startDate": "2026-09-01",
       "endDate": "2026-09-30",
+      "displayOriginalAmount": 300000,
       "amount": 250000
     },
     {
