@@ -64,7 +64,7 @@ const localizedHomeItems = {
             displayLabel: "BODYBUILDING",
             detailTitle: "Bodybuilding",
             detailDescription:
-              "머슬마니아 보디빌딩 (MUSCLEMANIA BODYBUILDING)\n\n미국에서 1991년 최초의 월드클래스 수준의 보디빌딩 투어로 시작되었습니다.\n\n현재 머슬마니아는 미국에서 가장 인기있는 보디빌딩 대회입니다.\n\n□ 보디빌딩 출전자격\n대회일 기준 만 16세 이상의 남성",
+              "머슬마니아® 보디빌딩 (MUSCLEMANIA BODYBUILDING)\n\n미국에서 1991년 최초의 월드클래스 수준의 보디빌딩 투어로 시작되었습니다.\n\n현재 머슬마니아®는 미국에서 가장 인기있는 보디빌딩 대회입니다.\n\n□ 보디빌딩 출전자격\n대회일 기준 만 16세 이상의 남성",
           },
           {
             key: "home/man_2.png",
@@ -73,7 +73,7 @@ const localizedHomeItems = {
             displayLabel: "CLASSIC PHYSIQUE",
             detailTitle: "Classic Physique",
             detailDescription:
-              "머슬마니아 클래식 피지크 (MUSCLEMANIA CLASSIC PHYSIQUE)\n\n2016년부터 시작된 부문으로 고전적이고 대칭적이며 해변과 어울리는 완벽한 신체를 보여주고자 하는 남성들을 위한 새로운 종목으로서 단일라운드로 치뤄집니다.\n\n□ 클래식 피지크 출전자격\n대회일 기준 만 20세 이상의 남성",
+              "머슬마니아® 클래식 피지크 (MUSCLEMANIA CLASSIC PHYSIQUE)\n\n2016년부터 시작된 부문으로 고전적이고 대칭적이며 해변과 어울리는 완벽한 신체를 보여주고자 하는 남성들을 위한 새로운 종목으로서 단일라운드로 치뤄집니다.\n\n□ 클래식 피지크 출전자격\n대회일 기준 만 20세 이상의 남성",
           },
           {
             key: "home/man_3.png",
@@ -106,7 +106,7 @@ const localizedHomeItems = {
             displayLabel: "FIGURE",
             detailTitle: "Figure",
             detailDescription:
-              "피규어 (FIGURE)\n\n2005년부터 시작된 부문으로 머슬마니아 여성부문과 미즈비키니의 중간적인\n\n개념이며, 단일라운드로 진행됩니다.\n\n미즈비키니보다 높은 근육량과 선명도 머슬마니아 여성부문과 다르게 여성성과\n\n여성의 신체라인이 잘 드러나는 몸매를 높게 평가합니다.\n\n□ 피규어 출전자격\n대회일 기준 만 18세 이상의 여성",
+              "피규어 (FIGURE)\n\n2005년부터 시작된 부문으로 머슬마니아® 여성부문과 미즈비키니의 중간적인\n\n개념이며, 단일라운드로 진행됩니다.\n\n미즈비키니보다 높은 근육량과 선명도 머슬마니아® 여성부문과 다르게 여성성과\n\n여성의 신체라인이 잘 드러나는 몸매를 높게 평가합니다.\n\n□ 피규어 출전자격\n대회일 기준 만 18세 이상의 여성",
           },
         ],
       },

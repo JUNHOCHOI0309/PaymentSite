@@ -11,13 +11,13 @@ const localizedAdditionalInfo = {
     },
     byImageKey: {
       "register/man_1.png": {
-        title: "머슬마니아 보디빌딩\n\n(MUSCLEMANIA BODYBUILDING)",
+        title: "머슬마니아® 보디빌딩\n\n(MUSCLEMANIA BODYBUILDING)",
         sections: [
           {
             title: "종목 소개",
             body: `미국에서 1991년 최초의 월드클래스 수준의 보디빌딩 투어로 시작되었습니다.
 
-현재 머슬마니아는 미국에서 가장 인기있는 보디빌딩 대회입니다.`,
+현재 머슬마니아®는 미국에서 가장 인기있는 보디빌딩 대회입니다.`,
           },
           {
             title: "보디빌딩 출전자격",
@@ -83,7 +83,7 @@ const localizedAdditionalInfo = {
         ],
       },
       "register/man_2.png": {
-        title: "머슬마니아 클래식 피지크\n\n(MUSCLEMANIA CLASSIC PHYSIQUE)",
+        title: "머슬마니아® 클래식 피지크\n\n(MUSCLEMANIA CLASSIC PHYSIQUE)",
         sections: [
           {
             title: "종목 소개",
@@ -413,10 +413,10 @@ const localizedAdditionalInfo = {
         sections: [
           {
             title: "종목 소개",
-            body: `2005년부터 시작된 부문으로 머슬마니아 여성부문과 미즈비키니의 중간적인 개념이며,
+            body: `2005년부터 시작된 부문으로 머슬마니아® 여성부문과 미즈비키니의 중간적인 개념이며,
 단일라운드로 진행됩니다.
 
-미즈비키니보다 높은 근육량과 선명도, 머슬마니아 여성부문과 다르게 여성성과 여성의 신체라인이 잘 드러나는 몸매를 높게 평가합니다.`,
+미즈비키니보다 높은 근육량과 선명도, 머슬마니아® 여성부문과 다르게 여성성과 여성의 신체라인이 잘 드러나는 몸매를 높게 평가합니다.`,
           },
           {
             title: "피규어 출전자격",
