@@ -1286,6 +1286,7 @@ body,
 
 .site-file-picker {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 12px;
   min-height: 56px;
@@ -1341,7 +1342,7 @@ body,
 }
 
 .site-file-picker__value {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 0;
   color: #111827;
   font-size: 0.95rem;
@@ -1357,6 +1358,7 @@ body,
 
 .site-file-picker__selected-list {
   display: grid;
+  min-width: 0;
   gap: 4px;
   margin: 8px 0 0;
   padding: 0;
@@ -1368,9 +1370,17 @@ body,
 
 .site-file-picker__selected-list li {
   display: flex;
+  min-width: 0;
   align-items: flex-start;
   gap: 6px;
   overflow-wrap: anywhere;
+}
+
+.site-file-picker__selected-list li span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .site-file-picker__remove {

@@ -1103,6 +1103,7 @@ export function ApplyPage() {
                     className={`site-file-picker__value ${
                       selectedDocumentFilenames.length ? "" : "site-file-picker__value--placeholder"
                     }`.trim()}
+                    title={selectedDocumentFilenames.join(", ") || undefined}
                   >
                     {selectedDocumentFilenames.join(", ") ||
                       t("apply.noFileSelected")}
@@ -1156,7 +1157,7 @@ export function ApplyPage() {
                             ×
                           </button>
                         ) : null}
-                        <span>{filename}</span>
+                        <span title={filename}>{filename}</span>
                       </li>
                     ))}
                   </ul>
