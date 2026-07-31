@@ -467,7 +467,7 @@ export function StageServiceDetailPage() {
                 variant="ghost"
                 onClick={() => navigate("/apply/stage-services")}
               >
-                {t("stageService.backToSelect")}
+                {locale === "ko" ? "뒤로가기" : "Back"}
               </Button>
               <h1>{getStageServiceTitle(serviceKey, locale)}</h1>
               <div className="site-stage-service-price-box">

@@ -12,6 +12,12 @@ import {
   sendLookupVerificationCode,
   verifyLookupVerificationCode,
 } from "../lib/applicationApi";
+import {
+  createEmailAddress,
+  directEmailDomainValue,
+  parseEmailAddress,
+  presetEmailDomains,
+} from "../lib/emailAddress";
 
 const lookupSessionStorageKey = "mmkorea-lookup-session";
 
@@ -95,6 +101,9 @@ export function LookupPage() {
     email: "",
     verificationCode: "",
   });
+  const [emailLocalPart, setEmailLocalPart] = useState("");
+  const [emailDomainSelection, setEmailDomainSelection] = useState("");
+  const [emailCustomDomain, setEmailCustomDomain] = useState("");
   const [results, setResults] = useState([]);
   const [actionErrorMessage, setActionErrorMessage] = useState("");
   const [verificationMessage, setVerificationMessage] = useState("");
@@ -106,6 +115,18 @@ export function LookupPage() {
   const [isSendingCode, setIsSendingCode] = useState(false);
   const [isVerifyingCode, setIsVerifyingCode] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const emailDomainCopy =
+    locale === "ko"
+      ? {
+          placeholder: "도메인 선택",
+          direct: "직접 입력",
+          customPlaceholder: "example.com",
+        }
+      : {
+          placeholder: "Select domain",
+          direct: "Direct input",
+          customPlaceholder: "example.com",
+        };
 
   useEffect(() => {
     if (!verificationDeadline) {
@@ -163,6 +184,67 @@ export function LookupPage() {
       window.sessionStorage.removeItem(lookupSessionStorageKey);
     }
   };
+
+  function resetLookupVerification() {
+    setVerificationToken("");
+    setVerificationMessage("");
+    setDevVerificationCode("");
+    setVerificationDeadline(null);
+    setRecentLookupSession(null);
+    window.sessionStorage.removeItem(lookupSessionStorageKey);
+  }
+
+  function updateLookupEmail({
+    localPart = emailLocalPart,
+    domainSelection = emailDomainSelection,
+    customDomain = emailCustomDomain,
+  }) {
+    const nextEmail = createEmailAddress({
+      localPart,
+      domainSelection,
+      customDomain,
+    });
+
+    setEmailLocalPart(localPart);
+    setEmailDomainSelection(domainSelection);
+    setEmailCustomDomain(customDomain);
+    setForm((current) => ({
+      ...current,
+      email: nextEmail,
+      verificationCode: "",
+    }));
+    setActionErrorMessage("");
+    setResults([]);
+    resetLookupVerification();
+  }
+
+  function handleLookupEmailLocalPartChange(event) {
+    updateLookupEmail({
+      localPart: event.target.value.replace(/[\s@]/g, ""),
+    });
+  }
+
+  function handleLookupEmailDomainSelectionChange(event) {
+    const nextDomainSelection = event.target.value;
+    updateLookupEmail({
+      domainSelection: nextDomainSelection,
+      customDomain:
+        nextDomainSelection === directEmailDomainValue ? emailCustomDomain : "",
+    });
+  }
+
+  function handleLookupEmailCustomDomainChange(event) {
+    updateLookupEmail({
+      customDomain: event.target.value.replace(/[\s@]/g, "").toLowerCase(),
+    });
+  }
+
+  function handleLookupEmailDomainReset() {
+    updateLookupEmail({
+      domainSelection: "",
+      customDomain: "",
+    });
+  }
 
   function validateNameAndEmail(name = form.name, email = form.email) {
     if (!name.trim()) {
@@ -386,6 +468,10 @@ export function LookupPage() {
       email: session.email,
       verificationCode: "",
     });
+    const parsedEmailAddress = parseEmailAddress(session.email);
+    setEmailLocalPart(parsedEmailAddress.localPart);
+    setEmailDomainSelection(parsedEmailAddress.domainSelection);
+    setEmailCustomDomain(parsedEmailAddress.customDomain);
     setVerificationToken(session.verificationToken);
     await handleLookup(session);
   }
@@ -438,7 +524,7 @@ export function LookupPage() {
             </section>
           ) : null}
 
-          <div className="site-form-grid">
+          <div className="site-form-grid site-lookup-form-grid">
             <Input
               label={t("lookup.name")}
               value={form.name}
@@ -446,15 +532,61 @@ export function LookupPage() {
               placeholder={t("lookup.namePlaceholder")}
             />
             <div className="site-lookup-field-action">
-              <Input
-                className="site-lookup-field-action__input"
-                label={t("lookup.email")}
-                value={form.email}
-                onChange={setField("email")}
-                placeholder="name@example.com"
-                type="email"
-                inputMode="email"
-              />
+              <label className="site-field site-lookup-field-action__input">
+                <span className="site-field__label">{t("lookup.email")}</span>
+                <div className="site-email-address">
+                  <input
+                    className="site-input"
+                    type="text"
+                    inputMode="email"
+                    autoComplete="username"
+                    value={emailLocalPart}
+                    onChange={handleLookupEmailLocalPartChange}
+                    aria-label={t("lookup.email")}
+                  />
+                  <span className="site-email-address__at" aria-hidden="true">
+                    @
+                  </span>
+                  {emailDomainSelection === directEmailDomainValue ? (
+                    <span className="site-email-address__custom-control">
+                      <input
+                        className="site-input site-email-address__custom-input"
+                        type="text"
+                        inputMode="url"
+                        autoComplete="off"
+                        value={emailCustomDomain}
+                        onChange={handleLookupEmailCustomDomainChange}
+                        placeholder={emailDomainCopy.customPlaceholder}
+                        aria-label={emailDomainCopy.direct}
+                      />
+                      <button
+                        className="site-email-address__clear"
+                        type="button"
+                        onClick={handleLookupEmailDomainReset}
+                        aria-label={emailDomainCopy.placeholder}
+                        title={emailDomainCopy.placeholder}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ) : (
+                    <select
+                      className="site-input"
+                      value={emailDomainSelection}
+                      onChange={handleLookupEmailDomainSelectionChange}
+                      aria-label={emailDomainCopy.placeholder}
+                    >
+                      <option value="">{emailDomainCopy.placeholder}</option>
+                      {presetEmailDomains.map((domain) => (
+                        <option key={domain} value={domain}>
+                          {domain}
+                        </option>
+                      ))}
+                      <option value={directEmailDomainValue}>{emailDomainCopy.direct}</option>
+                    </select>
+                  )}
+                </div>
+              </label>
               <Button
                 className="site-lookup-field-action__button"
                 onClick={handleSendVerificationCode}

@@ -1160,6 +1160,59 @@ body,
   gap: 8px;
 }
 
+.site-email-address {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr) auto minmax(116px, 1.1fr);
+  align-items: center;
+  gap: 6px;
+}
+
+.site-email-address .site-input {
+  min-width: 0;
+}
+
+.site-email-address__custom-control {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.site-email-address__custom-input {
+  padding-right: 42px;
+}
+
+.site-email-address__clear {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  place-items: center;
+  transform: translateY(-50%);
+  background: transparent;
+  color: #596276;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.site-email-address__clear:hover,
+.site-email-address__clear:focus-visible {
+  background: rgba(45, 49, 64, 0.08);
+  color: #111827;
+}
+
+.site-email-address__at {
+  color: #2f3650;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
 .site-email-verification__email-row .site-input,
 .site-email-verification__code-row .site-input {
   min-width: 0;
@@ -1167,7 +1220,7 @@ body,
 }
 
 .site-email-verification__action {
-  min-width: 116px;
+  min-width: 160px;
   padding-inline: 14px;
   white-space: nowrap;
 }
@@ -1503,19 +1556,6 @@ body,
   padding: 38px 42px;
 }
 
-.site-apply-review-card .site-payment-methods {
-  margin-top: 34px;
-  display: grid;
-  gap: 16px;
-}
-
-.site-apply-review-card .site-payment-methods__title {
-  margin: 0;
-  font-size: 30px;
-  line-height: 1.1;
-  color: #050609;
-}
-
 .site-apply-review-card .site-inline-actions {
   justify-content: flex-end;
   margin-top: 32px;
@@ -1543,6 +1583,10 @@ body,
 
 .site-lookup-verification {
   margin-top: 18px;
+}
+
+.site-lookup-form-grid {
+  grid-template-columns: minmax(160px, 0.65fr) minmax(0, 1.35fr);
 }
 
 .site-lookup-field-action {
@@ -4628,6 +4672,15 @@ body {
 
 .site-stage-service-detail__back-button {
   align-self: flex-start;
+  border-color: rgba(255, 255, 255, 0.45);
+  color: #fff;
+}
+
+.site-stage-service-detail__back-button:hover,
+.site-stage-service-detail__back-button:focus-visible {
+  border-color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
 }
 
 .site-stage-service-price-box {
@@ -4725,8 +4778,12 @@ body {
   height: auto;
 }
 
-.site-stage-service-review-card .site-payment-methods {
-  margin-top: 32px;
+.site-stage-service-review-card .site-review-card__header h1 {
+  color: #050609;
+}
+
+.site-stage-service-review-card .site-notice {
+  padding: clamp(28px, 5vw, 42px);
 }
 
 .site-lookup-stage-services {

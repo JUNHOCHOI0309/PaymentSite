@@ -25,6 +25,12 @@ import {
   serializeDetailedSnsIdentity,
 } from "../lib/applicationSns";
 import {
+  createEmailAddress,
+  directEmailDomainValue,
+  parseEmailAddress,
+  presetEmailDomains,
+} from "../lib/emailAddress";
+import {
   buildApiUrl,
   createDraft,
   getApplicationEmailVerificationStatus,
@@ -159,6 +165,12 @@ export function ApplyPage() {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [fileError, setFileError] = useState("");
   const [fieldErrors, setFieldErrors] = useState(getInitialFieldErrors);
+  const initialEmailAddress = parseEmailAddress(state.applicantInfo.email);
+  const [emailLocalPart, setEmailLocalPart] = useState(initialEmailAddress.localPart);
+  const [emailDomainSelection, setEmailDomainSelection] = useState(
+    initialEmailAddress.domainSelection
+  );
+  const [emailCustomDomain, setEmailCustomDomain] = useState(initialEmailAddress.customDomain);
   const [emailVerificationCode, setEmailVerificationCode] = useState("");
   const [emailVerificationStatus, setEmailVerificationStatus] = useState("idle");
   const [emailVerificationMessage, setEmailVerificationMessage] = useState("");
@@ -234,6 +246,18 @@ export function ApplyPage() {
           required: "Complete email verification before continuing.",
           codeRequired: "Enter the 6-digit verification code sent to your email.",
         };
+  const emailDomainCopy =
+    locale === "ko"
+      ? {
+          placeholder: "도메인 선택",
+          direct: "직접 입력",
+          customPlaceholder: "example.com",
+        }
+      : {
+          placeholder: "Select domain",
+          direct: "Direct input",
+          customPlaceholder: "example.com",
+        };
   const snsPlatformOptions = getSnsPlatformOptions(locale);
   const [additionalInfoTitlePrimary, additionalInfoTitleSecondary] =
     splitDisplayTitle(additionalInfo.title);
@@ -244,6 +268,17 @@ export function ApplyPage() {
       : state.uploadedFileMeta.originalFilename
         ? [state.uploadedFileMeta.originalFilename]
         : [];
+
+  useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+
+    const parsedEmailAddress = parseEmailAddress(state.applicantInfo.email);
+    setEmailLocalPart(parsedEmailAddress.localPart);
+    setEmailDomainSelection(parsedEmailAddress.domainSelection);
+    setEmailCustomDomain(parsedEmailAddress.customDomain);
+  }, [isHydrated]);
 
   useEffect(() => {
     if (!isHydrated) {
@@ -279,6 +314,9 @@ export function ApplyPage() {
         setErrorMessage("");
         setFileError("");
         setFieldErrors(getInitialFieldErrors());
+        setEmailLocalPart("");
+        setEmailDomainSelection("");
+        setEmailCustomDomain("");
         resetEmailVerification();
         return;
       }
@@ -291,6 +329,9 @@ export function ApplyPage() {
       setErrorMessage("");
       setFileError("");
       setFieldErrors(getInitialFieldErrors());
+      setEmailLocalPart("");
+      setEmailDomainSelection("");
+      setEmailCustomDomain("");
       resetEmailVerification();
     }
   }, [
@@ -417,6 +458,36 @@ export function ApplyPage() {
     setEmailVerificationMessage("");
   }
 
+  function updateApplicantEmail({
+    localPart = emailLocalPart,
+    domainSelection = emailDomainSelection,
+    customDomain = emailCustomDomain,
+  }) {
+    const nextEmail = createEmailAddress({
+      localPart,
+      domainSelection,
+      customDomain,
+    });
+
+    setEmailLocalPart(localPart);
+    setEmailDomainSelection(domainSelection);
+    setEmailCustomDomain(customDomain);
+
+    if (nextEmail !== state.applicantInfo.email) {
+      resetEmailVerification();
+    }
+
+    dispatch({
+      type: "SET_APPLICANT_FIELD",
+      field: "email",
+      value: nextEmail,
+    });
+    setFieldErrors((current) => ({
+      ...current,
+      email: validateApplicantField("email", nextEmail),
+    }));
+  }
+
   function setApplicantField(field) {
     return (event) => {
       const nextValue =
@@ -476,6 +547,34 @@ export function ApplyPage() {
         }));
       }
     };
+  }
+
+  function handleEmailLocalPartChange(event) {
+    updateApplicantEmail({
+      localPart: event.target.value.replace(/[\s@]/g, ""),
+    });
+  }
+
+  function handleEmailDomainSelectionChange(event) {
+    const nextDomainSelection = event.target.value;
+    updateApplicantEmail({
+      domainSelection: nextDomainSelection,
+      customDomain:
+        nextDomainSelection === directEmailDomainValue ? emailCustomDomain : "",
+    });
+  }
+
+  function handleEmailCustomDomainChange(event) {
+    updateApplicantEmail({
+      customDomain: event.target.value.replace(/[\s@]/g, "").toLowerCase(),
+    });
+  }
+
+  function handleEmailDomainReset() {
+    updateApplicantEmail({
+      domainSelection: "",
+      customDomain: "",
+    });
   }
 
   function handleDocumentFileChange(event) {
@@ -735,19 +834,67 @@ export function ApplyPage() {
                 placeholder="010-0000-0000"
                 required
               />
-              <label className="site-field">
+              <label className="site-field site-field--full">
                 <span className="site-field__label">
                   {t("apply.email")}
                   <span className="site-field__requirement">({t("apply.required")})</span>
                 </span>
                 <div className="site-email-verification__email-row">
-                  <input
-                    className={`site-input ${fieldErrors.email ? "site-input--error" : ""}`.trim()}
-                    type="email"
-                    value={state.applicantInfo.email}
-                    onChange={setApplicantField("email")}
-                    required
-                  />
+                  <div className="site-email-address">
+                    <input
+                      className={`site-input ${fieldErrors.email ? "site-input--error" : ""}`.trim()}
+                      type="text"
+                      inputMode="email"
+                      autoComplete="username"
+                      value={emailLocalPart}
+                      onChange={handleEmailLocalPartChange}
+                      required
+                      aria-label={t("apply.email")}
+                    />
+                    <span className="site-email-address__at" aria-hidden="true">
+                      @
+                    </span>
+                    {emailDomainSelection === directEmailDomainValue ? (
+                      <span className="site-email-address__custom-control">
+                        <input
+                          className={`site-input site-email-address__custom-input ${
+                            fieldErrors.email ? "site-input--error" : ""
+                          }`.trim()}
+                          type="text"
+                          inputMode="url"
+                          autoComplete="off"
+                          value={emailCustomDomain}
+                          onChange={handleEmailCustomDomainChange}
+                          placeholder={emailDomainCopy.customPlaceholder}
+                          aria-label={emailDomainCopy.direct}
+                        />
+                        <button
+                          className="site-email-address__clear"
+                          type="button"
+                          onClick={handleEmailDomainReset}
+                          aria-label={emailDomainCopy.placeholder}
+                          title={emailDomainCopy.placeholder}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ) : (
+                      <select
+                        className={`site-input ${fieldErrors.email ? "site-input--error" : ""}`.trim()}
+                        value={emailDomainSelection}
+                        onChange={handleEmailDomainSelectionChange}
+                        aria-label={emailDomainCopy.placeholder}
+                      >
+                        <option value="">{emailDomainCopy.placeholder}</option>
+                        {presetEmailDomains.map((domain) => (
+                          <option key={domain} value={domain}>
+                            {domain}
+                          </option>
+                        ))}
+                        <option value={directEmailDomainValue}>{emailDomainCopy.direct}</option>
+                      </select>
+                    )}
+                  </div>
                   <Button
                     className="site-email-verification__action"
                     type="button"
@@ -765,7 +912,7 @@ export function ApplyPage() {
                   <span className="site-field__error">{fieldErrors.email}</span>
                 ) : null}
               </label>
-              <label className="site-field">
+              <label className="site-field site-field--full">
                 <span className="site-field__label">
                   {emailVerificationCopy.code}
                   <span className="site-field__requirement">({t("apply.required")})</span>

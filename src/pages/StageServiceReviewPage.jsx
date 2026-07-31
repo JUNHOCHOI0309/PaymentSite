@@ -228,19 +228,6 @@ export function StageServiceReviewPage() {
             </ul>
           </NoticeBox>
 
-          <div className="site-payment-methods">
-            <h2 className="site-payment-methods__title">{t("review.paymentMethod")}</h2>
-            <div className="site-chip-group">
-              <button
-                className="site-chip site-chip--active"
-                disabled
-                type="button"
-              >
-                {t("review.paymentMethodLabel")}
-              </button>
-            </div>
-          </div>
-
           <div className="site-inline-actions">
             <Button variant="ghost" onClick={() => navigate(detailPath, { state: { source: "review" } })}>
               {t("review.previous")}
