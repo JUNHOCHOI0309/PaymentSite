@@ -4670,19 +4670,6 @@ body {
   gap: 18px;
 }
 
-.site-stage-service-detail__back-button {
-  align-self: flex-start;
-  border-color: rgba(255, 255, 255, 0.45);
-  color: #fff;
-}
-
-.site-stage-service-detail__back-button:hover,
-.site-stage-service-detail__back-button:focus-visible {
-  border-color: #fff;
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-}
-
 .site-stage-service-price-box {
   display: grid;
   gap: 12px;

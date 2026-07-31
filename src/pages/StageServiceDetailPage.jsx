@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "../components/common/Button";
 import { Input } from "../components/common/Input";
 import { NoticeBox } from "../components/common/NoticeBox";
@@ -462,13 +462,9 @@ export function StageServiceDetailPage() {
         <div className="site-apply-detail site-stage-service-detail">
           <div className="site-apply-detail__layout">
             <aside className="site-apply-detail__summary site-stage-service-detail__summary">
-              <Button
-                className="site-stage-service-detail__back-button"
-                variant="ghost"
-                onClick={() => navigate("/apply/stage-services")}
-              >
-                {locale === "ko" ? "뒤로가기" : "Back"}
-              </Button>
+              <Link className="site-apply-detail__back-link" to="/apply/stage-services">
+                {`< ${t("apply.back")}`}
+              </Link>
               <h1>{getStageServiceTitle(serviceKey, locale)}</h1>
               <div className="site-stage-service-price-box">
                 <div className="site-stage-service-price-box__row">
