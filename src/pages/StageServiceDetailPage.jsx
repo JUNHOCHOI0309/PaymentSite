@@ -18,9 +18,14 @@ import {
   getVideoTypeOptions,
 } from "../data/stageServiceConfig";
 import {
+  buildApiUrl,
   createStageServiceDraft,
   updateStageServiceDraft,
 } from "../lib/applicationApi";
+import {
+  isHairMakeupAdditionalDisciplineAllowed,
+  isHairMakeupOptionAllowed,
+} from "../lib/stageServiceHairEligibility";
 import { buildStageServiceDetailPath } from "../lib/stageServiceFlowRoutes";
 import { stageServiceFlowSteps } from "../lib/stageServiceFlowAccess";
 
@@ -56,7 +61,7 @@ export function StageServiceDetailPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { state, dispatch, isHydrated } = useStageServiceFlow();
-  const { t, language } = useLanguage();
+  const { locale, t } = useLanguage();
   const handledLocationKeyRef = useRef("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -67,16 +72,27 @@ export function StageServiceDetailPage() {
   const prefillName = searchParams.get("name") || "";
   const prefillEmail = searchParams.get("email") || "";
   const prefillPhone = searchParams.get("phone") || "";
-  const disciplineOptions = getStageServiceDisciplineOptions();
-  const videoTypeOptions = getVideoTypeOptions();
-  const hairOptionChoices = getHairOptionChoices();
+  const disciplineOptions = getStageServiceDisciplineOptions(locale);
+  const videoTypeOptions = getVideoTypeOptions(locale);
+  const hairOptionChoices = getHairOptionChoices(locale).filter((option) =>
+    isHairMakeupOptionAllowed(state.formData.hairParticipantDiscipline, option),
+  );
+  const hairAdditionalDisciplineChoices = disciplineOptions.filter(
+    (option) =>
+      option.value !== state.formData.hairParticipantDiscipline &&
+      isHairMakeupAdditionalDisciplineAllowed(
+        state.formData.hairParticipantDiscipline,
+        option.value,
+      ),
+  );
   const hasPhotoAdditionalDiscipline = state.formData.photoHasAdditionalDiscipline === "O";
   const hairHasAdditionalDiscipline = Boolean(state.formData.hairAdditionalDiscipline);
   const hairOptionalChoices = getHairOptionalChoices({
     hairOptionValue: state.formData.hairOption,
     hasAdditionalDiscipline: hairHasAdditionalDiscipline,
+    locale,
   });
-  const videoAdditionalChoices = getStageVideoAdditionalDisciplineChoices();
+  const videoAdditionalChoices = getStageVideoAdditionalDisciplineChoices(locale);
   const totalAmount = useMemo(
     () =>
       calculateStageServiceTotalAmount({
@@ -178,6 +194,35 @@ export function StageServiceDetailPage() {
       dispatch({ type: "SET_FORM_FIELD", field: "photoAdditionalDiscipline", value: "" });
     }
   }, [dispatch, hasPhotoAdditionalDiscipline, state.formData.photoAdditionalDiscipline]);
+
+  useEffect(() => {
+    const allowedHairOptionValues = new Set(hairOptionChoices.map((option) => option.value));
+    const allowedAdditionalDisciplineValues = new Set(
+      hairAdditionalDisciplineChoices.map((option) => option.value),
+    );
+
+    if (
+      state.formData.hairOption &&
+      !allowedHairOptionValues.has(state.formData.hairOption)
+    ) {
+      dispatch({ type: "SET_FORM_FIELD", field: "hairOption", value: "" });
+      dispatch({ type: "SET_FORM_FIELD", field: "hairOptionalOption", value: "" });
+    }
+
+    if (
+      state.formData.hairAdditionalDiscipline &&
+      !allowedAdditionalDisciplineValues.has(state.formData.hairAdditionalDiscipline)
+    ) {
+      dispatch({ type: "SET_FORM_FIELD", field: "hairAdditionalDiscipline", value: "" });
+      dispatch({ type: "SET_FORM_FIELD", field: "hairOptionalOption", value: "" });
+    }
+  }, [
+    dispatch,
+    hairAdditionalDisciplineChoices,
+    hairOptionChoices,
+    state.formData.hairAdditionalDiscipline,
+    state.formData.hairOption,
+  ]);
 
   useEffect(() => {
     const allowedOptionalValues = new Set(hairOptionalChoices.map((option) => option.value));
@@ -334,11 +379,11 @@ export function StageServiceDetailPage() {
               >
                 {t("stageService.backToSelect")}
               </Button>
-              <h1>{getStageServiceTitle(serviceKey)}</h1>
+              <h1>{getStageServiceTitle(serviceKey, locale)}</h1>
               <div className="site-stage-service-price-box">
                 <div className="site-stage-service-price-box__row">
                   <span>{t("stageService.totalAmount")}</span>
-                  <strong>{formatStageServiceAmount(totalAmount, language)}</strong>
+                  <strong>{formatStageServiceAmount(totalAmount, locale)}</strong>
                 </div>
                 {state.linkedApplication.applicationNumber ? (
                   <>
@@ -421,8 +466,8 @@ export function StageServiceDetailPage() {
                       >
                         <option value="">{t("stageService.additionalDisciplinePlaceholder")}</option>
                         {disciplineOptions.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
+                          <option key={option.value} value={option.value}>
+                            {option.label}
                           </option>
                         ))}
                       </select>
@@ -448,7 +493,7 @@ export function StageServiceDetailPage() {
                         <option value="">{t("stageService.videoTypePlaceholder")}</option>
                         {videoTypeOptions.map((option) => (
                           <option key={option.value} value={option.value}>
-                            {option.label} ({formatStageServiceAmount(option.price, language)})
+                            {option.label} ({formatStageServiceAmount(option.price, locale)})
                           </option>
                         ))}
                       </select>
@@ -492,8 +537,8 @@ export function StageServiceDetailPage() {
                       >
                         <option value="">{t("stageService.participantDisciplinePlaceholder")}</option>
                         {disciplineOptions.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
+                          <option key={option.value} value={option.value}>
+                            {option.label}
                           </option>
                         ))}
                       </select>
@@ -511,11 +556,12 @@ export function StageServiceDetailPage() {
                         className={`site-input ${fieldErrors.hairOption ? "site-input--error" : ""}`.trim()}
                         value={state.formData.hairOption}
                         onChange={setFormField("hairOption")}
+                        disabled={!state.formData.hairParticipantDiscipline}
                       >
                         <option value="">{t("stageService.hairOptionPlaceholder")}</option>
                         {hairOptionChoices.map((option) => (
                           <option key={option.value} value={option.value}>
-                            {option.label} ({formatStageServiceAmount(option.price, language)})
+                            {option.label} ({formatStageServiceAmount(option.price, locale)})
                           </option>
                         ))}
                       </select>
@@ -533,13 +579,12 @@ export function StageServiceDetailPage() {
                         className="site-input"
                         value={state.formData.hairAdditionalDiscipline}
                         onChange={setFormField("hairAdditionalDiscipline")}
+                        disabled={!state.formData.hairParticipantDiscipline}
                       >
                         <option value="">{t("stageService.additionalDisciplinePlaceholder")}</option>
-                        {disciplineOptions
-                          .filter((option) => option !== state.formData.hairParticipantDiscipline)
-                          .map((option) => (
-                            <option key={option} value={option}>
-                              {option}
+                        {hairAdditionalDisciplineChoices.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
                             </option>
                           ))}
                       </select>
@@ -559,7 +604,7 @@ export function StageServiceDetailPage() {
                         <option value="">{t("stageService.optionalOptionPlaceholder")}</option>
                         {hairOptionalChoices.map((option) => (
                           <option key={option.value} value={option.value}>
-                            {option.label} ({formatStageServiceAmount(option.price, language)})
+                            {option.label} ({formatStageServiceAmount(option.price, locale)})
                           </option>
                         ))}
                       </select>
@@ -588,6 +633,17 @@ export function StageServiceDetailPage() {
               <li>{t("stageService.notice2")}</li>
               <li>{t("stageService.notice3")}</li>
             </ul>
+            {serviceKey === "hair-makeup" ? (
+              <div className="site-stage-service-notice-images">
+                {["hairmakeup_1.png", "hairmakeup_2.png"].map((filename) => (
+                  <img
+                    key={filename}
+                    src={buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(`register/${filename}`)}`)}
+                    alt=""
+                  />
+                ))}
+              </div>
+            ) : null}
           </NoticeBox>
         </div>
       </section>

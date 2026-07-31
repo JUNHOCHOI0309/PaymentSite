@@ -12,6 +12,10 @@
     "여성 피트니스",
     "여성 데님"
   ],
+  "hairMakeupDisciplineGroups": {
+    "male": ["보디빌딩", "클래식", "피지크"],
+    "female": ["미즈비키니", "피규어"]
+  },
   "services": {
     "stage-photo": {
       "title": "무대 사진 촬영",

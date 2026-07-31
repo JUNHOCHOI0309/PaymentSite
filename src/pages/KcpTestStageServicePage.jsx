@@ -8,6 +8,10 @@ import {
   createKcpTestStageServiceOrder,
   prepareKcpPayment,
 } from "../lib/applicationApi";
+import {
+  isHairMakeupAdditionalDisciplineAllowed,
+  isHairMakeupOptionAllowed,
+} from "../lib/stageServiceHairEligibility";
 
 const testAmount = 100;
 const services = stageServiceConfig.services || {};
@@ -100,6 +104,22 @@ export function KcpTestStageServicePage() {
 
   const service = services[form.serviceType] || services["stage-photo"];
   const hairOptions = services["hair-makeup"]?.hairOptions || [];
+  const eligibleHairOptions = useMemo(
+    () =>
+      hairOptions.filter((option) =>
+        isHairMakeupOptionAllowed(form.hairParticipantDiscipline, option),
+      ),
+    [form.hairParticipantDiscipline, hairOptions],
+  );
+  const eligibleHairAdditionalDisciplines = useMemo(
+    () =>
+      disciplineOptions.filter(
+        (discipline) =>
+          discipline !== form.hairParticipantDiscipline &&
+          isHairMakeupAdditionalDisciplineAllowed(form.hairParticipantDiscipline, discipline),
+      ),
+    [form.hairParticipantDiscipline],
+  );
   const selectedHairOption = hairOptions.find((option) => option.value === form.hairOption);
   const hairOptionalOptions = useMemo(
     () =>
@@ -119,6 +139,27 @@ export function KcpTestStageServicePage() {
       ),
     [],
   );
+
+  useEffect(() => {
+    if (
+      form.hairOption &&
+      !eligibleHairOptions.some((option) => option.value === form.hairOption)
+    ) {
+      setForm((current) => ({ ...current, hairOption: "", hairOptionalOption: "" }));
+    }
+
+    if (
+      form.hairAdditionalDiscipline &&
+      !eligibleHairAdditionalDisciplines.includes(form.hairAdditionalDiscipline)
+    ) {
+      setForm((current) => ({ ...current, hairAdditionalDiscipline: "", hairOptionalOption: "" }));
+    }
+  }, [
+    eligibleHairAdditionalDisciplines,
+    eligibleHairOptions,
+    form.hairAdditionalDiscipline,
+    form.hairOption,
+  ]);
 
   useEffect(() => {
     if (form.photoHasAdditionalDiscipline === "X" && form.photoAdditionalDiscipline) {
@@ -261,16 +302,16 @@ export function KcpTestStageServicePage() {
               </label>
               <label className="kcp-test-field">
                 헤어&메이크업 <em>(필수)</em>
-                <select value={form.hairOption} onChange={(event) => updateField("hairOption", event.target.value)}>
+                <select value={form.hairOption} onChange={(event) => updateField("hairOption", event.target.value)} disabled={!form.hairParticipantDiscipline}>
                   <option value="">옵션을 선택해 주세요</option>
-                  {hairOptions.map((option) => <option key={option.value} value={option.value}>{option.label} ({formatAmount(option.price)})</option>)}
+                  {eligibleHairOptions.map((option) => <option key={option.value} value={option.value}>{option.label} ({formatAmount(option.price)})</option>)}
                 </select>
               </label>
               <label className="kcp-test-field">
                 추가 종목 <em>(선택)</em>
-                <select value={form.hairAdditionalDiscipline} onChange={(event) => updateField("hairAdditionalDiscipline", event.target.value)}>
+                <select value={form.hairAdditionalDiscipline} onChange={(event) => updateField("hairAdditionalDiscipline", event.target.value)} disabled={!form.hairParticipantDiscipline}>
                   <option value="">추가 종목을 선택해 주세요</option>
-                  {disciplineOptions.filter((discipline) => discipline !== form.hairParticipantDiscipline).map((discipline) => <option key={discipline} value={discipline}>{discipline}</option>)}
+                  {eligibleHairAdditionalDisciplines.map((discipline) => <option key={discipline} value={discipline}>{discipline}</option>)}
                 </select>
               </label>
               <label className="kcp-test-field">

@@ -4603,6 +4603,19 @@ body {
   grid-column: 1 / -1;
 }
 
+.site-stage-service-notice-images {
+  display: grid;
+  gap: 16px;
+  max-width: 920px;
+  margin: 32px auto 0;
+}
+
+.site-stage-service-notice-images img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 .site-stage-service-review-card .site-payment-methods {
   margin-top: 32px;
 }

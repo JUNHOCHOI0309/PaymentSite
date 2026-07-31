@@ -186,6 +186,13 @@ const stageServiceDisciplineOptions = Array.isArray(stageServiceConfig.disciplin
   ? stageServiceConfig.disciplineOptions
   : [];
 const stageServiceDisciplineSet = new Set(stageServiceDisciplineOptions);
+const stageServiceHairMakeupDisciplineGroups = stageServiceConfig.hairMakeupDisciplineGroups || {};
+const stageServiceMaleHairMakeupDisciplines = new Set(
+  stageServiceHairMakeupDisciplineGroups.male || []
+);
+const stageServiceFemaleHairMakeupDisciplines = new Set(
+  stageServiceHairMakeupDisciplineGroups.female || []
+);
 const stageServiceDefinitions = stageServiceConfig.services || {};
 const stageVideoTypeDefinitions = Array.isArray(stageServiceDefinitions["stage-video"]?.videoTypes)
   ? stageServiceDefinitions["stage-video"].videoTypes
@@ -234,6 +241,35 @@ const hairOptionalOptionDefinitions = Array.isArray(stageServiceDefinitions["hai
 const hairOptionalOptionMap = new Map(
   hairOptionalOptionDefinitions.map((definition) => [definition.value, definition])
 );
+
+function getStageServiceHairMakeupDisciplineGender(discipline) {
+  if (stageServiceMaleHairMakeupDisciplines.has(discipline)) {
+    return "male";
+  }
+
+  if (stageServiceFemaleHairMakeupDisciplines.has(discipline)) {
+    return "female";
+  }
+
+  return "all";
+}
+
+function isStageServiceHairOptionAllowed(participantDiscipline, hairOption) {
+  const participantGender = getStageServiceHairMakeupDisciplineGender(participantDiscipline);
+
+  return participantGender === "all" || hairOption?.gender === participantGender;
+}
+
+function isStageServiceHairAdditionalDisciplineAllowed(participantDiscipline, additionalDiscipline) {
+  const participantGender = getStageServiceHairMakeupDisciplineGender(participantDiscipline);
+  const additionalGender = getStageServiceHairMakeupDisciplineGender(additionalDiscipline);
+
+  return (
+    participantGender === "all" ||
+    additionalGender === "all" ||
+    participantGender === additionalGender
+  );
+}
 
 app.set("trust proxy", true);
 app.disable("x-powered-by");
@@ -2887,10 +2923,19 @@ function validateStageServiceDraftPayload(body) {
       };
     }
 
-    if (!hairOptionMap.has(payload.hairOption)) {
+    const selectedHairOption = hairOptionMap.get(payload.hairOption);
+
+    if (!selectedHairOption) {
       return {
         ok: false,
         message: "헤어&메이크업 옵션을 선택해 주세요.",
+      };
+    }
+
+    if (!isStageServiceHairOptionAllowed(payload.hairParticipantDiscipline, selectedHairOption)) {
+      return {
+        ok: false,
+        message: "참가 종목에 맞는 헤어&메이크업 옵션을 선택해 주세요.",
       };
     }
 
@@ -2901,6 +2946,19 @@ function validateStageServiceDraftPayload(body) {
       return {
         ok: false,
         message: "추가 종목은 참가 종목과 다르게 선택해 주세요.",
+      };
+    }
+
+    if (
+      payload.hairAdditionalDiscipline &&
+      !isStageServiceHairAdditionalDisciplineAllowed(
+        payload.hairParticipantDiscipline,
+        payload.hairAdditionalDiscipline
+      )
+    ) {
+      return {
+        ok: false,
+        message: "추가 종목은 참가 종목과 같은 성별 부문 또는 공동 부문만 선택할 수 있습니다.",
       };
     }
 
@@ -2921,8 +2979,7 @@ function validateStageServiceDraftPayload(body) {
         };
       }
 
-      const hairDefinition = hairOptionMap.get(payload.hairOption);
-      const selectedGender = hairDefinition?.gender || "all";
+      const selectedGender = selectedHairOption.gender || "all";
 
       if (
         optionalDefinition.gender !== "all" &&
