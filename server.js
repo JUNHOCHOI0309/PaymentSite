@@ -3400,13 +3400,6 @@ function validateDraftPayload(body) {
     };
   }
 
-  if (!consents.privacy || !consents.terms || !consents.refund) {
-    return {
-      ok: false,
-      message: "Required consents are missing",
-    };
-  }
-
   if (introduction && introduction.length > 100) {
     return {
       ok: false,
@@ -11646,6 +11639,32 @@ app.post("/orders", async function (req,res) {
     }
 
     const draft = draftResult.rows[0];
+
+    const consentResult = await client.query(
+      `
+        SELECT
+          privacy_consent,
+          terms_consent,
+          refund_consent
+        FROM application_consents
+        WHERE draft_id = $1
+          AND application_id IS NULL
+        ORDER BY consented_at DESC
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [draft.draft_id]
+    );
+    const consents = consentResult.rows[0];
+
+    if (!consents?.privacy_consent || !consents?.terms_consent || !consents?.refund_consent) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        ok: false,
+        code: "REQUIRED_CONSENTS_MISSING",
+        message: "필수 동의 사항을 모두 확인해 주세요.",
+      });
+    }
 
     if (!resolveApplicationBaseFee(draft.image_key).isRegistrationOpen) {
       await client.query("ROLLBACK");
