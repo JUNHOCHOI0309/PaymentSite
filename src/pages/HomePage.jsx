@@ -5,6 +5,7 @@ import { getApplicationDisciplineTitleByImageKey } from "../data/applicationDisc
 import { buildApiUrl, getHomeGalleryImages } from "../lib/applicationApi";
 
 const homeUpImageKeys = Array.from({ length: 10 }, (_, index) => `home/home_up_${index + 1}.png`);
+const participantBenefitsDismissalStorageKey = "mmkorea-home-participant-benefits-dismissed-date";
 const sponsorLogos = [
   { key: "home/logo_1.png", href: "https://www.xn--2i4b21aq3g7vaq7vn4ifle.com/" },
   { key: "home/logo_2.png", href: "https://www.ihq.co.kr/" },
@@ -259,12 +260,22 @@ function getHomeImageUrl(key) {
   return buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(key)}`);
 }
 
+function getLocalDateKey() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
 export function HomePage() {
   const { locale, t } = useLanguage();
   const [images, setImages] = useState([]);
   const [galleryError, setGalleryError] = useState("");
   const [activeGroup, setActiveGroup] = useState("man");
   const [activeItemKey, setActiveItemKey] = useState(null);
+  const [isParticipantBenefitsOpen, setIsParticipantBenefitsOpen] = useState(false);
 
   const competitionGroups = useMemo(() => getCompetitionGroups(locale), [locale]);
 
@@ -280,6 +291,31 @@ export function HomePage() {
 
     fetchGalleryImages();
   }, [t]);
+
+  useEffect(() => {
+    try {
+      setIsParticipantBenefitsOpen(
+        window.localStorage.getItem(participantBenefitsDismissalStorageKey) !== getLocalDateKey(),
+      );
+    } catch {
+      setIsParticipantBenefitsOpen(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isParticipantBenefitsOpen) {
+      return undefined;
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        setIsParticipantBenefitsOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isParticipantBenefitsOpen]);
 
   const heroMedia = images.find(isVideoMedia) || images[0] || null;
   const heroIsVideo = isVideoMedia(heroMedia);
@@ -316,8 +352,56 @@ export function HomePage() {
     setActiveItemKey(activeItems[nextIndex].key);
   }
 
+  function closeParticipantBenefits({ hideForToday = false } = {}) {
+    if (hideForToday) {
+      try {
+        window.localStorage.setItem(participantBenefitsDismissalStorageKey, getLocalDateKey());
+      } catch {
+        // The modal still closes when browser storage is unavailable.
+      }
+    }
+
+    setIsParticipantBenefitsOpen(false);
+  }
+
   return (
     <PageShell hero className="site-shell--home">
+      {isParticipantBenefitsOpen ? (
+        <div
+          className="site-home-benefits-modal"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeParticipantBenefits();
+            }
+          }}
+        >
+          <section
+            className="site-home-benefits-modal__dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="participant-benefits-title"
+          >
+            <h1 className="sr-only" id="participant-benefits-title">
+              {locale === "ko" ? "참가자 혜택 안내" : "Participant benefits"}
+            </h1>
+            <img
+              className="site-home-benefits-modal__image"
+              src={getHomeImageUrl("home/participant_benefits.png")}
+              alt={locale === "ko" ? "참가자 혜택 안내" : "Participant benefits"}
+            />
+            <div className="site-home-benefits-modal__actions">
+              <button type="button" onClick={() => closeParticipantBenefits({ hideForToday: true })}>
+                {locale === "ko" ? "오늘 하루 열지 않기" : "Do not show again today"}
+              </button>
+              <button type="button" onClick={() => closeParticipantBenefits()}>
+                {locale === "ko" ? "닫기" : "Close"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       <section className="site-home-hero">
         <div className="site-home-hero__media">
           {heroMedia ? (

@@ -39,37 +39,37 @@
         {
           "value": "MALE_HAIR_MAKEUP",
           "label": "남자 헤어&메이크업",
-          "price": 110000,
+          "price": 90000,
           "gender": "male"
         },
         {
           "value": "MALE_MAKEUP",
           "label": "남자 메이크업",
-          "price": 70000,
+          "price": 50000,
           "gender": "male"
         },
         {
           "value": "MALE_HAIR",
           "label": "남자 헤어",
-          "price": 40000,
+          "price": 50000,
           "gender": "male"
         },
         {
           "value": "FEMALE_HAIR_MAKEUP",
           "label": "여자 헤어&메이크업",
-          "price": 180000,
+          "price": 150000,
           "gender": "female"
         },
         {
           "value": "FEMALE_MAKEUP",
           "label": "여자 메이크업",
-          "price": 110000,
+          "price": 100000,
           "gender": "female"
         },
         {
           "value": "FEMALE_HAIR",
           "label": "여자 헤어",
-          "price": 70000,
+          "price": 80000,
           "gender": "female"
         }
       ],
@@ -84,14 +84,14 @@
         {
           "value": "MALE_RETOUCH",
           "label": "남자 리터치",
-          "price": 20000,
+          "price": 30000,
           "gender": "male",
           "requiresAdditionalDiscipline": true
         },
         {
           "value": "FEMALE_RETOUCH",
           "label": "여자 리터치",
-          "price": 33000,
+          "price": 50000,
           "gender": "female",
           "requiresAdditionalDiscipline": true
         }
