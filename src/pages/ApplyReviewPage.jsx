@@ -8,7 +8,7 @@ import { useLanguage } from "../context/LanguageContext";
 import { getCanonicalApplicationDisciplineTitle } from "../data/applicationDisciplines";
 import {
   formatApplicationEntryFee,
-  getApplicationEntryFee,
+  getApplicationEntryFeePricing,
 } from "../data/applicationEntryFees";
 import { applicationFlowSteps } from "../lib/applicationFlowAccess";
 import {
@@ -81,8 +81,10 @@ export function ApplyReviewPage() {
     imageKey: selectedImageKey,
     discipline: reviewDraft?.discipline || state.selection.discipline,
   });
-  const entryFeeAmount = getApplicationEntryFee(selectedImageKey);
-  const entryFeePricing = draftSnapshot?.pricing || null;
+  const fallbackEntryFeePricing = getApplicationEntryFeePricing(selectedImageKey);
+  const entryFeePricing = draftSnapshot?.pricing || fallbackEntryFeePricing;
+  const entryFeeAmount = entryFeePricing.amount;
+  const isRegistrationOpen = entryFeePricing.isRegistrationOpen !== false;
   const snsIdentityValue =
     reviewDraft?.instagramId ||
     serializeDetailedSnsIdentity({
@@ -125,6 +127,15 @@ export function ApplyReviewPage() {
   }, [dispatch, state.paymentMethod]);
 
   async function handleProceedPayment() {
+    if (!isRegistrationOpen) {
+      setErrorMessage(
+        locale === "ko"
+          ? "현재 대회 참가 접수 기간이 아닙니다. 접수 기간을 확인해 주세요."
+          : "Competition registration is not currently open. Please check the registration period."
+      );
+      return;
+    }
+
     if (!state.draftId) {
       setErrorMessage(t("review.saveFirstError"));
       navigate(detailPath);
@@ -244,11 +255,18 @@ export function ApplyReviewPage() {
 
           <div className="site-inline-actions">
             <Button variant="ghost" onClick={() => navigate("/apply/consent")}>{t("review.previous")}</Button>
-            <Button onClick={handleProceedPayment} disabled={isPreparingPayment}>
+            <Button onClick={handleProceedPayment} disabled={!isRegistrationOpen || isPreparingPayment}>
               {isPreparingPayment ? t("review.preparing") : t("review.proceed")}
             </Button>
           </div>
 
+          {!isRegistrationOpen ? (
+            <p className="site-error-message">
+              {locale === "ko"
+                ? "현재 대회 참가 접수 기간이 아닙니다. 실제 결제는 접수 기간에만 가능합니다."
+                : "Registration is closed. Live payment is available only during the registration period."}
+            </p>
+          ) : null}
           {errorMessage ? <p className="site-error-message">{errorMessage}</p> : null}
         </div>
       </section>

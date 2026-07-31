@@ -1120,6 +1120,7 @@ function resolveApplicationBaseFee(imageKey, date = new Date()) {
     amount: scheduledAmount,
     originalAmount,
     isDiscounted: originalAmount > scheduledAmount,
+    isRegistrationOpen: Boolean(schedule),
     periodId: schedule?.id || "standard",
     periodLabel: schedule?.label || "상시",
     periodLabelEn: schedule?.labelEn || "Standard",
@@ -4320,6 +4321,29 @@ app.post("/kcp/trade/register", async function (req, res) {
     }
 
     const trustedDraftId = draftBindingResult.rows[0].draft_id;
+
+    if (context === "application") {
+      const applicationDraftResult = await pool.query(
+        `
+          SELECT image_key
+          FROM application_drafts
+          WHERE draft_id = $1
+          LIMIT 1
+        `,
+        [trustedDraftId]
+      );
+
+      if (
+        applicationDraftResult.rowCount === 0 ||
+        !resolveApplicationBaseFee(applicationDraftResult.rows[0].image_key).isRegistrationOpen
+      ) {
+        return res.status(409).json({
+          ok: false,
+          code: "APPLICATION_REGISTRATION_CLOSED",
+          message: "현재 대회 참가 접수 기간이 아닙니다. 접수 기간을 확인해 주세요.",
+        });
+      }
+    }
 
     const regType = resolveKcpRegType(req.headers["user-agent"]);
     const signatureSource = [
@@ -10238,6 +10262,15 @@ app.post("/orders", async function (req,res) {
     }
 
     const draft = draftResult.rows[0];
+
+    if (!resolveApplicationBaseFee(draft.image_key).isRegistrationOpen) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        code: "APPLICATION_REGISTRATION_CLOSED",
+        message: "현재 대회 참가 접수 기간이 아닙니다. 접수 기간을 확인해 주세요.",
+      });
+    }
 
     if (draft.order_id) {
       const existingOrderResult = await client.query(

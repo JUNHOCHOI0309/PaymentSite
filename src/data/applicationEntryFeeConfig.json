@@ -1,79 +1,78 @@
 {
-  "defaultAmount": 250000,
-  "listAmount": 250000,
-  "additionalDisciplineAmount": 100000,
+  "defaultAmount": 300000,
+  "listAmount": 300000,
+  "additionalDisciplineAmount": 150000,
   "schedule": [
     {
-      "id": "2026-july-early-bird",
-      "label": "7월",
-      "labelEn": "July",
-      "startDate": "2026-07-01",
-      "endDate": "2026-07-31",
-      "amount": 160000,
-      "displayOriginalAmount": 250000
-    },
-    {
-      "id": "2026-august",
-      "label": "8월",
-      "labelEn": "August",
-      "startDate": "2026-08-01",
+      "id": "2026-early-bird",
+      "label": "얼리버드 접수 (8월 3일(월) ~ 8월 31일(월))",
+      "labelEn": "Early bird registration (Aug 3 - Aug 31)",
+      "startDate": "2026-08-03",
       "endDate": "2026-08-31",
       "amount": 200000
     },
     {
-      "id": "2026-september-october",
-      "label": "9월 - 10월",
-      "labelEn": "September - October",
+      "id": "2026-first-registration",
+      "label": "1차 참가접수 (9월 1일(화) ~ 9월 30일(수))",
+      "labelEn": "First registration (Sep 1 - Sep 30)",
       "startDate": "2026-09-01",
-      "endDate": "2026-10-31",
+      "endDate": "2026-09-30",
       "amount": 250000
+    },
+    {
+      "id": "2026-final-registration",
+      "label": "최종 참가접수 (10월 1일(목) ~ 10월 18일(일))",
+      "labelEn": "Final registration (Oct 1 - Oct 18)",
+      "startDate": "2026-10-01",
+      "endDate": "2026-10-18",
+      "amount": 300000
     }
   ],
   "items": [
     {
       "imageKey": "register/man_1.png",
       "title": "Bodybuilding",
-      "amount": 250000
+      "amount": 300000
     },
     {
       "imageKey": "register/man_2.png",
       "title": "Classic Physique",
-      "amount": 250000
+      "amount": 300000
     },
     {
       "imageKey": "register/man_3.png",
       "title": "Physique",
-      "amount": 250000
+      "amount": 300000
     },
     {
       "imageKey": "register/common_1.png",
       "title": "Model",
-      "amount": 250000
+      "amount": 300000
     },
     {
       "imageKey": "register/common_2.png",
       "title": "Fitness",
-      "amount": 250000
+      "amount": 300000
     },
     {
       "imageKey": "register/common_3.png",
       "title": "Denim",
-      "amount": 250000
+      "amount": 300000
     },
     {
       "imageKey": "register/common_4.png",
       "title": "Transformation",
-      "amount": 250000
+      "amount": 300000
     },
     {
       "imageKey": "register/woman_1.png",
       "title": "Ms.Bikini",
-      "amount": 250000
+      "amount": 300000
     },
     {
       "imageKey": "register/woman_2.png",
       "title": "Figure",
-      "amount": 250000
+      "amount": 300000
     }
   ]
 }

@@ -50,6 +50,7 @@ export function getApplicationEntryFeePricing(imageKey, date = new Date()) {
     amount,
     originalAmount,
     isDiscounted: originalAmount > amount,
+    isRegistrationOpen: Boolean(schedule),
     periodId: schedule?.id || "standard",
     periodLabel: schedule?.label || "상시",
     periodLabelEn: schedule?.labelEn || "Standard",
