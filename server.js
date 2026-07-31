@@ -43,6 +43,7 @@ const adminAllowedOrigins = (process.env.ADMIN_ALLOWED_ORIGINS || "")
 const adminSessionCookieName = normalizeText(process.env.ADMIN_COOKIE_NAME) || "mmk_admin_session";
 const paymentResultCookieName = "mmk_payment_result";
 const applicationDraftCookieName = "mmk_application_draft";
+const applicationEmailVerificationCookieName = "mmk_application_email_verification";
 const stageServiceDraftCookieName = "mmk_stage_service_draft";
 const paymentResultAccessTtlHours = 24;
 const draftAccessTtlHours = 24;
@@ -1287,6 +1288,15 @@ function createDraftAccessCookie(token, cookieName) {
   });
 }
 
+function createApplicationEmailVerificationCookie(token) {
+  return serializeCookie(applicationEmailVerificationCookieName, token, {
+    maxAge: lookupVerificationSessionTtlMinutes * 60,
+    path: "/",
+    sameSite: "Lax",
+    secure: adminCookieSecure,
+  });
+}
+
 function issueDraftAccessCookie(res, { draftId, draftType, cookieName }) {
   const token = createDraftAccessToken({
     draftId,
@@ -1328,6 +1338,12 @@ function requireRequestDraftAccess(req, res, options) {
 
 function getPaymentResultAccessToken(req) {
   return normalizeText(parseCookies(req.headers.cookie)[paymentResultCookieName]);
+}
+
+function getApplicationEmailVerificationToken(req) {
+  return normalizeText(
+    parseCookies(req.headers.cookie)[applicationEmailVerificationCookieName]
+  );
 }
 
 function validateOrderPaymentResultAccess(req, order) {
@@ -2246,6 +2262,112 @@ async function hasVerifiedLookupSession({ name, email, verificationToken }) {
   return verificationResult.rowCount > 0;
 }
 
+function createApplicationEmailVerificationToken({
+  name,
+  email,
+  status,
+  codeHash = null,
+  attemptCount = 0,
+  expiresAt = null,
+}) {
+  const normalizedName = normalizeText(name);
+  const normalizedEmail = normalizeEmail(email);
+  const normalizedStatus = normalizeText(status);
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const resolvedExpiresAt = Number.isInteger(expiresAt)
+    ? expiresAt
+    : nowSeconds + lookupVerificationCodeTtlMinutes * 60;
+
+  if (
+    !normalizedName ||
+    !normalizedEmail ||
+    !paymentResultTokenSecret ||
+    !["PENDING", "VERIFIED"].includes(normalizedStatus) ||
+    !Number.isInteger(attemptCount) ||
+    attemptCount < 0 ||
+    resolvedExpiresAt <= nowSeconds
+  ) {
+    throw new Error("Invalid application email verification token configuration");
+  }
+
+  const payload = Buffer.from(
+    JSON.stringify({
+      v: 1,
+      typ: "application-email-verification",
+      name: normalizedName,
+      email: normalizedEmail,
+      status: normalizedStatus,
+      codeHash,
+      attemptCount,
+      exp: resolvedExpiresAt,
+      nonce: crypto.randomBytes(16).toString("base64url"),
+    }),
+    "utf8"
+  ).toString("base64url");
+  const signature = crypto
+    .createHmac("sha256", paymentResultTokenSecret)
+    .update(payload)
+    .digest("base64url");
+
+  return `${payload}.${signature}`;
+}
+
+function validateApplicationEmailVerificationToken({
+  providedToken,
+  name,
+  email,
+  requiredStatus,
+}) {
+  const normalizedToken = normalizeText(providedToken);
+  const normalizedName = normalizeText(name);
+  const normalizedEmail = normalizeEmail(email);
+  const normalizedStatus = normalizeText(requiredStatus);
+
+  if (!normalizedToken || !normalizedName || !normalizedEmail || !paymentResultTokenSecret) {
+    return { ok: false };
+  }
+
+  const [payload, providedSignature, ...extraParts] = normalizedToken.split(".");
+
+  if (!payload || !providedSignature || extraParts.length > 0) {
+    return { ok: false };
+  }
+
+  const expectedSignature = crypto
+    .createHmac("sha256", paymentResultTokenSecret)
+    .update(payload)
+    .digest("base64url");
+  const providedBuffer = Buffer.from(providedSignature, "utf8");
+  const expectedBuffer = Buffer.from(expectedSignature, "utf8");
+
+  if (
+    providedBuffer.length !== expectedBuffer.length ||
+    !crypto.timingSafeEqual(providedBuffer, expectedBuffer)
+  ) {
+    return { ok: false };
+  }
+
+  try {
+    const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+
+    if (
+      decoded?.v !== 1 ||
+      decoded?.typ !== "application-email-verification" ||
+      decoded?.name !== normalizedName ||
+      decoded?.email !== normalizedEmail ||
+      decoded?.status !== normalizedStatus ||
+      !Number.isInteger(decoded?.exp) ||
+      decoded.exp <= Math.floor(Date.now() / 1000)
+    ) {
+      return { ok: false };
+    }
+
+    return { ok: true, payload: decoded };
+  } catch (_error) {
+    return { ok: false };
+  }
+}
+
 async function consumeVerifiedLookupSession(client, { name, email, verificationToken }) {
   const verificationResult = await client.query(
     `
@@ -2599,6 +2721,45 @@ async function sendLookupVerificationEmail({ email, name, code }) {
     }
 
     console.log(`[lookup verification] email=${email} code=${code}`);
+    return {
+      deliveryMethod: "console",
+    };
+  }
+
+  await transporter.sendMail({
+    from: lookupFromEmail,
+    to: email,
+    subject,
+    text,
+    html,
+  });
+
+  return {
+    deliveryMethod: "email",
+  };
+}
+
+async function sendApplicationEmailVerificationEmail({ email, name, code }) {
+  const transporter = getEmailTransporter();
+  const subject = `[${emailBrandName}] 대회 신청 이메일 인증번호 안내`;
+  const text = `${name}님, 대회 신청 이메일 인증번호는 ${code} 입니다. ${lookupVerificationCodeTtlMinutes}분 내에 입력해 주세요.`;
+  const safeName = escapeHtml(name);
+  const safeCode = escapeHtml(code);
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937;">
+      <p>${safeName}님, 안녕하세요.</p>
+      <p>대회 신청을 위한 이메일 인증번호를 안내드립니다.</p>
+      <p style="font-size: 24px; font-weight: 700; letter-spacing: 0.08em;">${safeCode}</p>
+      <p>${lookupVerificationCodeTtlMinutes}분 내에 입력해 주세요.</p>
+    </div>
+  `;
+
+  if (!transporter) {
+    if (!allowEmailConsoleFallback) {
+      throw new Error("Email provider is not configured");
+    }
+
+    console.log(`[application email verification] email=${email} code=${code}`);
     return {
       deliveryMethod: "console",
     };
@@ -10850,6 +11011,207 @@ app.post("/applications/refund/request", async function (req, res) {
   }
 });
 
+app.post("/applications/email-verification/send", async function (req, res) {
+  try {
+    if (!hasTrustedWriteOrigin(req)) {
+      return res.status(403).json({
+        ok: false,
+        message: "Untrusted request origin",
+      });
+    }
+
+    const rateLimitResult = consumeLookupVerificationRateLimit({
+      action: "application-email-send",
+      ipAddress: getRequestIp(req),
+      limit: lookupVerificationSendRateLimit,
+    });
+
+    if (!rateLimitResult.ok) {
+      res.setHeader("Retry-After", String(rateLimitResult.retryAfterSeconds));
+      return res.status(429).json({
+        ok: false,
+        message: "인증번호 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+      });
+    }
+
+    const name = normalizeText(req.body.name);
+    const email = normalizeEmail(req.body.email);
+
+    if (!name || !email || !hasValidEmail(email)) {
+      return res.status(400).json({
+        ok: false,
+        message: "성함과 유효한 이메일 주소를 입력해 주세요.",
+      });
+    }
+
+    const code = generateLookupVerificationCode();
+    const sendResult = await sendApplicationEmailVerificationEmail({ email, name, code });
+    const verificationToken = createApplicationEmailVerificationToken({
+      name,
+      email,
+      status: "PENDING",
+      codeHash: hashLookupVerificationCode(code),
+    });
+
+    res.setHeader("Set-Cookie", createApplicationEmailVerificationCookie(verificationToken));
+    return res.status(200).json({
+      ok: true,
+      message: "이메일 인증번호를 전송했습니다.",
+      expiresInSeconds: lookupVerificationCodeTtlMinutes * 60,
+      ...(sendResult.deliveryMethod === "console" ? { devVerificationCode: code } : {}),
+    });
+  } catch (error) {
+    console.error("Failed to send application email verification code:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "이메일 인증번호를 전송하지 못했습니다.",
+    });
+  }
+});
+
+app.post("/applications/email-verification/verify", async function (req, res) {
+  try {
+    if (!hasTrustedWriteOrigin(req)) {
+      return res.status(403).json({
+        ok: false,
+        message: "Untrusted request origin",
+      });
+    }
+
+    const rateLimitResult = consumeLookupVerificationRateLimit({
+      action: "application-email-verify",
+      ipAddress: getRequestIp(req),
+      limit: lookupVerificationVerifyRateLimit,
+    });
+
+    if (!rateLimitResult.ok) {
+      res.setHeader("Retry-After", String(rateLimitResult.retryAfterSeconds));
+      return res.status(429).json({
+        ok: false,
+        message: "인증 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+      });
+    }
+
+    const name = normalizeText(req.body.name);
+    const email = normalizeEmail(req.body.email);
+    const code = normalizeText(req.body.code);
+
+    if (!name || !email || !code || !hasValidEmail(email)) {
+      return res.status(400).json({
+        ok: false,
+        message: "성함, 이메일, 인증번호를 확인해 주세요.",
+      });
+    }
+
+    if (!isValidLookupVerificationCode(code)) {
+      return res.status(400).json({
+        ok: false,
+        message: "인증번호는 6자리 숫자여야 합니다.",
+      });
+    }
+
+    const pendingVerification = validateApplicationEmailVerificationToken({
+      providedToken: getApplicationEmailVerificationToken(req),
+      name,
+      email,
+      requiredStatus: "PENDING",
+    });
+
+    if (!pendingVerification.ok) {
+      return res.status(404).json({
+        ok: false,
+        message: "먼저 인증번호를 전송해 주세요.",
+      });
+    }
+
+    const { payload } = pendingVerification;
+
+    if (payload.attemptCount >= lookupVerificationMaxAttempts) {
+      res.setHeader("Set-Cookie", clearCookie(applicationEmailVerificationCookieName));
+      return res.status(429).json({
+        ok: false,
+        message: "인증 시도 횟수를 초과했습니다. 인증번호를 다시 요청해 주세요.",
+      });
+    }
+
+    if (payload.codeHash !== hashLookupVerificationCode(code)) {
+      const nextAttemptCount = payload.attemptCount + 1;
+
+      if (nextAttemptCount >= lookupVerificationMaxAttempts) {
+        res.setHeader("Set-Cookie", clearCookie(applicationEmailVerificationCookieName));
+      } else {
+        res.setHeader(
+          "Set-Cookie",
+          createApplicationEmailVerificationCookie(
+            createApplicationEmailVerificationToken({
+              name,
+              email,
+              status: "PENDING",
+              codeHash: payload.codeHash,
+              attemptCount: nextAttemptCount,
+              expiresAt: payload.exp,
+            })
+          )
+        );
+      }
+
+      return res.status(400).json({
+        ok: false,
+        message:
+          nextAttemptCount >= lookupVerificationMaxAttempts
+            ? "인증 시도 횟수를 초과했습니다. 인증번호를 다시 요청해 주세요."
+            : "인증번호가 올바르지 않습니다.",
+      });
+    }
+
+    const verificationToken = createApplicationEmailVerificationToken({
+      name,
+      email,
+      status: "VERIFIED",
+      expiresAt: Math.floor(Date.now() / 1000) + lookupVerificationSessionTtlMinutes * 60,
+    });
+
+    res.setHeader("Set-Cookie", createApplicationEmailVerificationCookie(verificationToken));
+    return res.status(200).json({
+      ok: true,
+      message: "이메일 인증이 완료되었습니다.",
+      sessionExpiresAt: new Date(
+        Date.now() + lookupVerificationSessionTtlMinutes * 60 * 1000
+      ).toISOString(),
+    });
+  } catch (error) {
+    console.error("Failed to verify application email verification code:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "이메일 인증번호 확인에 실패했습니다.",
+    });
+  }
+});
+
+app.get("/applications/email-verification/status", function (req, res) {
+  const name = normalizeText(req.query.name);
+  const email = normalizeEmail(req.query.email);
+
+  if (!name || !email || !hasValidEmail(email)) {
+    return res.status(400).json({
+      ok: false,
+      message: "성함과 유효한 이메일 주소를 입력해 주세요.",
+    });
+  }
+
+  const verification = validateApplicationEmailVerificationToken({
+    providedToken: getApplicationEmailVerificationToken(req),
+    name,
+    email,
+    requiredStatus: "VERIFIED",
+  });
+
+  return res.status(200).json({
+    ok: true,
+    verified: verification.ok,
+  });
+});
+
 app.post("/applications/lookup-verification/send", async function (req, res) {
   try {
     if (!hasTrustedWriteOrigin(req)) {
@@ -11639,6 +12001,22 @@ app.post("/orders", async function (req,res) {
     }
 
     const draft = draftResult.rows[0];
+
+    const emailVerification = validateApplicationEmailVerificationToken({
+      providedToken: getApplicationEmailVerificationToken(req),
+      name: draft.name,
+      email: draft.email,
+      requiredStatus: "VERIFIED",
+    });
+
+    if (!emailVerification.ok) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        ok: false,
+        code: "APPLICATION_EMAIL_VERIFICATION_REQUIRED",
+        message: "결제 전 이메일 인증을 완료해 주세요.",
+      });
+    }
 
     const consentResult = await client.query(
       `

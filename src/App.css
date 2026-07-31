@@ -1153,6 +1153,36 @@ body,
   margin-top: 12px;
 }
 
+.site-email-verification__email-row,
+.site-email-verification__code-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.site-email-verification__email-row .site-input,
+.site-email-verification__code-row .site-input {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.site-email-verification__action {
+  min-width: 116px;
+  padding-inline: 14px;
+  white-space: nowrap;
+}
+
+.site-email-verification__message {
+  color: #c0362c;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.site-email-verification__message--verified {
+  color: #1f5c96;
+  font-weight: 700;
+}
+
 .site-field--full {
   grid-column: 1 / -1;
 }
@@ -2017,6 +2047,15 @@ body,
 
   .site-field__compound {
     grid-template-columns: 1fr;
+  }
+
+  .site-email-verification__email-row,
+  .site-email-verification__code-row {
+    flex-direction: column;
+  }
+
+  .site-email-verification__action {
+    width: 100%;
   }
 
   .site-lookup-field-action {

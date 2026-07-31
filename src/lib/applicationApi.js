@@ -234,6 +234,36 @@ export async function verifyLookupVerificationCode(payload) {
   return readJson(response);
 }
 
+export async function sendApplicationEmailVerificationCode(payload) {
+  const response = await apiFetch("/api/applications/email-verification/send", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
+export async function verifyApplicationEmailVerificationCode(payload) {
+  const response = await apiFetch("/api/applications/email-verification/verify", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
+export async function getApplicationEmailVerificationStatus({ name, email }) {
+  const query = new URLSearchParams({ name, email });
+  const response = await apiFetch(`/api/applications/email-verification/status?${query.toString()}`);
+  return readJson(response);
+}
+
 export async function getApplicationRefundQuote(payload) {
   const response = await apiFetch("/api/applications/refund/quote", {
     method: "POST",

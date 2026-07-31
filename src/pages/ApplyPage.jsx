@@ -27,8 +27,11 @@ import {
 import {
   buildApiUrl,
   createDraft,
+  getApplicationEmailVerificationStatus,
+  sendApplicationEmailVerificationCode,
   updateDraft,
   uploadFile,
+  verifyApplicationEmailVerificationCode,
 } from "../lib/applicationApi";
 import { applicationFlowSteps } from "../lib/applicationFlowAccess";
 
@@ -156,6 +159,11 @@ export function ApplyPage() {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [fileError, setFileError] = useState("");
   const [fieldErrors, setFieldErrors] = useState(getInitialFieldErrors);
+  const [emailVerificationCode, setEmailVerificationCode] = useState("");
+  const [emailVerificationStatus, setEmailVerificationStatus] = useState("idle");
+  const [emailVerificationMessage, setEmailVerificationMessage] = useState("");
+  const [isSendingEmailVerification, setIsSendingEmailVerification] = useState(false);
+  const [isVerifyingEmail, setIsVerifyingEmail] = useState(false);
 
   const selectedDivision = searchParams.get("division") || "";
   const selectedImageKey = searchParams.get("imageKey") || "";
@@ -197,6 +205,34 @@ export function ApplyPage() {
           additionalDiscipline: "Additional discipline fee",
           consent:
             "Save your application details in this step, then review the privacy, refund policy, and participation terms consents in the next step.",
+        };
+  const emailVerificationCopy =
+    locale === "ko"
+      ? {
+          send: "인증번호 전송",
+          resend: "인증번호 재전송",
+          sending: "전송 중",
+          code: "인증번호",
+          codePlaceholder: "6자리 인증번호",
+          verify: "인증 확인",
+          verifying: "확인 중",
+          complete: "인증 완료",
+          verified: "이메일 인증이 완료되었습니다.",
+          required: "다음 단계로 이동하려면 이메일 인증을 완료해 주세요.",
+          codeRequired: "이메일로 받은 6자리 인증번호를 입력해 주세요.",
+        }
+      : {
+          send: "Send code",
+          resend: "Resend code",
+          sending: "Sending",
+          code: "Verification code",
+          codePlaceholder: "6-digit code",
+          verify: "Verify",
+          verifying: "Verifying",
+          complete: "Verified",
+          verified: "Email verification is complete.",
+          required: "Complete email verification before continuing.",
+          codeRequired: "Enter the 6-digit verification code sent to your email.",
         };
   const snsPlatformOptions = getSnsPlatformOptions(locale);
   const [additionalInfoTitlePrimary, additionalInfoTitleSecondary] =
@@ -243,6 +279,7 @@ export function ApplyPage() {
         setErrorMessage("");
         setFileError("");
         setFieldErrors(getInitialFieldErrors());
+        resetEmailVerification();
         return;
       }
     }
@@ -254,6 +291,7 @@ export function ApplyPage() {
       setErrorMessage("");
       setFileError("");
       setFieldErrors(getInitialFieldErrors());
+      resetEmailVerification();
     }
   }, [
     dispatch,
@@ -373,12 +411,25 @@ export function ApplyPage() {
     return !Object.values(nextErrors).some(Boolean);
   }
 
+  function resetEmailVerification() {
+    setEmailVerificationCode("");
+    setEmailVerificationStatus("idle");
+    setEmailVerificationMessage("");
+  }
+
   function setApplicantField(field) {
     return (event) => {
       const nextValue =
         field === "phone"
           ? formatPhoneNumber(event.target.value)
           : event.target.value;
+
+      if (
+        (field === "name" || field === "email") &&
+        nextValue !== state.applicantInfo[field]
+      ) {
+        resetEmailVerification();
+      }
 
       if (field === "snsPlatform") {
         dispatch({
@@ -453,12 +504,90 @@ export function ApplyPage() {
     });
   }
 
+  async function handleSendEmailVerification() {
+    const nameError = validateApplicantField("name", state.applicantInfo.name);
+    const emailError = validateApplicantField("email", state.applicantInfo.email);
+
+    setFieldErrors((current) => ({
+      ...current,
+      name: nameError,
+      email: emailError,
+    }));
+
+    if (nameError || emailError) {
+      return;
+    }
+
+    setEmailVerificationMessage("");
+    setIsSendingEmailVerification(true);
+
+    try {
+      const response = await sendApplicationEmailVerificationCode({
+        name: state.applicantInfo.name,
+        email: state.applicantInfo.email,
+      });
+
+      setEmailVerificationCode("");
+      setEmailVerificationStatus("sent");
+      setEmailVerificationMessage(response.message || "");
+    } catch (error) {
+      setEmailVerificationStatus("idle");
+      setEmailVerificationMessage(error.message || t("apply.emailError"));
+    } finally {
+      setIsSendingEmailVerification(false);
+    }
+  }
+
+  async function handleVerifyEmail() {
+    if (!emailVerificationCode) {
+      setEmailVerificationMessage(emailVerificationCopy.codeRequired);
+      return;
+    }
+
+    setEmailVerificationMessage("");
+    setIsVerifyingEmail(true);
+
+    try {
+      const response = await verifyApplicationEmailVerificationCode({
+        name: state.applicantInfo.name,
+        email: state.applicantInfo.email,
+        code: emailVerificationCode,
+      });
+
+      setEmailVerificationStatus("verified");
+      setEmailVerificationMessage(response.message || emailVerificationCopy.verified);
+    } catch (error) {
+      setEmailVerificationStatus("sent");
+      setEmailVerificationMessage(error.message || emailVerificationCopy.codeRequired);
+    } finally {
+      setIsVerifyingEmail(false);
+    }
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
     setErrorMessage("");
     setFileError("");
 
     if (!validateApplicantForm()) {
+      return;
+    }
+
+    try {
+      const emailVerification = await getApplicationEmailVerificationStatus({
+        name: state.applicantInfo.name,
+        email: state.applicantInfo.email,
+      });
+
+      if (!emailVerification.verified) {
+        setEmailVerificationStatus("idle");
+        setEmailVerificationMessage(emailVerificationCopy.required);
+        return;
+      }
+
+      setEmailVerificationStatus("verified");
+    } catch (error) {
+      setEmailVerificationMessage(error.message || emailVerificationCopy.required);
       return;
     }
 
@@ -606,15 +735,85 @@ export function ApplyPage() {
                 placeholder="010-0000-0000"
                 required
               />
-              <Input
-                label={t("apply.email")}
-                requirement={t("apply.required")}
-                type="email"
-                value={state.applicantInfo.email}
-                onChange={setApplicantField("email")}
-                error={fieldErrors.email}
-                required
-              />
+              <label className="site-field">
+                <span className="site-field__label">
+                  {t("apply.email")}
+                  <span className="site-field__requirement">({t("apply.required")})</span>
+                </span>
+                <div className="site-email-verification__email-row">
+                  <input
+                    className={`site-input ${fieldErrors.email ? "site-input--error" : ""}`.trim()}
+                    type="email"
+                    value={state.applicantInfo.email}
+                    onChange={setApplicantField("email")}
+                    required
+                  />
+                  <Button
+                    className="site-email-verification__action"
+                    type="button"
+                    onClick={handleSendEmailVerification}
+                    disabled={isSendingEmailVerification}
+                  >
+                    {isSendingEmailVerification
+                      ? emailVerificationCopy.sending
+                      : emailVerificationStatus === "sent"
+                        ? emailVerificationCopy.resend
+                        : emailVerificationCopy.send}
+                  </Button>
+                </div>
+                {fieldErrors.email ? (
+                  <span className="site-field__error">{fieldErrors.email}</span>
+                ) : null}
+              </label>
+              <label className="site-field">
+                <span className="site-field__label">
+                  {emailVerificationCopy.code}
+                  <span className="site-field__requirement">({t("apply.required")})</span>
+                </span>
+                <div className="site-email-verification__code-row">
+                  <input
+                    className="site-input"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    value={emailVerificationCode}
+                    onChange={(event) => {
+                      setEmailVerificationCode(
+                        event.target.value.replace(/\D/g, "").slice(0, 6)
+                      );
+                    }}
+                    disabled={emailVerificationStatus === "idle" || emailVerificationStatus === "verified"}
+                    placeholder={emailVerificationCopy.codePlaceholder}
+                  />
+                  <Button
+                    className="site-email-verification__action"
+                    type="button"
+                    onClick={handleVerifyEmail}
+                    disabled={
+                      emailVerificationStatus !== "sent" ||
+                      isVerifyingEmail
+                    }
+                  >
+                    {emailVerificationStatus === "verified"
+                      ? emailVerificationCopy.complete
+                      : isVerifyingEmail
+                        ? emailVerificationCopy.verifying
+                        : emailVerificationCopy.verify}
+                  </Button>
+                </div>
+                {emailVerificationMessage ? (
+                  <span
+                    className={`site-email-verification__message ${
+                      emailVerificationStatus === "verified"
+                        ? "site-email-verification__message--verified"
+                        : ""
+                    }`.trim()}
+                  >
+                    {emailVerificationMessage}
+                  </span>
+                ) : null}
+              </label>
               <Input
                 label={t("apply.birthDate")}
                 requirement={t("apply.required")}
