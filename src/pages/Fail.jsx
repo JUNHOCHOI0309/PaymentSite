@@ -5,11 +5,13 @@ import { useLanguage } from "../context/LanguageContext";
 import { useStageServiceFlow } from "../context/StageServiceFlowContext";
 import {
   cancelPendingApplicationOrder,
+  cancelPendingSpectatorOrder,
   cancelPendingStageServiceOrder,
 } from "../lib/applicationApi";
 import { applicationFlowSteps } from "../lib/applicationFlowAccess";
 import { buildStageServiceDetailPath } from "../lib/stageServiceFlowRoutes";
 import { stageServiceFlowSteps } from "../lib/stageServiceFlowAccess";
+import { useSpectatorFlow, spectatorFlowSteps } from "../context/SpectatorFlowContext";
 
 export function FailPage() {
   const location = useLocation();
@@ -18,11 +20,21 @@ export function FailPage() {
   const { t } = useLanguage();
   const { state: applicationState, dispatch: applicationDispatch } = useApplicationFlow();
   const { state: stageServiceState, dispatch: stageServiceDispatch } = useStageServiceFlow();
+  const { state: spectatorState, dispatch: spectatorDispatch } = useSpectatorFlow();
   const [isMoving, setIsMoving] = useState(false);
   const [actionError, setActionError] = useState("");
   const isStageService = location.pathname.startsWith("/stage-services/");
-  const orderId = searchParams.get("orderId") || (isStageService ? stageServiceState.orderId : applicationState.orderId);
-  const draftId = searchParams.get("draftId") || (isStageService ? stageServiceState.draftId : applicationState.draftId);
+  const isSpectator = location.pathname.startsWith("/spectators/");
+  const orderId = searchParams.get("orderId") || (isStageService
+    ? stageServiceState.orderId
+    : isSpectator
+      ? spectatorState.orderId
+      : applicationState.orderId);
+  const draftId = searchParams.get("draftId") || (isStageService
+    ? stageServiceState.draftId
+    : isSpectator
+      ? spectatorState.draftId
+      : applicationState.draftId);
 
   async function releasePendingOrder() {
     if (!orderId || !draftId) {
@@ -32,6 +44,8 @@ export function FailPage() {
     try {
       if (isStageService) {
         await cancelPendingStageServiceOrder(orderId, { draftId });
+      } else if (isSpectator) {
+        await cancelPendingSpectatorOrder(orderId, { draftId });
       } else {
         await cancelPendingApplicationOrder(orderId, { draftId });
       }
@@ -59,6 +73,16 @@ export function FailPage() {
             : "/apply/stage-services/review",
           destination === "edit" ? { state: { source: "review" } } : undefined,
         );
+        return;
+      }
+
+      if (isSpectator) {
+        spectatorDispatch({ type: "SET_ORDER", payload: { orderId: null } });
+        spectatorDispatch({
+          type: "SET_FLOW_STEP",
+          value: destination === "edit" ? spectatorFlowSteps.CONSENT : spectatorFlowSteps.REVIEW,
+        });
+        navigate(destination === "edit" ? "/apply/spectator" : "/apply/spectator/review");
         return;
       }
 
