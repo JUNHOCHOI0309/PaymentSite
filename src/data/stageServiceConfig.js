@@ -33,6 +33,7 @@ const localizedHairOptionLabels = {
 };
 const localizedHairOptionalLabels = {
   BODY_MAKEUP: { ko: "바디메이크업", en: "Body Makeup" },
+  HAIR_PIECE: { ko: "헤어피스(가발)", en: "Hair Piece (Wig)" },
   MALE_RETOUCH: { ko: "남자 리터치", en: "Men's Retouch" },
   FEMALE_RETOUCH: { ko: "여자 리터치", en: "Women's Retouch" },
 };
@@ -127,6 +128,64 @@ export function getHairOptionalChoices({ hairOptionValue, hasAdditionalDisciplin
   }));
 }
 
+export function getHairAddOnChoices(locale = "ko") {
+  return (getStageServiceByKey("hair-makeup")?.addOnOptions || []).map((option) => ({
+    ...option,
+    label: getLocalizedText(localizedHairOptionalLabels[option.value], locale, option.label),
+  }));
+}
+
+export function getHairRetouchUnitPrice(hairOptionValue) {
+  const selectedHairOption = getHairOptionChoices().find((option) => option.value === hairOptionValue);
+  const gender = selectedHairOption?.gender;
+
+  return Number(getStageServiceByKey("hair-makeup")?.retouchPrices?.[gender] || 0);
+}
+
+export function getHairRetouchCountChoices(hairOptionValue, locale = "ko") {
+  const unitPrice = getHairRetouchUnitPrice(hairOptionValue);
+  const isKorean = resolveLocale(locale) === "ko";
+
+  return [0, 1, 2].map((count) => ({
+    value: String(count),
+    count,
+    label: count === 0
+      ? (isKorean ? "리터치 신청 안 함" : "No retouch")
+      : (isKorean ? `리터치 ${count}회` : `${count} retouch session${count > 1 ? "s" : ""}`),
+    price: unitPrice * count,
+  }));
+}
+
+export function getHairAdditionalOptionLabels({
+  hairOptionValue,
+  hairBodyMakeup = false,
+  hairPiece = false,
+  hairRetouchCount = 0,
+  locale = "ko",
+}) {
+  const labels = [];
+  const addOnChoices = new Map(getHairAddOnChoices(locale).map((option) => [option.value, option]));
+  const normalizedRetouchCount = Math.max(0, Math.min(2, Number(hairRetouchCount) || 0));
+
+  if (hairBodyMakeup) {
+    labels.push(addOnChoices.get("BODY_MAKEUP")?.label || "바디메이크업");
+  }
+
+  if (hairPiece) {
+    labels.push(addOnChoices.get("HAIR_PIECE")?.label || "헤어피스(가발)");
+  }
+
+  if (normalizedRetouchCount > 0) {
+    labels.push(
+      resolveLocale(locale) === "ko"
+        ? `리터치 ${normalizedRetouchCount}회`
+        : `${normalizedRetouchCount} retouch session${normalizedRetouchCount > 1 ? "s" : ""}`,
+    );
+  }
+
+  return labels;
+}
+
 export function buildStageVideoAdditionalDisciplineValue(videoTypeValue, discipline) {
   if (!videoTypeValue || !discipline) {
     return "";
@@ -207,6 +266,9 @@ export function calculateStageServiceTotalAmount({
   videoType = "",
   videoAdditionalDiscipline = "",
   hairOption = "",
+  hairBodyMakeup = false,
+  hairPiece = false,
+  hairRetouchCount = 0,
   hairOptionalOption = "",
 }) {
   if (serviceKey === "stage-photo") {
@@ -229,11 +291,18 @@ export function calculateStageServiceTotalAmount({
 
   if (serviceKey === "hair-makeup") {
     const selectedHairOption = getHairOptionChoices().find((option) => option.value === hairOption);
-    const selectedOptionalOption = (getStageServiceByKey("hair-makeup")?.optionalOptions || []).find(
+    const addOnChoices = new Map(getHairAddOnChoices().map((option) => [option.value, option]));
+    const normalizedRetouchCount = Math.max(0, Math.min(2, Number(hairRetouchCount) || 0));
+    const legacyOptionalOption = (getStageServiceByKey("hair-makeup")?.optionalOptions || []).find(
       (option) => option.value === hairOptionalOption,
     );
+    const addOnAmount =
+      (hairBodyMakeup ? Number(addOnChoices.get("BODY_MAKEUP")?.price || 0) : 0)
+      + (hairPiece ? Number(addOnChoices.get("HAIR_PIECE")?.price || 0) : 0)
+      + (normalizedRetouchCount * getHairRetouchUnitPrice(hairOption));
 
-    return (selectedHairOption?.price || 0) + (selectedOptionalOption?.price || 0);
+    return Number(selectedHairOption?.price || 0)
+      + (addOnAmount || Number(legacyOptionalOption?.price || 0));
   }
 
   return 0;

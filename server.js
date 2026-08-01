@@ -244,12 +244,13 @@ const hairOptionDefinitions = Array.isArray(stageServiceDefinitions["hair-makeup
 const hairOptionMap = new Map(
   hairOptionDefinitions.map((definition) => [definition.value, definition])
 );
-const hairOptionalOptionDefinitions = Array.isArray(stageServiceDefinitions["hair-makeup"]?.optionalOptions)
-  ? stageServiceDefinitions["hair-makeup"].optionalOptions
+const hairAddOnDefinitions = Array.isArray(stageServiceDefinitions["hair-makeup"]?.addOnOptions)
+  ? stageServiceDefinitions["hair-makeup"].addOnOptions
   : [];
-const hairOptionalOptionMap = new Map(
-  hairOptionalOptionDefinitions.map((definition) => [definition.value, definition])
+const hairAddOnMap = new Map(
+  hairAddOnDefinitions.map((definition) => [definition.value, definition])
 );
+const hairRetouchPrices = stageServiceDefinitions["hair-makeup"]?.retouchPrices || {};
 
 function getStageServiceHairMakeupDisciplineGender(discipline) {
   if (stageServiceMaleHairMakeupDisciplines.has(discipline)) {
@@ -2661,6 +2662,7 @@ async function findLookupOwnedStageService({ name, email, serviceOrderNumber }) 
         stage_service_orders.email,
         stage_service_orders.linked_application_number,
         stage_service_orders.linked_discipline,
+        stage_service_orders.linked_applications,
         stage_service_orders.total_amount AS service_amount,
         orders.amount AS order_amount,
         orders.payment_provider AS order_payment_provider,
@@ -3224,7 +3226,138 @@ function getStageVideoAdditionalOptionMeta(value, fallbackVideoTypeValue = null)
   return null;
 }
 
+function normalizeHairRetouchCount(value) {
+  const normalized = typeof value === "string" ? value.trim() : value;
+
+  if (normalized === "" || normalized == null) {
+    return 0;
+  }
+
+  const count = Number(normalized);
+
+  if (!Number.isInteger(count) || count < 0 || count > 2) {
+    return null;
+  }
+
+  return count;
+}
+
+function getLegacyHairAddOns(hairOptionalOption) {
+  return {
+    hairBodyMakeup: hairOptionalOption === "BODY_MAKEUP",
+    hairPiece: hairOptionalOption === "HAIR_PIECE",
+    hairRetouchCount:
+      hairOptionalOption === "MALE_RETOUCH" || hairOptionalOption === "FEMALE_RETOUCH" ? 1 : 0,
+  };
+}
+
+function normalizeStageServiceLinkedApplicationNumbers(value, fallbackValue = null) {
+  const values = Array.isArray(value)
+    ? value
+    : fallbackValue == null
+      ? []
+      : [fallbackValue];
+  const seen = new Set();
+
+  return values.reduce((applicationNumbers, currentValue) => {
+    const applicationNumber = normalizeText(currentValue);
+
+    if (applicationNumber && !seen.has(applicationNumber)) {
+      seen.add(applicationNumber);
+      applicationNumbers.push(applicationNumber);
+    }
+
+    return applicationNumbers;
+  }, []);
+}
+
+function parseStageServiceLinkedApplications(value, fallbackApplication = {}) {
+  let parsedValue = value;
+
+  if (typeof value === "string") {
+    try {
+      parsedValue = JSON.parse(value);
+    } catch {
+      parsedValue = [];
+    }
+  }
+
+  const linkedApplications = Array.isArray(parsedValue)
+    ? parsedValue
+      .map((application) => ({
+        applicationNumber: normalizeText(application?.applicationNumber),
+        discipline: getCanonicalApplicationDisciplineTitle({ discipline: application?.discipline }),
+      }))
+      .filter((application) => application.applicationNumber)
+    : [];
+
+  if (linkedApplications.length) {
+    return linkedApplications.slice(0, 3);
+  }
+
+  const applicationNumber = normalizeText(fallbackApplication.applicationNumber);
+
+  return applicationNumber
+    ? [{
+      applicationNumber,
+      discipline: getCanonicalApplicationDisciplineTitle({ discipline: fallbackApplication.discipline }),
+    }]
+    : [];
+}
+
+function serializeStageServiceLinkedApplications(applications) {
+  return JSON.stringify(
+    parseStageServiceLinkedApplications(applications).map(({ applicationNumber, discipline }) => ({
+      applicationNumber,
+      discipline,
+    })),
+  );
+}
+
+function parseHairAddOns(hairOptionalOption) {
+  const rawValue = normalizeText(hairOptionalOption);
+
+  if (!rawValue) {
+    return getLegacyHairAddOns(rawValue);
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue);
+
+    if (parsed?.version === 1) {
+      return {
+        hairBodyMakeup: parsed.hairBodyMakeup === true,
+        hairPiece: parsed.hairPiece === true,
+        hairRetouchCount: normalizeHairRetouchCount(parsed.hairRetouchCount) ?? 0,
+      };
+    }
+  } catch {
+    // Legacy single-option values are handled below.
+  }
+
+  return getLegacyHairAddOns(rawValue);
+}
+
+function serializeHairAddOns({ hairBodyMakeup, hairPiece, hairRetouchCount }) {
+  if (!hairBodyMakeup && !hairPiece && !hairRetouchCount) {
+    return null;
+  }
+
+  return JSON.stringify({
+    version: 1,
+    hairBodyMakeup: hairBodyMakeup === true,
+    hairPiece: hairPiece === true,
+    hairRetouchCount,
+  });
+}
+
 function mapStageServiceDraftRow(row) {
+  const hairAddOns = parseHairAddOns(row.hair_optional_option);
+  const linkedApplications = parseStageServiceLinkedApplications(row.linked_applications, {
+    applicationNumber: row.linked_application_number,
+    discipline: row.linked_discipline,
+  });
+
   return {
     draftId: row.draft_id,
     orderId: row.order_id,
@@ -3238,6 +3371,7 @@ function mapStageServiceDraftRow(row) {
     linkedDiscipline: getCanonicalApplicationDisciplineTitle({
       discipline: row.linked_discipline,
     }),
+    linkedApplications,
     photoHasAdditionalDiscipline: row.photo_has_additional_discipline ? "O" : "X",
     photoAdditionalDiscipline: row.photo_additional_discipline,
     videoType: row.video_type,
@@ -3246,6 +3380,7 @@ function mapStageServiceDraftRow(row) {
     hairOption: row.hair_option,
     hairAdditionalDiscipline: row.hair_additional_discipline,
     hairOptionalOption: row.hair_optional_option,
+    ...hairAddOns,
     totalAmount: row.total_amount,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -3253,6 +3388,12 @@ function mapStageServiceDraftRow(row) {
 }
 
 function mapStageServiceOrderRow(row) {
+  const hairAddOns = parseHairAddOns(row.hair_optional_option);
+  const linkedApplications = parseStageServiceLinkedApplications(row.linked_applications, {
+    applicationNumber: row.linked_application_number,
+    discipline: row.linked_discipline,
+  });
+
   return {
     serviceOrderNumber: row.service_order_number,
     orderId: row.order_id,
@@ -3265,6 +3406,7 @@ function mapStageServiceOrderRow(row) {
     linkedDiscipline: getCanonicalApplicationDisciplineTitle({
       discipline: row.linked_discipline,
     }),
+    linkedApplications,
     photoHasAdditionalDiscipline: row.photo_has_additional_discipline ? "O" : "X",
     photoAdditionalDiscipline: row.photo_additional_discipline,
     videoType: row.video_type,
@@ -3273,6 +3415,7 @@ function mapStageServiceOrderRow(row) {
     hairOption: row.hair_option,
     hairAdditionalDiscipline: row.hair_additional_discipline,
     hairOptionalOption: row.hair_optional_option,
+    ...hairAddOns,
     totalAmount: row.total_amount,
     paymentStatus: row.payment_status,
     serviceStatus: row.service_status,
@@ -3303,8 +3446,20 @@ function calculateStageServiceAmount(payload) {
 
   if (payload.serviceType === "hair-makeup") {
     const selectedHairOption = hairOptionMap.get(payload.hairOption);
-    const selectedOptionalOption = hairOptionalOptionMap.get(payload.hairOptionalOption);
-    return Number(selectedHairOption?.price || 0) + Number(selectedOptionalOption?.price || 0);
+    const hairAddOns = {
+      ...parseHairAddOns(payload.hairOptionalOption),
+      hairBodyMakeup: payload.hairBodyMakeup === true,
+      hairPiece: payload.hairPiece === true,
+      hairRetouchCount: payload.hairRetouchCount ?? parseHairAddOns(payload.hairOptionalOption).hairRetouchCount,
+    };
+    const retouchUnitPrice = Number(hairRetouchPrices[selectedHairOption?.gender] || 0);
+    const bodyMakeupPrice = Number(hairAddOnMap.get("BODY_MAKEUP")?.price || 0);
+    const hairPiecePrice = Number(hairAddOnMap.get("HAIR_PIECE")?.price || 0);
+
+    return Number(selectedHairOption?.price || 0)
+      + (hairAddOns.hairBodyMakeup ? bodyMakeupPrice : 0)
+      + (hairAddOns.hairPiece ? hairPiecePrice : 0)
+      + (Number(hairAddOns.hairRetouchCount || 0) * retouchUnitPrice);
   }
 
   return 0;
@@ -3316,7 +3471,10 @@ function validateStageServiceDraftPayload(body) {
   const name = normalizeText(body.name);
   const phone = normalizeText(formatPhoneNumber(body.phone));
   const email = normalizeEmail(body.email);
-  const linkedApplicationNumber = normalizeText(body.linkedApplicationNumber);
+  const linkedApplicationNumbers = normalizeStageServiceLinkedApplicationNumbers(
+    body.linkedApplicationNumbers,
+    body.linkedApplicationNumber,
+  );
 
   if (!serviceType) {
     return {
@@ -3346,10 +3504,24 @@ function validateStageServiceDraftPayload(body) {
     };
   }
 
-  if (!linkedApplicationNumber) {
+  if (!linkedApplicationNumbers.length) {
     return {
       ok: false,
       message: "무대 서비스를 연결할 결제 완료 종목을 선택해 주세요.",
+    };
+  }
+
+  if (serviceType !== "hair-makeup" && linkedApplicationNumbers.length !== 1) {
+    return {
+      ok: false,
+      message: "해당 무대 서비스는 연결할 종목을 1개만 선택할 수 있습니다.",
+    };
+  }
+
+  if (serviceType === "hair-makeup" && linkedApplicationNumbers.length > 3) {
+    return {
+      ok: false,
+      message: "헤어&메이크업은 신청한 종목을 최대 3개까지 선택할 수 있습니다.",
     };
   }
 
@@ -3359,7 +3531,9 @@ function validateStageServiceDraftPayload(body) {
     name,
     phone,
     email,
-    linkedApplicationNumber,
+    linkedApplicationNumber: linkedApplicationNumbers[0],
+    linkedApplicationNumbers,
+    linkedApplications: [],
     photoHasAdditionalDiscipline: false,
     photoAdditionalDiscipline: null,
     videoType: null,
@@ -3367,6 +3541,9 @@ function validateStageServiceDraftPayload(body) {
     hairParticipantDiscipline: null,
     hairOption: null,
     hairAdditionalDiscipline: null,
+    hairBodyMakeup: false,
+    hairPiece: false,
+    hairRetouchCount: 0,
     hairOptionalOption: null,
   };
 
@@ -3405,85 +3582,37 @@ function validateStageServiceDraftPayload(body) {
   }
 
   if (serviceType === "hair-makeup") {
-    payload.hairParticipantDiscipline = normalizeStageServiceDiscipline(body.hairParticipantDiscipline);
     payload.hairOption = normalizeText(body.hairOption);
-    payload.hairAdditionalDiscipline = normalizeStageServiceDiscipline(body.hairAdditionalDiscipline);
-    payload.hairOptionalOption = normalizeText(body.hairOptionalOption);
+    const hasStructuredHairAddOnFields =
+      Object.hasOwn(body, "hairBodyMakeup") ||
+      Object.hasOwn(body, "hairPiece") ||
+      Object.hasOwn(body, "hairRetouchCount");
+    const legacyHairAddOns = parseHairAddOns(body.hairOptionalOption);
+    const normalizedRetouchCount = normalizeHairRetouchCount(
+      hasStructuredHairAddOnFields ? body.hairRetouchCount : legacyHairAddOns.hairRetouchCount,
+    );
 
-    if (!payload.hairParticipantDiscipline) {
+    if (normalizedRetouchCount == null) {
       return {
         ok: false,
-        message: "참가 종목을 선택해 주세요.",
+        message: "리터치 횟수는 0회부터 2회까지 선택할 수 있습니다.",
       };
     }
 
-    const selectedHairOption = hairOptionMap.get(payload.hairOption);
+    payload.hairBodyMakeup = hasStructuredHairAddOnFields
+      ? normalizeBoolean(body.hairBodyMakeup)
+      : legacyHairAddOns.hairBodyMakeup;
+    payload.hairPiece = hasStructuredHairAddOnFields
+      ? normalizeBoolean(body.hairPiece)
+      : legacyHairAddOns.hairPiece;
+    payload.hairRetouchCount = normalizedRetouchCount;
+    payload.hairOptionalOption = serializeHairAddOns(payload);
 
-    if (!selectedHairOption) {
+    if (!hairOptionMap.has(payload.hairOption)) {
       return {
         ok: false,
         message: "헤어&메이크업 옵션을 선택해 주세요.",
       };
-    }
-
-    if (!isStageServiceHairOptionAllowed(payload.hairParticipantDiscipline, selectedHairOption)) {
-      return {
-        ok: false,
-        message: "참가 종목에 맞는 헤어&메이크업 옵션을 선택해 주세요.",
-      };
-    }
-
-    if (
-      payload.hairAdditionalDiscipline &&
-      payload.hairAdditionalDiscipline === payload.hairParticipantDiscipline
-    ) {
-      return {
-        ok: false,
-        message: "추가 종목은 참가 종목과 다르게 선택해 주세요.",
-      };
-    }
-
-    if (
-      payload.hairAdditionalDiscipline &&
-      !isStageServiceHairAdditionalDisciplineAllowed(
-        payload.hairParticipantDiscipline,
-        payload.hairAdditionalDiscipline
-      )
-    ) {
-      return {
-        ok: false,
-        message: "추가 종목은 참가 종목과 같은 성별 부문 또는 공동 부문만 선택할 수 있습니다.",
-      };
-    }
-
-    if (payload.hairOptionalOption) {
-      const optionalDefinition = hairOptionalOptionMap.get(payload.hairOptionalOption);
-
-      if (!optionalDefinition) {
-        return {
-          ok: false,
-          message: "추가 옵션을 다시 선택해 주세요.",
-        };
-      }
-
-      if (optionalDefinition.requiresAdditionalDiscipline && !payload.hairAdditionalDiscipline) {
-        return {
-          ok: false,
-          message: "리터치 옵션은 추가 종목 선택 시에만 가능합니다.",
-        };
-      }
-
-      const selectedGender = selectedHairOption.gender || "all";
-
-      if (
-        optionalDefinition.gender !== "all" &&
-        optionalDefinition.gender !== selectedGender
-      ) {
-        return {
-          ok: false,
-          message: "선택한 헤어&메이크업 옵션과 맞지 않는 추가 옵션입니다.",
-        };
-      }
     }
   }
 
@@ -3575,6 +3704,103 @@ function mapAdminStageServiceRefundRequestRow(row) {
   };
 }
 
+async function findEligibleCompletedApplicationsForStageService({
+  client = pool,
+  name,
+  phone,
+  email,
+  applicationNumbers,
+}) {
+  const normalizedApplicationNumbers = normalizeStageServiceLinkedApplicationNumbers(applicationNumbers);
+
+  if (!normalizedApplicationNumbers.length) {
+    return [];
+  }
+
+  const result = await client.query(
+    `
+      SELECT
+        id,
+        application_number,
+        discipline,
+        image_key,
+        division
+      FROM applications
+      WHERE name = $1
+        AND phone = $2
+        AND LOWER(email) = $3
+        AND payment_status = 'DONE'
+        AND admin_deleted_at IS NULL
+        AND application_number = ANY($4::text[])
+      ORDER BY array_position($4::text[], application_number)
+    `,
+    [name, phone, email, normalizedApplicationNumbers],
+  );
+
+  if (result.rowCount !== normalizedApplicationNumbers.length) {
+    return [];
+  }
+
+  return result.rows.map((application) => ({
+    ...application,
+    discipline: getCanonicalApplicationDisciplineTitle({
+      imageKey: application.image_key,
+      discipline: application.discipline,
+    }),
+  }));
+}
+
+function validateHairMakeupLinkedApplications(payload, linkedApplications) {
+  if (payload.serviceType !== "hair-makeup") {
+    return { ok: true };
+  }
+
+  const selectedHairOption = hairOptionMap.get(payload.hairOption);
+  const selectedGenders = new Set(
+    linkedApplications
+      .map((application) => getStageServiceHairMakeupDisciplineGender(application.discipline))
+      .filter((gender) => gender !== "all"),
+  );
+
+  if (selectedGenders.size > 1) {
+    return {
+      ok: false,
+      message: "남성 부문과 여성 부문은 하나의 헤어&메이크업 신청으로 함께 선택할 수 없습니다.",
+    };
+  }
+
+  const selectedGender = selectedGenders.values().next().value || "all";
+
+  if (selectedGender !== "all" && selectedHairOption?.gender !== selectedGender) {
+    return {
+      ok: false,
+      message: "선택한 신청 종목에 맞는 헤어&메이크업 옵션을 선택해 주세요.",
+    };
+  }
+
+  const maxRetouchCount = Math.max(0, linkedApplications.length - 1);
+
+  if (payload.hairRetouchCount > maxRetouchCount) {
+    return {
+      ok: false,
+      message: `선택한 ${linkedApplications.length}개 종목에서는 리터치를 최대 ${maxRetouchCount}회까지 신청할 수 있습니다.`,
+    };
+  }
+
+  payload.linkedApplications = linkedApplications.map((application) => ({
+    applicationNumber: application.application_number,
+    discipline: application.discipline,
+  }));
+  payload.linkedApplicationNumber = payload.linkedApplications[0].applicationNumber;
+  payload.hairParticipantDiscipline = payload.linkedApplications[0].discipline;
+  payload.hairAdditionalDiscipline = payload.linkedApplications
+    .slice(1)
+    .map((application) => application.discipline)
+    .join(", ") || null;
+
+  return { ok: true };
+}
+
 function mapAdminSpectatorRefundRequestRow(row) {
   return {
     ...mapRefundRequestRow(row),
@@ -3637,8 +3863,18 @@ async function hasPurchasedStageService({
   phone,
   email,
   serviceType,
+  linkedApplicationNumbers,
   linkedApplicationNumber,
 }) {
+  const normalizedApplicationNumbers = normalizeStageServiceLinkedApplicationNumbers(
+    linkedApplicationNumbers,
+    linkedApplicationNumber,
+  );
+
+  if (!normalizedApplicationNumbers.length) {
+    return false;
+  }
+
   const result = await client.query(
     `
       SELECT 1
@@ -3647,11 +3883,18 @@ async function hasPurchasedStageService({
         AND phone = $2
         AND LOWER(email) = $3
         AND service_type = $4
-        AND linked_application_number = $5
+        AND (
+          linked_application_number = ANY($5::text[])
+          OR EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(linked_applications) AS linked_application
+            WHERE linked_application ->> 'applicationNumber' = ANY($5::text[])
+          )
+        )
         AND payment_status = 'DONE'
       LIMIT 1
     `,
-    [name, phone, email, serviceType, linkedApplicationNumber]
+    [name, phone, email, serviceType, normalizedApplicationNumbers]
   );
 
   return result.rowCount > 0;
@@ -5396,7 +5639,7 @@ async function finalizePaidStageServiceOrder({ draftId, orderId }) {
     const existingResult = await client.query(
       `
         SELECT service_order_number, order_id, payment_key, service_type, name, phone, email,
-          linked_application_number, linked_discipline, photo_has_additional_discipline,
+          linked_application_number, linked_discipline, linked_applications, photo_has_additional_discipline,
           photo_additional_discipline, video_type, video_additional_discipline,
           hair_participant_discipline, hair_option, hair_additional_discipline,
           hair_optional_option, total_amount, payment_status, service_status, purchased_at, updated_at
@@ -5423,7 +5666,7 @@ async function finalizePaidStageServiceOrder({ draftId, orderId }) {
     const draftResult = await client.query(
       `
         SELECT draft_id, order_id, payment_method, service_type, name, phone, email,
-          linked_application_number, linked_discipline, photo_has_additional_discipline,
+          linked_application_number, linked_discipline, linked_applications, photo_has_additional_discipline,
           photo_additional_discipline, video_type, video_additional_discipline,
           hair_participant_discipline, hair_option, hair_additional_discipline,
           hair_optional_option, total_amount
@@ -5472,13 +5715,14 @@ async function finalizePaidStageServiceOrder({ draftId, orderId }) {
         INSERT INTO stage_service_orders (
           service_order_number, draft_id, order_id, payment_key, payment_status, service_status,
           service_type, name, phone, email, linked_application_number, linked_discipline,
+          linked_applications,
           photo_has_additional_discipline, photo_additional_discipline, video_type,
           video_additional_discipline, hair_participant_discipline, hair_option,
           hair_additional_discipline, hair_optional_option, total_amount, purchased_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, 'PURCHASED', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW(), NOW())
+        VALUES ($1, $2, $3, $4, $5, 'PURCHASED', $6, $7, $8, $9, $10, $11, $12::jsonb, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW(), NOW())
         RETURNING service_order_number, order_id, payment_key, service_type, name, phone, email,
-          linked_application_number, linked_discipline, photo_has_additional_discipline,
+          linked_application_number, linked_discipline, linked_applications, photo_has_additional_discipline,
           photo_additional_discipline, video_type, video_additional_discipline,
           hair_participant_discipline, hair_option, hair_additional_discipline,
           hair_optional_option, total_amount, payment_status, service_status, purchased_at, updated_at
@@ -5495,6 +5739,12 @@ async function finalizePaidStageServiceOrder({ draftId, orderId }) {
         draft.email,
         draft.linked_application_number,
         draft.linked_discipline,
+        serializeStageServiceLinkedApplications(
+          parseStageServiceLinkedApplications(draft.linked_applications, {
+            applicationNumber: draft.linked_application_number,
+            discipline: draft.linked_discipline,
+          }),
+        ),
         draft.photo_has_additional_discipline,
         draft.photo_additional_discipline,
         draft.video_type,
@@ -6913,7 +7163,17 @@ app.delete("/admin/applications/:applicationNumber", requireAdminAuth, requireSu
 
     const [stageServiceResult, refundRequestResult] = await Promise.all([
       pool.query(
-        "SELECT 1 FROM stage_service_orders WHERE linked_application_number = $1 LIMIT 1",
+        `
+          SELECT 1
+          FROM stage_service_orders
+          WHERE linked_application_number = $1
+            OR EXISTS (
+              SELECT 1
+              FROM jsonb_array_elements(linked_applications) AS linked_application
+              WHERE linked_application ->> 'applicationNumber' = $1
+            )
+          LIMIT 1
+        `,
         [applicationNumber],
       ),
       pool.query(
@@ -7002,7 +7262,7 @@ app.get("/admin/stage-services", requireAdminAuth, async function (req, res) {
           service_order_number ILIKE ? OR order_id ILIKE ? OR payment_key ILIKE ? OR
           name ILIKE ? OR phone ILIKE ? OR email ILIKE ? OR
           linked_application_number ILIKE ? OR linked_discipline ILIKE ? OR
-          service_type ILIKE ?
+          linked_applications::text ILIKE ? OR service_type ILIKE ?
         )`,
         `%${search}%`
       );
@@ -7035,6 +7295,7 @@ app.get("/admin/stage-services", requireAdminAuth, async function (req, res) {
           email,
           linked_application_number,
           linked_discipline,
+          linked_applications,
           photo_has_additional_discipline,
           photo_additional_discipline,
           video_type,
@@ -7073,32 +7334,42 @@ app.get("/admin/stage-services", requireAdminAuth, async function (req, res) {
         totalCount,
         totalPages,
       },
-      stageServices: result.rows.map((row) => ({
-        serviceOrderNumber: row.service_order_number,
-        orderId: row.order_id,
-        paymentKey: row.payment_key,
-        serviceType: row.service_type,
-        name: row.name,
-        phone: row.phone,
-        email: row.email,
-        linkedApplicationNumber: row.linked_application_number,
-        linkedDiscipline: getCanonicalApplicationDisciplineTitle({
+      stageServices: result.rows.map((row) => {
+        const hairAddOns = parseHairAddOns(row.hair_optional_option);
+        const linkedApplications = parseStageServiceLinkedApplications(row.linked_applications, {
+          applicationNumber: row.linked_application_number,
           discipline: row.linked_discipline,
-        }),
-        photoHasAdditionalDiscipline: row.photo_has_additional_discipline ? "O" : "X",
-        photoAdditionalDiscipline: row.photo_additional_discipline,
-        videoType: row.video_type,
-        videoAdditionalDiscipline: row.video_additional_discipline,
-        hairParticipantDiscipline: row.hair_participant_discipline,
-        hairOption: row.hair_option,
-        hairAdditionalDiscipline: row.hair_additional_discipline,
-        hairOptionalOption: row.hair_optional_option,
-        totalAmount: row.total_amount,
-        paymentStatus: row.payment_status,
-        serviceStatus: row.service_status,
-        purchasedAt: row.purchased_at,
-        updatedAt: row.updated_at,
-      })),
+        });
+
+        return {
+          ...hairAddOns,
+          serviceOrderNumber: row.service_order_number,
+          orderId: row.order_id,
+          paymentKey: row.payment_key,
+          serviceType: row.service_type,
+          name: row.name,
+          phone: row.phone,
+          email: row.email,
+          linkedApplicationNumber: row.linked_application_number,
+          linkedDiscipline: getCanonicalApplicationDisciplineTitle({
+            discipline: row.linked_discipline,
+          }),
+          linkedApplications,
+          photoHasAdditionalDiscipline: row.photo_has_additional_discipline ? "O" : "X",
+          photoAdditionalDiscipline: row.photo_additional_discipline,
+          videoType: row.video_type,
+          videoAdditionalDiscipline: row.video_additional_discipline,
+          hairParticipantDiscipline: row.hair_participant_discipline,
+          hairOption: row.hair_option,
+          hairAdditionalDiscipline: row.hair_additional_discipline,
+          hairOptionalOption: row.hair_optional_option,
+          totalAmount: row.total_amount,
+          paymentStatus: row.payment_status,
+          serviceStatus: row.service_status,
+          purchasedAt: row.purchased_at,
+          updatedAt: row.updated_at,
+        };
+      }),
     });
   } catch (error) {
     console.error("Failed to fetch admin stage services:", error);
@@ -9517,15 +9788,15 @@ app.post("/stage-services/draft", async function (req, res) {
   try {
     await client.query("BEGIN");
 
-    const linkedApplication = await findEligibleCompletedApplicationForStageService({
+    const linkedApplications = await findEligibleCompletedApplicationsForStageService({
       client,
       name: payload.name,
       phone: payload.phone,
       email: payload.email,
-      applicationNumber: payload.linkedApplicationNumber,
+      applicationNumbers: payload.linkedApplicationNumbers,
     });
 
-    if (!linkedApplication) {
+    if (!linkedApplications.length) {
       await client.query("ROLLBACK");
       return res.status(403).json({
         ok: false,
@@ -9533,13 +9804,28 @@ app.post("/stage-services/draft", async function (req, res) {
       });
     }
 
+    payload.linkedApplications = linkedApplications.map((application) => ({
+      applicationNumber: application.application_number,
+      discipline: application.discipline,
+    }));
+    payload.linkedApplicationNumber = payload.linkedApplications[0].applicationNumber;
+
+    const hairApplicationValidation = validateHairMakeupLinkedApplications(payload, linkedApplications);
+
+    if (!hairApplicationValidation.ok) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ ok: false, message: hairApplicationValidation.message });
+    }
+
+    const linkedApplication = linkedApplications[0];
+
     const alreadyPurchased = await hasPurchasedStageService({
       client,
       name: payload.name,
       phone: payload.phone,
       email: payload.email,
       serviceType: payload.serviceType,
-      linkedApplicationNumber: linkedApplication.application_number,
+      linkedApplicationNumbers: payload.linkedApplicationNumbers,
     });
 
     if (alreadyPurchased) {
@@ -9564,6 +9850,7 @@ app.post("/stage-services/draft", async function (req, res) {
           linked_application_id,
           linked_application_number,
           linked_discipline,
+          linked_applications,
           photo_has_additional_discipline,
           photo_additional_discipline,
           video_type,
@@ -9577,8 +9864,8 @@ app.post("/stage-services/draft", async function (req, res) {
           updated_at
         )
         VALUES (
-          $1, $2, 'DRAFT', $3, $4, $5, $6, $7, $8, $9,
-          $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), NOW()
+          $1, $2, 'DRAFT', $3, $4, $5, $6, $7, $8, $9, $10::jsonb,
+          $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW(), NOW()
         )
         RETURNING
           draft_id,
@@ -9591,6 +9878,7 @@ app.post("/stage-services/draft", async function (req, res) {
           email,
           linked_application_number,
           linked_discipline,
+          linked_applications,
           photo_has_additional_discipline,
           photo_additional_discipline,
           video_type,
@@ -9613,6 +9901,7 @@ app.post("/stage-services/draft", async function (req, res) {
         linkedApplication.id,
         linkedApplication.application_number,
         linkedApplication.discipline,
+        serializeStageServiceLinkedApplications(payload.linkedApplications),
         payload.photoHasAdditionalDiscipline,
         payload.photoAdditionalDiscipline,
         payload.videoType,
@@ -9640,6 +9929,7 @@ app.post("/stage-services/draft", async function (req, res) {
         applicationNumber: linkedApplication.application_number,
         discipline: linkedApplication.discipline,
       },
+      linkedApplications: payload.linkedApplications,
     });
   } catch (error) {
     await client.query("ROLLBACK");
@@ -9728,15 +10018,15 @@ app.patch("/stage-services/draft/:draftId", async function (req, res) {
       }
     }
 
-    const linkedApplication = await findEligibleCompletedApplicationForStageService({
+    const linkedApplications = await findEligibleCompletedApplicationsForStageService({
       client,
       name: payload.name,
       phone: payload.phone,
       email: payload.email,
-      applicationNumber: payload.linkedApplicationNumber,
+      applicationNumbers: payload.linkedApplicationNumbers,
     });
 
-    if (!linkedApplication) {
+    if (!linkedApplications.length) {
       await client.query("ROLLBACK");
       return res.status(403).json({
         ok: false,
@@ -9744,13 +10034,28 @@ app.patch("/stage-services/draft/:draftId", async function (req, res) {
       });
     }
 
+    payload.linkedApplications = linkedApplications.map((application) => ({
+      applicationNumber: application.application_number,
+      discipline: application.discipline,
+    }));
+    payload.linkedApplicationNumber = payload.linkedApplications[0].applicationNumber;
+
+    const hairApplicationValidation = validateHairMakeupLinkedApplications(payload, linkedApplications);
+
+    if (!hairApplicationValidation.ok) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ ok: false, message: hairApplicationValidation.message });
+    }
+
+    const linkedApplication = linkedApplications[0];
+
     const alreadyPurchased = await hasPurchasedStageService({
       client,
       name: payload.name,
       phone: payload.phone,
       email: payload.email,
       serviceType: payload.serviceType,
-      linkedApplicationNumber: linkedApplication.application_number,
+      linkedApplicationNumbers: payload.linkedApplicationNumbers,
     });
 
     if (alreadyPurchased) {
@@ -9775,15 +10080,16 @@ app.patch("/stage-services/draft/:draftId", async function (req, res) {
           linked_application_id = $7,
           linked_application_number = $8,
           linked_discipline = $9,
-          photo_has_additional_discipline = $10,
-          photo_additional_discipline = $11,
-          video_type = $12,
-          video_additional_discipline = $13,
-          hair_participant_discipline = $14,
-          hair_option = $15,
-          hair_additional_discipline = $16,
-          hair_optional_option = $17,
-          total_amount = $18,
+          linked_applications = $10::jsonb,
+          photo_has_additional_discipline = $11,
+          photo_additional_discipline = $12,
+          video_type = $13,
+          video_additional_discipline = $14,
+          hair_participant_discipline = $15,
+          hair_option = $16,
+          hair_additional_discipline = $17,
+          hair_optional_option = $18,
+          total_amount = $19,
           updated_at = NOW()
         WHERE draft_id = $1
         RETURNING
@@ -9797,6 +10103,7 @@ app.patch("/stage-services/draft/:draftId", async function (req, res) {
           email,
           linked_application_number,
           linked_discipline,
+          linked_applications,
           photo_has_additional_discipline,
           photo_additional_discipline,
           video_type,
@@ -9819,6 +10126,7 @@ app.patch("/stage-services/draft/:draftId", async function (req, res) {
         linkedApplication.id,
         linkedApplication.application_number,
         linkedApplication.discipline,
+        serializeStageServiceLinkedApplications(payload.linkedApplications),
         payload.photoHasAdditionalDiscipline,
         payload.photoAdditionalDiscipline,
         payload.videoType,
@@ -9848,6 +10156,7 @@ app.patch("/stage-services/draft/:draftId", async function (req, res) {
         applicationNumber: linkedApplication.application_number,
         discipline: linkedApplication.discipline,
       },
+      linkedApplications: payload.linkedApplications,
     });
   } catch (error) {
     await client.query("ROLLBACK");
@@ -9888,6 +10197,7 @@ app.get("/stage-services/draft/:draftId", async function (req, res) {
           email,
           linked_application_number,
           linked_discipline,
+          linked_applications,
           photo_has_additional_discipline,
           photo_additional_discipline,
           video_type,
@@ -9920,6 +10230,10 @@ app.get("/stage-services/draft/:draftId", async function (req, res) {
         applicationNumber: draft.linked_application_number,
         discipline: draft.linked_discipline,
       },
+      linkedApplications: parseStageServiceLinkedApplications(draft.linked_applications, {
+        applicationNumber: draft.linked_application_number,
+        discipline: draft.linked_discipline,
+      }),
     });
   } catch (error) {
     console.error("Failed to fetch stage service draft:", error);
@@ -9965,6 +10279,7 @@ app.post("/stage-services/orders", async function (req, res) {
           phone,
           email,
           linked_application_number,
+          linked_applications,
           total_amount
         FROM stage_service_drafts
         WHERE draft_id = $1
@@ -10016,9 +10331,16 @@ app.post("/stage-services/orders", async function (req, res) {
       }
     }
 
-    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-      `${draft.linked_application_number}|${draft.service_type}`,
-    ]);
+    const linkedApplications = parseStageServiceLinkedApplications(draft.linked_applications, {
+      applicationNumber: draft.linked_application_number,
+    });
+    const linkedApplicationNumbers = linkedApplications.map((application) => application.applicationNumber);
+
+    for (const applicationNumber of [...linkedApplicationNumbers].sort()) {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+        `${applicationNumber}|${draft.service_type}`,
+      ]);
+    }
 
     const completedPurchase = await hasPurchasedStageService({
       client,
@@ -10026,7 +10348,7 @@ app.post("/stage-services/orders", async function (req, res) {
       phone: draft.phone,
       email: draft.email,
       serviceType: draft.service_type,
-      linkedApplicationNumber: draft.linked_application_number,
+      linkedApplicationNumbers,
     });
 
     if (completedPurchase) {
@@ -10043,7 +10365,14 @@ app.post("/stage-services/orders", async function (req, res) {
         SELECT d.draft_id, o.status
         FROM stage_service_drafts AS d
         INNER JOIN orders AS o ON o.order_id = d.order_id
-        WHERE d.linked_application_number = $1
+        WHERE (
+            d.linked_application_number = ANY($1::text[])
+            OR EXISTS (
+              SELECT 1
+              FROM jsonb_array_elements(d.linked_applications) AS linked_application
+              WHERE linked_application ->> 'applicationNumber' = ANY($1::text[])
+            )
+          )
           AND d.service_type = $2
           AND d.draft_id <> $3
           AND (
@@ -10056,7 +10385,7 @@ app.post("/stage-services/orders", async function (req, res) {
         LIMIT 1
       `,
       [
-        draft.linked_application_number,
+        linkedApplicationNumbers,
         draft.service_type,
         draft.draft_id,
         paymentOrderTtlMinutes,
@@ -10195,6 +10524,7 @@ app.post("/stage-services/complete", async function (req, res) {
           email,
           linked_application_number,
           linked_discipline,
+          linked_applications,
           photo_has_additional_discipline,
           photo_additional_discipline,
           video_type,
@@ -10255,6 +10585,7 @@ app.post("/stage-services/complete", async function (req, res) {
           email,
           linked_application_number,
           linked_discipline,
+          linked_applications,
           photo_has_additional_discipline,
           photo_additional_discipline,
           video_type,
@@ -10374,6 +10705,7 @@ app.post("/stage-services/complete", async function (req, res) {
           email,
           linked_application_number,
           linked_discipline,
+          linked_applications,
           photo_has_additional_discipline,
           photo_additional_discipline,
           video_type,
@@ -10387,8 +10719,8 @@ app.post("/stage-services/complete", async function (req, res) {
           updated_at
         )
         VALUES (
-          $1, $2, $3, $4, $5, 'PURCHASED', $6, $7, $8, $9, $10, $11, $12, $13,
-          $14, $15, $16, $17, $18, $19, $20, NOW(), NOW()
+          $1, $2, $3, $4, $5, 'PURCHASED', $6, $7, $8, $9, $10, $11, $12::jsonb, $13,
+          $14, $15, $16, $17, $18, $19, $20, $21, NOW(), NOW()
         )
         RETURNING
           service_order_number,
@@ -10400,6 +10732,7 @@ app.post("/stage-services/complete", async function (req, res) {
           email,
           linked_application_number,
           linked_discipline,
+          linked_applications,
           photo_has_additional_discipline,
           photo_additional_discipline,
           video_type,
@@ -10426,6 +10759,12 @@ app.post("/stage-services/complete", async function (req, res) {
         draft.email,
         draft.linked_application_number,
         draft.linked_discipline,
+        serializeStageServiceLinkedApplications(
+          parseStageServiceLinkedApplications(draft.linked_applications, {
+            applicationNumber: draft.linked_application_number,
+            discipline: draft.linked_discipline,
+          }),
+        ),
         draft.photo_has_additional_discipline,
         draft.photo_additional_discipline,
         draft.video_type,
@@ -10484,6 +10823,7 @@ app.get("/stage-services/:serviceOrderNumber", async function (req, res) {
           email,
           linked_application_number,
           linked_discipline,
+          linked_applications,
           photo_has_additional_discipline,
           photo_additional_discipline,
           video_type,
@@ -10545,6 +10885,7 @@ app.get("/stage-services/by-order/:orderId", async function (req, res) {
           email,
           linked_application_number,
           linked_discipline,
+          linked_applications,
           photo_has_additional_discipline,
           photo_additional_discipline,
           video_type,
@@ -10638,6 +10979,7 @@ app.post("/stage-services/summary", async function (req, res) {
           service_type,
           linked_application_number,
           linked_discipline,
+          linked_applications,
           photo_has_additional_discipline,
           photo_additional_discipline,
           video_type,
@@ -10655,7 +10997,14 @@ app.post("/stage-services/summary", async function (req, res) {
         WHERE name = $1
           AND phone = $2
           AND LOWER(email) = $3
-          AND linked_application_number = $4
+          AND (
+            linked_application_number = $4
+            OR EXISTS (
+              SELECT 1
+              FROM jsonb_array_elements(linked_applications) AS linked_application
+              WHERE linked_application ->> 'applicationNumber' = $4
+            )
+          )
         ORDER BY purchased_at DESC NULLS LAST, updated_at DESC
       `,
       [name, ownedApplication.phone, email, applicationNumber]

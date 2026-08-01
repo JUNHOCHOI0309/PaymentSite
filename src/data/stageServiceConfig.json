@@ -43,59 +43,82 @@
         {
           "value": "MALE_HAIR_MAKEUP",
           "label": "남자 헤어&메이크업",
-          "price": 90000,
+          "price": 110000,
           "gender": "male"
         },
         {
           "value": "MALE_MAKEUP",
           "label": "남자 메이크업",
-          "price": 50000,
+          "price": 77000,
           "gender": "male"
         },
         {
           "value": "MALE_HAIR",
           "label": "남자 헤어",
-          "price": 50000,
+          "price": 55000,
           "gender": "male"
         },
         {
           "value": "FEMALE_HAIR_MAKEUP",
           "label": "여자 헤어&메이크업",
-          "price": 150000,
+          "price": 190000,
           "gender": "female"
         },
         {
           "value": "FEMALE_MAKEUP",
           "label": "여자 메이크업",
-          "price": 100000,
+          "price": 119000,
           "gender": "female"
         },
         {
           "value": "FEMALE_HAIR",
           "label": "여자 헤어",
-          "price": 80000,
+          "price": 88000,
           "gender": "female"
         }
       ],
+      "addOnOptions": [
+        {
+          "value": "BODY_MAKEUP",
+          "label": "바디메이크업",
+          "price": 89000
+        },
+        {
+          "value": "HAIR_PIECE",
+          "label": "헤어피스(가발)",
+          "price": 35000
+        }
+      ],
+      "retouchPrices": {
+        "male": 25000,
+        "female": 35000
+      },
       "optionalOptions": [
         {
           "value": "BODY_MAKEUP",
           "label": "바디메이크업",
-          "price": 99000,
+          "price": 89000,
+          "gender": "all",
+          "requiresAdditionalDiscipline": false
+        },
+        {
+          "value": "HAIR_PIECE",
+          "label": "헤어피스(가발)",
+          "price": 35000,
           "gender": "all",
           "requiresAdditionalDiscipline": false
         },
         {
           "value": "MALE_RETOUCH",
           "label": "남자 리터치",
-          "price": 30000,
+          "price": 25000,
           "gender": "male",
           "requiresAdditionalDiscipline": true
         },
         {
           "value": "FEMALE_RETOUCH",
           "label": "여자 리터치",
-          "price": 50000,
+          "price": 35000,
           "gender": "female",
           "requiresAdditionalDiscipline": true
         }

@@ -51,6 +51,15 @@ const stageServiceTitles = {
   "hair-makeup": "헤어&메이크업",
 };
 
+function getStageServiceLinkedDisciplines(purchase) {
+  const linkedDisciplines = (purchase?.linkedApplications || [])
+    .map((application) => application.discipline)
+    .filter(Boolean)
+    .join(", ");
+
+  return linkedDisciplines || purchase?.linkedDiscipline || "";
+}
+
 function formatVerificationCode(value) {
   return value.replace(/\D/g, "").slice(0, 6);
 }
@@ -500,8 +509,15 @@ export function LookupPage() {
 
   const hasStatusMessage = Boolean(actionErrorMessage || verificationMessage || devVerificationCode);
   const completedPaymentResults = results.filter((result) => result.paymentStatus === "DONE");
-  const completedStageServicePurchases = results.flatMap((result) =>
-    (result.stageServiceSummary?.purchases || []).filter((purchase) => purchase.paymentStatus === "DONE")
+  const completedStageServicePurchases = Array.from(
+    results
+      .flatMap((result) => result.stageServiceSummary?.purchases || [])
+      .filter((purchase) => purchase.paymentStatus === "DONE")
+      .reduce((purchasesByOrderNumber, purchase) => {
+        purchasesByOrderNumber.set(purchase.serviceOrderNumber, purchase);
+        return purchasesByOrderNumber;
+      }, new Map())
+      .values(),
   );
   const completedSpectatorResults = spectatorResults.filter((result) => result.paymentStatus === "DONE");
   const totalPaidAmount = completedPaymentResults.reduce(
@@ -832,7 +848,9 @@ export function LookupPage() {
                             >
                               <strong>
                                 {stageServiceTitles[purchase.serviceType] || purchase.serviceType}
-                                {purchase.linkedDiscipline ? ` · ${purchase.linkedDiscipline}` : ""}
+                                {getStageServiceLinkedDisciplines(purchase)
+                                  ? ` · ${getStageServiceLinkedDisciplines(purchase)}`
+                                  : ""}
                               </strong>
                               <div className="site-review-row">
                                 <span>주문 번호</span>

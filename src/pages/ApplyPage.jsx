@@ -1212,8 +1212,6 @@ export function ApplyPage() {
                     {t("apply.maxFileSize")}
                     <br />
                     {getDocumentFileLimitDescription(locale)}
-                    <br />
-                    {t("apply.objectKeyMessage")}
                   </div>
                 </div>
               </label>

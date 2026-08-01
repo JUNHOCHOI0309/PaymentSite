@@ -9,8 +9,9 @@ import { useStageServiceFlow } from "../context/StageServiceFlowContext";
 import {
   calculateStageServiceTotalAmount,
   formatStageServiceAmount,
+  getHairAddOnChoices,
   getHairOptionChoices,
-  getHairOptionalChoices,
+  getHairRetouchCountChoices,
   getStageServiceByKey,
   getStageServiceDisciplineOptions,
   getStageServiceTitle,
@@ -24,7 +25,7 @@ import {
   updateStageServiceDraft,
 } from "../lib/applicationApi";
 import {
-  isHairMakeupAdditionalDisciplineAllowed,
+  getHairMakeupDisciplineGender,
   isHairMakeupOptionAllowed,
 } from "../lib/stageServiceHairEligibility";
 import { buildStageServiceDetailPath } from "../lib/stageServiceFlowRoutes";
@@ -53,7 +54,6 @@ function getInitialFieldErrors() {
     photoHasAdditionalDiscipline: "",
     photoAdditionalDiscipline: "",
     videoType: "",
-    hairParticipantDiscipline: "",
     hairOption: "",
   };
 }
@@ -91,24 +91,25 @@ export function StageServiceDetailPage() {
   const prefillPhone = searchParams.get("phone") || "";
   const disciplineOptions = normalizeDisciplineOptions(getStageServiceDisciplineOptions(locale));
   const videoTypeOptions = getVideoTypeOptions(locale);
+  const isHairMakeupService = serviceKey === "hair-makeup";
+  const selectedLinkedApplications = isHairMakeupService
+    ? state.linkedApplications
+    : state.linkedApplication.applicationNumber
+      ? [state.linkedApplication]
+      : [];
+  const selectedHairDisciplines = isHairMakeupService
+    ? selectedLinkedApplications.map((application) => application.discipline)
+    : [];
   const hairOptionChoices = getHairOptionChoices(locale).filter((option) =>
-    isHairMakeupOptionAllowed(state.formData.hairParticipantDiscipline, option),
+    selectedHairDisciplines.every((discipline) => isHairMakeupOptionAllowed(discipline, option)),
   );
-  const hairAdditionalDisciplineChoices = disciplineOptions.filter(
-    (option) =>
-      option.value !== state.formData.hairParticipantDiscipline &&
-      isHairMakeupAdditionalDisciplineAllowed(
-        state.formData.hairParticipantDiscipline,
-        option.value,
-      ),
-  );
+  const maxHairRetouchCount = Math.max(0, selectedHairDisciplines.length - 1);
   const hasPhotoAdditionalDiscipline = state.formData.photoHasAdditionalDiscipline === "O";
-  const hairHasAdditionalDiscipline = Boolean(state.formData.hairAdditionalDiscipline);
-  const hairOptionalChoices = getHairOptionalChoices({
-    hairOptionValue: state.formData.hairOption,
-    hasAdditionalDiscipline: hairHasAdditionalDiscipline,
-    locale,
-  });
+  const hairAddOnChoices = getHairAddOnChoices(locale);
+  const hairRetouchCountChoices = getHairRetouchCountChoices(state.formData.hairOption, locale)
+    .filter((option) => option.count <= maxHairRetouchCount);
+  const hairBodyMakeupOption = hairAddOnChoices.find((option) => option.value === "BODY_MAKEUP");
+  const hairPieceOption = hairAddOnChoices.find((option) => option.value === "HAIR_PIECE");
   const videoAdditionalChoices = getStageVideoAdditionalDisciplineChoices(locale);
   const totalAmount = useMemo(
     () =>
@@ -118,7 +119,9 @@ export function StageServiceDetailPage() {
         videoType: state.formData.videoType,
         videoAdditionalDiscipline: state.formData.videoAdditionalDiscipline,
         hairOption: state.formData.hairOption,
-        hairOptionalOption: state.formData.hairOptionalOption,
+        hairBodyMakeup: state.formData.hairBodyMakeup,
+        hairPiece: state.formData.hairPiece,
+        hairRetouchCount: state.formData.hairRetouchCount,
       }),
     [
       serviceKey,
@@ -126,7 +129,9 @@ export function StageServiceDetailPage() {
       state.formData.videoType,
       state.formData.videoAdditionalDiscipline,
       state.formData.hairOption,
-      state.formData.hairOptionalOption,
+      state.formData.hairBodyMakeup,
+      state.formData.hairPiece,
+      state.formData.hairRetouchCount,
     ],
   );
 
@@ -213,44 +218,26 @@ export function StageServiceDetailPage() {
   }, [dispatch, hasPhotoAdditionalDiscipline, state.formData.photoAdditionalDiscipline]);
 
   useEffect(() => {
+    if (Number(state.formData.hairRetouchCount || 0) > maxHairRetouchCount) {
+      dispatch({ type: "SET_FORM_FIELD", field: "hairRetouchCount", value: "0" });
+    }
+  }, [dispatch, maxHairRetouchCount, state.formData.hairRetouchCount]);
+
+  useEffect(() => {
     const allowedHairOptionValues = new Set(hairOptionChoices.map((option) => option.value));
-    const allowedAdditionalDisciplineValues = new Set(
-      hairAdditionalDisciplineChoices.map((option) => option.value),
-    );
 
     if (
       state.formData.hairOption &&
       !allowedHairOptionValues.has(state.formData.hairOption)
     ) {
       dispatch({ type: "SET_FORM_FIELD", field: "hairOption", value: "" });
-      dispatch({ type: "SET_FORM_FIELD", field: "hairOptionalOption", value: "" });
-    }
-
-    if (
-      state.formData.hairAdditionalDiscipline &&
-      !allowedAdditionalDisciplineValues.has(state.formData.hairAdditionalDiscipline)
-    ) {
-      dispatch({ type: "SET_FORM_FIELD", field: "hairAdditionalDiscipline", value: "" });
-      dispatch({ type: "SET_FORM_FIELD", field: "hairOptionalOption", value: "" });
+      dispatch({ type: "SET_FORM_FIELD", field: "hairRetouchCount", value: "0" });
     }
   }, [
     dispatch,
-    hairAdditionalDisciplineChoices,
     hairOptionChoices,
-    state.formData.hairAdditionalDiscipline,
     state.formData.hairOption,
   ]);
-
-  useEffect(() => {
-    const allowedOptionalValues = new Set(hairOptionalChoices.map((option) => option.value));
-
-    if (
-      state.formData.hairOptionalOption &&
-      !allowedOptionalValues.has(state.formData.hairOptionalOption)
-    ) {
-      dispatch({ type: "SET_FORM_FIELD", field: "hairOptionalOption", value: "" });
-    }
-  }, [dispatch, hairOptionalChoices, state.formData.hairOptionalOption]);
 
   function validateField(field, value) {
     const normalizedValue = typeof value === "string" ? value.trim() : value;
@@ -267,9 +254,13 @@ export function StageServiceDetailPage() {
           ? ""
           : t("stageService.emailError");
       case "linkedApplication":
-        return state.linkedApplication.applicationNumber
-          ? ""
-          : "신청한 종목 내역에서 연결할 종목을 선택해 주세요.";
+        if (isHairMakeupService) {
+          return state.linkedApplications.length
+            ? ""
+            : "신청한 종목 내역에서 1개 이상 선택해 주세요.";
+        }
+
+        return state.linkedApplication.applicationNumber ? "" : "신청한 종목 내역에서 연결할 종목을 선택해 주세요.";
       case "photoHasAdditionalDiscipline":
         return normalizedValue ? "" : t("stageService.photoAdditionalFlagError");
       case "photoAdditionalDiscipline":
@@ -278,8 +269,6 @@ export function StageServiceDetailPage() {
           : "";
       case "videoType":
         return normalizedValue ? "" : t("stageService.videoTypeError");
-      case "hairParticipantDiscipline":
-        return normalizedValue ? "" : t("stageService.participantDisciplineError");
       case "hairOption":
         return normalizedValue ? "" : t("stageService.hairOptionError");
       default:
@@ -303,10 +292,6 @@ export function StageServiceDetailPage() {
           : "",
       videoType:
         serviceKey === "stage-video" ? validateField("videoType", state.formData.videoType) : "",
-      hairParticipantDiscipline:
-        serviceKey === "hair-makeup"
-          ? validateField("hairParticipantDiscipline", state.formData.hairParticipantDiscipline)
-          : "",
       hairOption:
         serviceKey === "hair-makeup" ? validateField("hairOption", state.formData.hairOption) : "",
     };
@@ -320,7 +305,7 @@ export function StageServiceDetailPage() {
       const nextValue = field === "phone" ? formatPhoneNumber(event.target.value) : event.target.value;
       dispatch({ type: "SET_APPLICANT_FIELD", field, value: nextValue });
       setEligibleApplications([]);
-      dispatch({ type: "SET_LINKED_APPLICATION", value: { applicationNumber: "", discipline: "" } });
+      dispatch({ type: "SET_LINKED_APPLICATIONS", value: [] });
       setFieldErrors((current) => ({
         ...current,
         [field]: validateField(field, nextValue),
@@ -356,7 +341,7 @@ export function StageServiceDetailPage() {
       setEligibleApplications(applications);
 
       if (!applications.length) {
-        dispatch({ type: "SET_LINKED_APPLICATION", value: { applicationNumber: "", discipline: "" } });
+        dispatch({ type: "SET_LINKED_APPLICATIONS", value: [] });
         setFieldErrors((current) => ({
           ...current,
           linkedApplication: "결제 완료된 대회 신청 내역을 찾지 못했습니다.",
@@ -364,17 +349,21 @@ export function StageServiceDetailPage() {
         return;
       }
 
-      const selectedStillExists = applications.some(
-        (application) => application.applicationNumber === state.linkedApplication.applicationNumber,
+      const availableApplicationNumbers = new Set(
+        applications.map((application) => application.applicationNumber),
+      );
+      const currentSelection = isHairMakeupService
+        ? state.linkedApplications
+        : [state.linkedApplication];
+      const nextSelection = currentSelection.filter((application) =>
+        availableApplicationNumbers.has(application.applicationNumber),
       );
 
-      if (!selectedStillExists) {
-        dispatch({ type: "SET_LINKED_APPLICATION", value: { applicationNumber: "", discipline: "" } });
-      }
+      dispatch({ type: "SET_LINKED_APPLICATIONS", value: nextSelection });
       setFieldErrors((current) => ({ ...current, linkedApplication: "" }));
     } catch (error) {
       setEligibleApplications([]);
-      dispatch({ type: "SET_LINKED_APPLICATION", value: { applicationNumber: "", discipline: "" } });
+      dispatch({ type: "SET_LINKED_APPLICATIONS", value: [] });
       setErrorMessage(error.message || "신청한 종목 내역을 불러오지 못했습니다.");
     } finally {
       setIsLoadingApplications(false);
@@ -382,6 +371,38 @@ export function StageServiceDetailPage() {
   }
 
   function selectLinkedApplication(application) {
+    if (isHairMakeupService) {
+      const isSelected = state.linkedApplications.some(
+        (selectedApplication) => selectedApplication.applicationNumber === application.applicationNumber,
+      );
+      const nextSelection = isSelected
+        ? state.linkedApplications.filter(
+          (selectedApplication) => selectedApplication.applicationNumber !== application.applicationNumber,
+        )
+        : [...state.linkedApplications, application];
+
+      if (!isSelected && nextSelection.length > 3) {
+        setErrorMessage("헤어&메이크업은 신청한 종목을 최대 3개까지 선택할 수 있습니다.");
+        return;
+      }
+
+      const selectedGenders = new Set(
+        nextSelection
+          .map((selectedApplication) => getHairMakeupDisciplineGender(selectedApplication.discipline))
+          .filter((gender) => gender !== "all"),
+      );
+
+      if (selectedGenders.size > 1) {
+        setErrorMessage("남성 부문과 여성 부문은 하나의 헤어&메이크업 신청으로 함께 선택할 수 없습니다.");
+        return;
+      }
+
+      dispatch({ type: "SET_LINKED_APPLICATIONS", value: nextSelection });
+      setFieldErrors((current) => ({ ...current, linkedApplication: "" }));
+      setErrorMessage("");
+      return;
+    }
+
     dispatch({
       type: "SET_LINKED_APPLICATION",
       value: {
@@ -407,6 +428,13 @@ export function StageServiceDetailPage() {
     };
   }
 
+  function setBooleanFormField(field) {
+    return (event) => {
+      dispatch({ type: "SET_FORM_FIELD", field, value: event.target.checked });
+      setErrorMessage("");
+    };
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
 
@@ -424,14 +452,15 @@ export function StageServiceDetailPage() {
       phone: state.applicantInfo.phone,
       email: state.applicantInfo.email,
       linkedApplicationNumber: state.linkedApplication.applicationNumber,
+      linkedApplicationNumbers: selectedLinkedApplications.map((application) => application.applicationNumber),
       photoHasAdditionalDiscipline: state.formData.photoHasAdditionalDiscipline,
       photoAdditionalDiscipline: state.formData.photoAdditionalDiscipline,
       videoType: state.formData.videoType,
       videoAdditionalDiscipline: state.formData.videoAdditionalDiscipline,
-      hairParticipantDiscipline: state.formData.hairParticipantDiscipline,
       hairOption: state.formData.hairOption,
-      hairAdditionalDiscipline: state.formData.hairAdditionalDiscipline,
-      hairOptionalOption: state.formData.hairOptionalOption,
+      hairBodyMakeup: state.formData.hairBodyMakeup,
+      hairPiece: state.formData.hairPiece,
+      hairRetouchCount: state.formData.hairRetouchCount,
     };
 
     try {
@@ -441,7 +470,10 @@ export function StageServiceDetailPage() {
 
       dispatch({ type: "SET_DRAFT_ID", value: json.draft.draftId });
       dispatch({ type: "SET_ORDER", payload: { orderId: null } });
-      dispatch({ type: "SET_LINKED_APPLICATION", value: json.linkedApplication || { applicationNumber: "", discipline: "" } });
+      dispatch({
+        type: "SET_LINKED_APPLICATIONS",
+        value: json.linkedApplications || (json.linkedApplication ? [json.linkedApplication] : []),
+      });
       dispatch({ type: "SET_TOTAL_AMOUNT", value: json.draft.totalAmount || totalAmount });
       dispatch({ type: "SET_FLOW_STEP", value: stageServiceFlowSteps.REVIEW });
       navigate("/apply/stage-services/review");
@@ -471,15 +503,15 @@ export function StageServiceDetailPage() {
                   <span>{t("stageService.totalAmount")}</span>
                   <strong>{formatStageServiceAmount(totalAmount, locale)}</strong>
                 </div>
-                {state.linkedApplication.applicationNumber ? (
+                {selectedLinkedApplications.length ? (
                   <>
                     <div className="site-stage-service-price-box__row">
-                      <span>{t("stageService.linkedApplication")}</span>
-                      <strong>{state.linkedApplication.applicationNumber}</strong>
+                      <span>{isHairMakeupService ? "선택 종목" : t("stageService.linkedApplication")}</span>
+                      <strong>{selectedLinkedApplications.map((application) => application.applicationNumber).join(", ")}</strong>
                     </div>
                     <div className="site-stage-service-price-box__row">
-                      <span>{t("stageService.linkedDiscipline")}</span>
-                      <strong>{state.linkedApplication.discipline || "-"}</strong>
+                      <span>{isHairMakeupService ? "참가 부문" : t("stageService.linkedDiscipline")}</span>
+                      <strong>{selectedLinkedApplications.map((application) => application.discipline).join(", ") || "-"}</strong>
                     </div>
                   </>
                 ) : null}
@@ -534,11 +566,21 @@ export function StageServiceDetailPage() {
                       {isLoadingApplications ? "불러오는 중" : "신청한 종목 내역 불러오기"}
                     </Button>
                   </div>
+                  {isHairMakeupService ? (
+                    <p className="site-field__hint">헤어&메이크업을 받을 결제 완료 종목을 최대 3개까지 선택해 주세요.</p>
+                  ) : null}
                   {eligibleApplications.length ? (
-                    <div className="site-stage-service-application-picker__options" role="radiogroup">
+                    <div
+                      className="site-stage-service-application-picker__options"
+                      role={isHairMakeupService ? "group" : "radiogroup"}
+                    >
                       {eligibleApplications.map((application) => {
-                        const selected =
-                          state.linkedApplication.applicationNumber === application.applicationNumber;
+                        const selected = isHairMakeupService
+                          ? state.linkedApplications.some(
+                            (selectedApplication) =>
+                              selectedApplication.applicationNumber === application.applicationNumber,
+                          )
+                          : state.linkedApplication.applicationNumber === application.applicationNumber;
 
                         return (
                           <label
@@ -549,7 +591,7 @@ export function StageServiceDetailPage() {
                               checked={selected}
                               name="linked-stage-application"
                               onChange={() => selectLinkedApplication(application)}
-                              type="radio"
+                              type={isHairMakeupService ? "checkbox" : "radio"}
                               value={application.applicationNumber}
                             />
                             <span>{application.discipline}</span>
@@ -658,28 +700,6 @@ export function StageServiceDetailPage() {
                   <>
                     <label className="site-field">
                       <span className="site-field__label">
-                        {t("stageService.participantDiscipline")}
-                        <span className="site-field__requirement">({t("apply.required")})</span>
-                      </span>
-                      <select
-                        className={`site-input ${fieldErrors.hairParticipantDiscipline ? "site-input--error" : ""}`.trim()}
-                        value={state.formData.hairParticipantDiscipline}
-                        onChange={setFormField("hairParticipantDiscipline")}
-                      >
-                        <option value="">{t("stageService.participantDisciplinePlaceholder")}</option>
-                        {disciplineOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      {fieldErrors.hairParticipantDiscipline ? (
-                        <span className="site-field__error">{fieldErrors.hairParticipantDiscipline}</span>
-                      ) : null}
-                    </label>
-
-                    <label className="site-field">
-                      <span className="site-field__label">
                         {t("stageService.hairOption")}
                         <span className="site-field__requirement">({t("apply.required")})</span>
                       </span>
@@ -687,7 +707,7 @@ export function StageServiceDetailPage() {
                         className={`site-input ${fieldErrors.hairOption ? "site-input--error" : ""}`.trim()}
                         value={state.formData.hairOption}
                         onChange={setFormField("hairOption")}
-                        disabled={!state.formData.hairParticipantDiscipline}
+                        disabled={!selectedHairDisciplines.length}
                       >
                         <option value="">{t("stageService.hairOptionPlaceholder")}</option>
                         {hairOptionChoices.map((option) => (
@@ -703,43 +723,56 @@ export function StageServiceDetailPage() {
 
                     <label className="site-field">
                       <span className="site-field__label">
-                        {t("stageService.additionalDiscipline")}
+                        {locale === "ko" ? "리터치 횟수" : "Retouch sessions"}
                         <span className="site-field__requirement">({t("apply.optional")})</span>
                       </span>
                       <select
                         className="site-input"
-                        value={state.formData.hairAdditionalDiscipline}
-                        onChange={setFormField("hairAdditionalDiscipline")}
-                        disabled={!state.formData.hairParticipantDiscipline}
+                        value={state.formData.hairRetouchCount}
+                        onChange={setFormField("hairRetouchCount")}
+                        disabled={!state.formData.hairOption || maxHairRetouchCount === 0}
                       >
-                        <option value="">{t("stageService.additionalDisciplinePlaceholder")}</option>
-                        {hairAdditionalDisciplineChoices.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-
-                    <label className="site-field">
-                      <span className="site-field__label">
-                        {t("stageService.optionalOption")}
-                        <span className="site-field__requirement">({t("apply.optional")})</span>
-                      </span>
-                      <select
-                        className="site-input"
-                        value={state.formData.hairOptionalOption}
-                        onChange={setFormField("hairOptionalOption")}
-                        disabled={!state.formData.hairOption}
-                      >
-                        <option value="">{t("stageService.optionalOptionPlaceholder")}</option>
-                        {hairOptionalChoices.map((option) => (
+                        {hairRetouchCountChoices.map((option) => (
                           <option key={option.value} value={option.value}>
-                            {option.label} ({formatStageServiceAmount(option.price, locale)})
+                            {option.label}{option.price ? ` (${formatStageServiceAmount(option.price, locale)})` : ""}
                           </option>
                         ))}
                       </select>
-                      <span className="site-field__hint">{t("stageService.optionalOptionHint")}</span>
+                      <span className="site-field__hint">
+                        {locale === "ko"
+                          ? maxHairRetouchCount
+                            ? `선택한 ${selectedHairDisciplines.length}개 종목 사이에 필요한 리터치 횟수를 선택해 주세요.`
+                            : "리터치는 신청한 종목을 2개 이상 선택한 경우에 신청할 수 있습니다."
+                          : maxHairRetouchCount
+                            ? "Select the number of retouch sessions needed between your selected disciplines."
+                            : "Retouch is available when two or more disciplines are selected."}
+                      </span>
+                    </label>
+
+                    <label className="site-stage-service-option-toggle">
+                      <input
+                        checked={Boolean(state.formData.hairBodyMakeup)}
+                        disabled={!state.formData.hairOption}
+                        onChange={setBooleanFormField("hairBodyMakeup")}
+                        type="checkbox"
+                      />
+                      <span>
+                        <strong>{hairBodyMakeupOption?.label || "바디메이크업"}</strong>
+                        <small>{formatStageServiceAmount(hairBodyMakeupOption?.price, locale)}</small>
+                      </span>
+                    </label>
+
+                    <label className="site-stage-service-option-toggle">
+                      <input
+                        checked={Boolean(state.formData.hairPiece)}
+                        disabled={!state.formData.hairOption}
+                        onChange={setBooleanFormField("hairPiece")}
+                        type="checkbox"
+                      />
+                      <span>
+                        <strong>{hairPieceOption?.label || "헤어피스(가발)"}</strong>
+                        <small>{formatStageServiceAmount(hairPieceOption?.price, locale)}</small>
+                      </span>
                     </label>
                   </>
                 ) : null}
@@ -763,6 +796,9 @@ export function StageServiceDetailPage() {
               <li>{t("stageService.notice1")}</li>
               <li>{t("stageService.notice2")}</li>
               <li>{t("stageService.notice3")}</li>
+              {serviceKey === "hair-makeup" ? (
+                <li>대회장 내에서 공식 헤어&amp;메이크업 업체를 제외한 출장 헤어&amp;메이크업 업체는 입장이 불가합니다.</li>
+              ) : null}
             </ul>
           </NoticeBox>
           {serviceKey === "hair-makeup" ? (

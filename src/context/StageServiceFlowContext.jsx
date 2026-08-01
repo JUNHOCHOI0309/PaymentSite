@@ -23,12 +23,16 @@ const initialState = {
     hairParticipantDiscipline: "",
     hairOption: "",
     hairAdditionalDiscipline: "",
+    hairBodyMakeup: false,
+    hairPiece: false,
+    hairRetouchCount: "0",
     hairOptionalOption: "",
   },
   linkedApplication: {
     applicationNumber: "",
     discipline: "",
   },
+  linkedApplications: [],
   totalAmount: 0,
 };
 
@@ -50,6 +54,46 @@ function deriveFlowStep(nextState) {
 
 function normalizeStageServicePaymentMethod() {
   return stageServicePaymentMethod;
+}
+
+function getLegacyHairAddOnFields(formData = {}) {
+  if (
+    Object.hasOwn(formData, "hairBodyMakeup")
+    || Object.hasOwn(formData, "hairPiece")
+    || Object.hasOwn(formData, "hairRetouchCount")
+  ) {
+    return {};
+  }
+
+  return {
+    hairBodyMakeup: formData.hairOptionalOption === "BODY_MAKEUP",
+    hairPiece: formData.hairOptionalOption === "HAIR_PIECE",
+    hairRetouchCount:
+      formData.hairOptionalOption === "MALE_RETOUCH" || formData.hairOptionalOption === "FEMALE_RETOUCH"
+        ? "1"
+        : "0",
+  };
+}
+
+function normalizeLinkedApplications(applications, fallbackApplication = null) {
+  const normalizedApplications = Array.isArray(applications)
+    ? applications
+      .map((application) => ({
+        applicationNumber: String(application?.applicationNumber || "").trim(),
+        discipline: String(application?.discipline || "").trim(),
+      }))
+      .filter((application) => application.applicationNumber)
+    : [];
+
+  if (normalizedApplications.length) {
+    return normalizedApplications.slice(0, 3);
+  }
+
+  const fallbackApplicationNumber = String(fallbackApplication?.applicationNumber || "").trim();
+
+  return fallbackApplicationNumber
+    ? [{ applicationNumber: fallbackApplicationNumber, discipline: String(fallbackApplication?.discipline || "").trim() }]
+    : [];
 }
 
 function stageServiceFlowReducer(state, action) {
@@ -76,10 +120,27 @@ function stageServiceFlowReducer(state, action) {
         },
       };
     case "SET_LINKED_APPLICATION":
+      {
+        const linkedApplication = {
+          applicationNumber: String(action.value?.applicationNumber || "").trim(),
+          discipline: String(action.value?.discipline || "").trim(),
+        };
+
+        return {
+          ...state,
+          linkedApplication,
+          linkedApplications: linkedApplication.applicationNumber ? [linkedApplication] : [],
+        };
+      }
+    case "SET_LINKED_APPLICATIONS": {
+      const linkedApplications = normalizeLinkedApplications(action.value);
+
       return {
         ...state,
-        linkedApplication: action.value,
+        linkedApplications,
+        linkedApplication: linkedApplications[0] || initialState.linkedApplication,
       };
+    }
     case "SET_TOTAL_AMOUNT":
       return {
         ...state,
@@ -106,6 +167,15 @@ function stageServiceFlowReducer(state, action) {
         flowStep: action.value,
       };
     case "HYDRATE_STAGE_SERVICE_FLOW": {
+      const persistedFormData = action.payload?.formData || {};
+      const persistedLinkedApplication = {
+        ...initialState.linkedApplication,
+        ...(action.payload?.linkedApplication || {}),
+      };
+      const persistedLinkedApplications = normalizeLinkedApplications(
+        action.payload?.linkedApplications,
+        persistedLinkedApplication,
+      );
       const nextState = {
         ...state,
         ...action.payload,
@@ -116,12 +186,11 @@ function stageServiceFlowReducer(state, action) {
         },
         formData: {
           ...initialState.formData,
-          ...(action.payload?.formData || {}),
+          ...persistedFormData,
+          ...getLegacyHairAddOnFields(persistedFormData),
         },
-        linkedApplication: {
-          ...initialState.linkedApplication,
-          ...(action.payload?.linkedApplication || {}),
-        },
+        linkedApplications: persistedLinkedApplications,
+        linkedApplication: persistedLinkedApplications[0] || initialState.linkedApplication,
       };
 
       return {

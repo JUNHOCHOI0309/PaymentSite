@@ -4,8 +4,8 @@ import excelDownloadIcon from "../../assets/excel-download-icon.png";
 import { Button } from "../../components/common/Button";
 import applicationDisciplineCatalog from "../../data/applicationDisciplineCatalog.json";
 import {
+  getHairAdditionalOptionLabels,
   getHairOptionChoices,
-  getHairOptionalChoices,
   stageServiceItems,
   getStageServiceTitle,
   getStageVideoAdditionalDisciplineMeta,
@@ -93,6 +93,37 @@ function formatBirthDate(value) {
   return normalized || "-";
 }
 
+function getLinkedApplications(row) {
+  const linkedApplications = Array.isArray(row.linkedApplications)
+    ? row.linkedApplications.filter((application) => application?.applicationNumber)
+    : [];
+
+  if (linkedApplications.length) {
+    return linkedApplications;
+  }
+
+  return row.linkedApplicationNumber
+    ? [{
+      applicationNumber: row.linkedApplicationNumber,
+      discipline: row.linkedDiscipline,
+    }]
+    : [];
+}
+
+function getLinkedApplicationNumbers(row) {
+  return getLinkedApplications(row)
+    .map((application) => application.applicationNumber)
+    .filter(Boolean)
+    .join(", ");
+}
+
+function getLinkedDisciplines(row) {
+  return getLinkedApplications(row)
+    .map((application) => application.discipline)
+    .filter(Boolean)
+    .join(", ");
+}
+
 function getStageServiceMeta(row) {
   const title = getStageServiceTitle(row.serviceType) || row.serviceType || "-";
 
@@ -127,20 +158,17 @@ function getStageServiceMeta(row) {
       getHairOptionChoices().find((option) => option.value === row.hairOption)?.label
       || row.hairOption
       || "-";
-    const hairOptionalLabel =
-      getHairOptionalChoices({
-        hairOptionValue: row.hairOption,
-        hasAdditionalDiscipline: Boolean(row.hairAdditionalDiscipline),
-      }).find((option) => option.value === row.hairOptionalOption)?.label
-      || row.hairOptionalOption
-      || "추가 옵션 없음";
-    const extraDiscipline = row.hairAdditionalDiscipline
-      ? ` / 추가 종목 ${row.hairAdditionalDiscipline}`
-      : "";
+    const hairAdditionalOptionLabels = getHairAdditionalOptionLabels({
+      hairOptionValue: row.hairOption,
+      hairBodyMakeup: row.hairBodyMakeup,
+      hairPiece: row.hairPiece,
+      hairRetouchCount: row.hairRetouchCount,
+    });
+    const linkedDisciplines = getLinkedDisciplines(row) || "-";
 
     return {
       primary: `${title} / ${hairOptionLabel}`,
-      secondary: `참가 종목 ${row.hairParticipantDiscipline || "-"}${extraDiscipline} / ${hairOptionalLabel}`,
+      secondary: `신청 종목 ${linkedDisciplines} / ${hairAdditionalOptionLabels.join(", ") || "추가 옵션 없음"}`,
     };
   }
 
@@ -2240,8 +2268,16 @@ export function AdminDashboardPage() {
                       { key: "name", label: "신청자" },
                       { key: "phone", label: "연락처" },
                       { key: "email", label: "이메일" },
-                      { key: "linkedApplicationNumber", label: "연동 신청번호" },
-                      { key: "linkedDiscipline", label: "연동 종목" },
+                      {
+                        key: "linkedApplicationNumber",
+                        label: "연동 신청번호",
+                        getValue: (row) => getLinkedApplicationNumbers(row),
+                      },
+                      {
+                        key: "linkedDiscipline",
+                        label: "연동 종목",
+                        getValue: (row) => getLinkedDisciplines(row),
+                      },
                       {
                         key: "serviceMeta",
                         label: "서비스 상세",
@@ -2289,8 +2325,8 @@ export function AdminDashboardPage() {
                     label: "연동 신청",
                     render: (row) => (
                       <MetaCell
-                        primary={row.linkedApplicationNumber || "-"}
-                        secondary={row.linkedDiscipline || "-"}
+                        primary={getLinkedApplicationNumbers(row) || "-"}
+                        secondary={getLinkedDisciplines(row) || "-"}
                       />
                     ),
                   },

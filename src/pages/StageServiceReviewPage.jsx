@@ -7,8 +7,8 @@ import { useLanguage } from "../context/LanguageContext";
 import { useStageServiceFlow } from "../context/StageServiceFlowContext";
 import {
   formatStageServiceAmount,
+  getHairAdditionalOptionLabels,
   getHairOptionChoices,
-  getHairOptionalChoices,
   getStageServiceDisciplineLabel,
   getStageServiceTitle,
   getStageVideoAdditionalDisciplineMeta,
@@ -44,6 +44,7 @@ export function StageServiceReviewPage() {
     email: state.applicantInfo.email,
     phone: state.applicantInfo.phone,
   });
+  const reviewDraft = draftSnapshot?.draft;
   const videoTypeLabel =
     getVideoTypeOptions(locale).find((option) => option.value === (draftSnapshot?.draft?.videoType || state.formData.videoType))
       ?.label || "-";
@@ -61,15 +62,31 @@ export function StageServiceReviewPage() {
   const hairOptionLabel =
     getHairOptionChoices(locale).find((option) => option.value === (draftSnapshot?.draft?.hairOption || state.formData.hairOption))
       ?.label || "-";
-  const hairOptionalLabel =
-    getHairOptionalChoices({
-      hairOptionValue: draftSnapshot?.draft?.hairOption || state.formData.hairOption,
-      hasAdditionalDiscipline: Boolean(
-        draftSnapshot?.draft?.hairAdditionalDiscipline || state.formData.hairAdditionalDiscipline,
-      ),
-      locale,
-    }).find((option) => option.value === (draftSnapshot?.draft?.hairOptionalOption || state.formData.hairOptionalOption))
-      ?.label || "-";
+  const hairAdditionalOptionLabels = getHairAdditionalOptionLabels({
+    hairOptionValue: draftSnapshot?.draft?.hairOption || state.formData.hairOption,
+    hairBodyMakeup: draftSnapshot?.draft?.hairBodyMakeup ?? state.formData.hairBodyMakeup,
+    hairPiece: draftSnapshot?.draft?.hairPiece ?? state.formData.hairPiece,
+    hairRetouchCount: draftSnapshot?.draft?.hairRetouchCount ?? state.formData.hairRetouchCount,
+    locale,
+  });
+  const reviewLinkedApplications =
+    draftSnapshot?.linkedApplications?.length
+      ? draftSnapshot.linkedApplications
+      : reviewDraft?.linkedApplications?.length
+        ? reviewDraft.linkedApplications
+        : state.linkedApplications.length
+          ? state.linkedApplications
+          : state.linkedApplication.applicationNumber
+            ? [state.linkedApplication]
+            : [];
+  const reviewLinkedApplicationNumbers = reviewLinkedApplications
+    .map((application) => application.applicationNumber)
+    .filter(Boolean)
+    .join(", ");
+  const reviewLinkedDisciplines = reviewLinkedApplications
+    .map((application) => application.discipline)
+    .filter(Boolean)
+    .join(", ");
 
   useEffect(() => {
     async function fetchDraft() {
@@ -81,8 +98,8 @@ export function StageServiceReviewPage() {
         const json = await getStageServiceDraft(state.draftId);
         setDraftSnapshot(json);
         dispatch({
-          type: "SET_LINKED_APPLICATION",
-          value: json.linkedApplication || { applicationNumber: "", discipline: "" },
+          type: "SET_LINKED_APPLICATIONS",
+          value: json.linkedApplications || (json.linkedApplication ? [json.linkedApplication] : []),
         });
         dispatch({
           type: "SET_TOTAL_AMOUNT",
@@ -145,8 +162,6 @@ export function StageServiceReviewPage() {
     }
   }
 
-  const reviewDraft = draftSnapshot?.draft;
-
   return (
     <PageShell>
       <section className="site-page site-page--stage-service">
@@ -163,12 +178,12 @@ export function StageServiceReviewPage() {
             <ReviewRow label={t("review.phone")} value={reviewDraft?.phone || state.applicantInfo.phone} />
             <ReviewRow label={t("review.email")} value={reviewDraft?.email || state.applicantInfo.email} />
             <ReviewRow
-              label={t("stageService.linkedApplication")}
-              value={draftSnapshot?.linkedApplication?.applicationNumber || state.linkedApplication.applicationNumber}
+              label={state.serviceKey === "hair-makeup" ? "선택 신청 번호" : t("stageService.linkedApplication")}
+              value={reviewLinkedApplicationNumbers}
             />
             <ReviewRow
-              label={t("stageService.linkedDiscipline")}
-              value={draftSnapshot?.linkedApplication?.discipline || state.linkedApplication.discipline}
+              label={state.serviceKey === "hair-makeup" ? "신청한 종목 내역" : t("stageService.linkedDiscipline")}
+              value={reviewLinkedDisciplines}
             />
             {state.serviceKey === "stage-photo" ? (
               <>
@@ -196,22 +211,11 @@ export function StageServiceReviewPage() {
             ) : null}
             {state.serviceKey === "hair-makeup" ? (
               <>
-                <ReviewRow
-                  label={t("stageService.participantDiscipline")}
-                  value={getStageServiceDisciplineLabel(
-                    reviewDraft?.hairParticipantDiscipline || state.formData.hairParticipantDiscipline,
-                    locale,
-                  )}
-                />
                 <ReviewRow label={t("stageService.hairOption")} value={hairOptionLabel} />
                 <ReviewRow
-                  label={t("stageService.additionalDiscipline")}
-                  value={getStageServiceDisciplineLabel(
-                    reviewDraft?.hairAdditionalDiscipline || state.formData.hairAdditionalDiscipline,
-                    locale,
-                  )}
+                  label={locale === "ko" ? "추가 구성" : "Additional services"}
+                  value={hairAdditionalOptionLabels.join(", ") || "-"}
                 />
-                <ReviewRow label={t("stageService.optionalOption")} value={hairOptionalLabel} />
               </>
             ) : null}
             <ReviewRow

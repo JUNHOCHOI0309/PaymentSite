@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import facebookLogo from "../assets/facebook-logo-primary.png";
+import instagramLogo from "../assets/instagram-glyph-gradient.png";
+import floatingPlusIcon from "../assets/floating-plus-icon.png";
 import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
 import { getApplicationDisciplineTitleByImageKey } from "../data/applicationDisciplines";
@@ -258,6 +261,7 @@ export function HomePage() {
   const [activeGroup, setActiveGroup] = useState("man");
   const [activeItemKey, setActiveItemKey] = useState(null);
   const [isParticipantBenefitsOpen, setIsParticipantBenefitsOpen] = useState(false);
+  const [isSocialMenuOpen, setIsSocialMenuOpen] = useState(false);
 
   const competitionGroups = useMemo(() => getCompetitionGroups(locale), [locale]);
 
@@ -285,6 +289,21 @@ export function HomePage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isParticipantBenefitsOpen]);
+
+  useEffect(() => {
+    if (!isSocialMenuOpen) {
+      return undefined;
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        setIsSocialMenuOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isSocialMenuOpen]);
 
   const activeGroupData = competitionGroups[activeGroup] || competitionGroups.man || null;
   const activeItems = activeGroupData?.items || [];
@@ -533,6 +552,38 @@ export function HomePage() {
           </div>
         </div>
       </section>
+
+      <aside className={`site-home-social-float ${isSocialMenuOpen ? "site-home-social-float--open" : ""}`}>
+        <div className="site-home-social-float__links" aria-hidden={!isSocialMenuOpen}>
+          <a
+            aria-label="Musclemania Korea official Facebook"
+            href="https://www.facebook.com/musclemaniakoreaofficial?rdid=F7RpAGzMhPLHoP5a&share_url=https%3A%2F%2Fwww.facebook.com%2Fshare%2F1DFEnKsozt%2F#"
+            rel="noreferrer"
+            tabIndex={isSocialMenuOpen ? 0 : -1}
+            target="_blank"
+          >
+            <img alt="" src={facebookLogo} />
+          </a>
+          <a
+            aria-label="Musclemania Korea official Instagram"
+            href="https://www.instagram.com/musclemaniakorea?igsh=MWZwN3hmb2Y5dm5weg%3D%3D"
+            rel="noreferrer"
+            tabIndex={isSocialMenuOpen ? 0 : -1}
+            target="_blank"
+          >
+            <img alt="" src={instagramLogo} />
+          </a>
+        </div>
+        <button
+          aria-expanded={isSocialMenuOpen}
+          aria-label={isSocialMenuOpen ? "공식 SNS 링크 닫기" : "공식 SNS 링크 열기"}
+          className="site-home-social-float__toggle"
+          onClick={() => setIsSocialMenuOpen((current) => !current)}
+          type="button"
+        >
+          <img alt="" src={floatingPlusIcon} />
+        </button>
+      </aside>
     </PageShell>
   );
 }

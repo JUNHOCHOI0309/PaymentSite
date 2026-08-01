@@ -29,7 +29,9 @@ const initialForm = {
   hairParticipantDiscipline: "",
   hairOption: "",
   hairAdditionalDiscipline: "",
-  hairOptionalOption: "",
+  hairBodyMakeup: false,
+  hairPiece: false,
+  hairRetouchCount: "0",
 };
 
 function formatPhoneNumber(value) {
@@ -64,6 +66,9 @@ function validateForm(form) {
   if (form.serviceType === "hair-makeup") {
     if (!form.hairParticipantDiscipline) return "참가 종목을 선택해 주세요.";
     if (!form.hairOption) return "헤어&메이크업 옵션을 선택해 주세요.";
+    if (Number(form.hairRetouchCount || 0) > 0 && !form.hairAdditionalDiscipline) {
+      return "리터치는 추가 종목 선택 시에만 가능합니다.";
+    }
     if (
       form.hairAdditionalDiscipline &&
       form.hairAdditionalDiscipline === form.hairParticipantDiscipline
@@ -121,13 +126,9 @@ export function KcpTestStageServicePage() {
     [form.hairParticipantDiscipline],
   );
   const selectedHairOption = hairOptions.find((option) => option.value === form.hairOption);
-  const hairOptionalOptions = useMemo(
-    () =>
-      (services["hair-makeup"]?.optionalOptions || []).filter((option) => {
-        if (option.requiresAdditionalDiscipline && !form.hairAdditionalDiscipline) return false;
-        return option.gender === "all" || option.gender === selectedHairOption?.gender;
-      }),
-    [form.hairAdditionalDiscipline, selectedHairOption?.gender],
+  const hairAddOnOptions = services["hair-makeup"]?.addOnOptions || [];
+  const hairRetouchUnitPrice = Number(
+    services["hair-makeup"]?.retouchPrices?.[selectedHairOption?.gender] || 0,
   );
   const videoAdditionalOptions = useMemo(
     () =>
@@ -145,14 +146,14 @@ export function KcpTestStageServicePage() {
       form.hairOption &&
       !eligibleHairOptions.some((option) => option.value === form.hairOption)
     ) {
-      setForm((current) => ({ ...current, hairOption: "", hairOptionalOption: "" }));
+      setForm((current) => ({ ...current, hairOption: "", hairRetouchCount: "0" }));
     }
 
     if (
       form.hairAdditionalDiscipline &&
       !eligibleHairAdditionalDisciplines.includes(form.hairAdditionalDiscipline)
     ) {
-      setForm((current) => ({ ...current, hairAdditionalDiscipline: "", hairOptionalOption: "" }));
+      setForm((current) => ({ ...current, hairAdditionalDiscipline: "", hairRetouchCount: "0" }));
     }
   }, [
     eligibleHairAdditionalDisciplines,
@@ -168,13 +169,10 @@ export function KcpTestStageServicePage() {
   }, [form.photoAdditionalDiscipline, form.photoHasAdditionalDiscipline]);
 
   useEffect(() => {
-    if (
-      form.hairOptionalOption &&
-      !hairOptionalOptions.some((option) => option.value === form.hairOptionalOption)
-    ) {
-      setForm((current) => ({ ...current, hairOptionalOption: "" }));
+    if (!form.hairAdditionalDiscipline && form.hairRetouchCount !== "0") {
+      setForm((current) => ({ ...current, hairRetouchCount: "0" }));
     }
-  }, [form.hairOptionalOption, hairOptionalOptions]);
+  }, [form.hairAdditionalDiscipline, form.hairRetouchCount]);
 
   function updateField(field, value) {
     setForm((current) => ({
@@ -314,11 +312,33 @@ export function KcpTestStageServicePage() {
                   {eligibleHairAdditionalDisciplines.map((discipline) => <option key={discipline} value={discipline}>{discipline}</option>)}
                 </select>
               </label>
+              {hairAddOnOptions.map((option) => (
+                <label className="kcp-test-field" key={option.value}>
+                  {option.label} <em>(선택)</em>
+                  <input
+                    checked={option.value === "BODY_MAKEUP" ? form.hairBodyMakeup : form.hairPiece}
+                    disabled={!form.hairOption}
+                    onChange={(event) => updateField(
+                      option.value === "BODY_MAKEUP" ? "hairBodyMakeup" : "hairPiece",
+                      event.target.checked,
+                    )}
+                    type="checkbox"
+                  />
+                  <span>{formatAmount(option.price)}</span>
+                </label>
+              ))}
               <label className="kcp-test-field">
-                추가 옵션 <em>(선택)</em>
-                <select value={form.hairOptionalOption} onChange={(event) => updateField("hairOptionalOption", event.target.value)} disabled={!form.hairOption}>
-                  <option value="">추가 옵션을 선택해 주세요</option>
-                  {hairOptionalOptions.map((option) => <option key={option.value} value={option.value}>{option.label} ({formatAmount(option.price)})</option>)}
+                리터치 횟수 <em>(선택)</em>
+                <select
+                  value={form.hairRetouchCount}
+                  onChange={(event) => updateField("hairRetouchCount", event.target.value)}
+                  disabled={!form.hairOption || !form.hairAdditionalDiscipline}
+                >
+                  {[0, 1, 2].map((count) => (
+                    <option key={count} value={count}>
+                      {count === 0 ? "리터치 신청 안 함" : `리터치 ${count}회 (${formatAmount(hairRetouchUnitPrice * count)})`}
+                    </option>
+                  ))}
                 </select>
               </label>
             </> : null}

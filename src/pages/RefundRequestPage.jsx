@@ -64,7 +64,13 @@ export function RefundRequestPage() {
 
     if (isStageService) {
       const serviceTitle = stageServiceTitles[target.serviceType] || target.serviceType || "무대 서비스";
-      return target.linkedDiscipline ? `${serviceTitle} · ${target.linkedDiscipline}` : serviceTitle;
+      const linkedDisciplines = (target.linkedApplications || [])
+        .map((application) => application.discipline)
+        .filter(Boolean)
+        .join(", ");
+      return linkedDisciplines || target.linkedDiscipline
+        ? `${serviceTitle} · ${linkedDisciplines || target.linkedDiscipline}`
+        : serviceTitle;
     }
 
     if (isSpectator) return `참관객 입장권 · ${target.spectatorOrderNumber || ""}`;

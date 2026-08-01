@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import facebookLogo from "../assets/facebook-logo-primary.png";
+import instagramLogo from "../assets/instagram-glyph-gradient.png";
 import { Button } from "../components/common/Button";
 import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
@@ -295,6 +297,32 @@ export function ApplyGuidePage() {
                 <Link className="site-apply-guide__lookup-link" to="/lookup">
                   <Button>{t("applyGuide.lookupButton")}</Button>
                 </Link>
+              </article>
+              <article className="site-card site-apply-guide__social">
+                <h3>{locale === "ko" ? "공식 SNS 안내" : "Official social channels"}</h3>
+                <p>
+                  {locale === "ko"
+                    ? "이외 변동사항이 있을 경우 머슬마니아® 공식 페이스북과 머슬마니아® 공식 인스타그램에 공지됩니다."
+                    : "Any further updates will be announced through the official Musclemania® Facebook and Instagram accounts."}
+                </p>
+                <div className="site-apply-guide__social-links">
+                  <a
+                    aria-label="Musclemania Korea official Facebook"
+                    href="https://www.facebook.com/musclemaniakoreaofficial?rdid=F7RpAGzMhPLHoP5a&share_url=https%3A%2F%2Fwww.facebook.com%2Fshare%2F1DFEnKsozt%2F#"
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    <img alt="Facebook" src={facebookLogo} />
+                  </a>
+                  <a
+                    aria-label="Musclemania Korea official Instagram"
+                    href="https://www.instagram.com/musclemaniakorea?igsh=MWZwN3hmb2Y5dm5weg%3D%3D"
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    <img alt="Instagram" src={instagramLogo} />
+                  </a>
+                </div>
               </article>
             </div>
           </GuideAccordionSection>
