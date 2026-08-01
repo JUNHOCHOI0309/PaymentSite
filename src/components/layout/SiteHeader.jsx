@@ -39,6 +39,7 @@ export function SiteHeader() {
         links: [
           { to: "/apply", label: t("header.applyDiscipline") },
           { to: "/apply/stage-services", label: t("header.applyStageService") },
+          { to: "/apply/spectator", label: locale === "ko" ? "참관객 신청" : "Spectator ticket" },
           { to: "/apply/guide", label: t("header.applyGuide") },
         ],
       },
@@ -62,7 +63,7 @@ export function SiteHeader() {
         ],
       },
     ],
-    [committeePageLabel, mmkCommitteeLabel, t],
+    [committeePageLabel, locale, mmkCommitteeLabel, t],
   );
 
   useEffect(() => {
@@ -168,6 +169,7 @@ export function SiteHeader() {
               <div className="site-header__dropdown-menu">
                 <Link to="/apply">{t("header.applyDiscipline")}</Link>
                 <Link to="/apply/stage-services">{t("header.applyStageService")}</Link>
+                <Link to="/apply/spectator">{locale === "ko" ? "참관객 신청" : "Spectator ticket"}</Link>
                 <Link to="/apply/guide">{t("header.applyGuide")}</Link>
               </div>
             </div>

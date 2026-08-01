@@ -424,6 +424,79 @@ export async function requestStageServiceRefund(payload) {
   return readJson(response);
 }
 
+export async function createSpectatorDraft(payload) {
+  const response = await apiFetch("/api/spectators/draft", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return readJson(response);
+}
+
+export async function updateSpectatorConsents(draftId, payload) {
+  const response = await apiFetch(`/api/spectators/draft/${encodeURIComponent(draftId)}/consents`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return readJson(response);
+}
+
+export async function getSpectatorDraft(draftId) {
+  const response = await apiFetch(`/api/spectators/draft/${encodeURIComponent(draftId)}`);
+  return readJson(response);
+}
+
+export async function createSpectatorOrder(payload) {
+  const response = await apiFetch("/api/spectators/orders", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return readJson(response);
+}
+
+export async function completeSpectatorOrder(payload) {
+  const response = await apiFetch("/api/spectators/complete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return readJson(response);
+}
+
+export async function getSpectatorOrderByNumber(spectatorOrderNumber) {
+  const response = await apiFetch(`/api/spectators/${encodeURIComponent(spectatorOrderNumber)}`);
+  return readJson(response);
+}
+
+export async function cancelPendingSpectatorOrder(orderId, payload) {
+  const response = await apiFetch(`/api/spectators/orders/${encodeURIComponent(orderId)}/cancel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return readJson(response);
+}
+
+export async function getSpectatorRefundQuote(payload) {
+  const response = await apiFetch("/api/spectators/refund/quote", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return readJson(response);
+}
+
+export async function requestSpectatorRefund(payload) {
+  const response = await apiFetch("/api/spectators/refund/request", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return readJson(response);
+}
+
 export async function adminLogin(payload) {
   const response = await adminApiFetch("/api/admin/login", {
     method: "POST",
@@ -550,6 +623,11 @@ export async function getAdminRefunds() {
   return readJson(response);
 }
 
+export async function getAdminSpectators(params = {}) {
+  const response = await adminApiFetch(`/api/admin/spectators${buildAdminQuery(params)}`);
+  return readJson(response);
+}
+
 function buildAdminQuery(params = {}) {
   const query = new URLSearchParams();
 
@@ -575,7 +653,9 @@ export async function getAdminCanceledPayments(params = {}) {
 export async function retryAdminRefundSync(refundRequestId, refundTarget = "application") {
   const endpoint = refundTarget === "stage-service"
     ? `/api/admin/stage-service-refunds/${encodeURIComponent(refundRequestId)}/retry-sync`
-    : `/api/admin/refunds/${encodeURIComponent(refundRequestId)}/retry-sync`;
+    : refundTarget === "spectator"
+      ? `/api/admin/spectator-refunds/${encodeURIComponent(refundRequestId)}/retry-sync`
+      : `/api/admin/refunds/${encodeURIComponent(refundRequestId)}/retry-sync`;
   const response = await adminApiFetch(
     endpoint,
     {

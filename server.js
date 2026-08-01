@@ -29,6 +29,7 @@ const refundPolicy = require("./src/data/refundPolicy.json");
 const stageServiceConfig = require("./src/data/stageServiceConfig.json");
 const applicationDisciplineCatalog = require("./src/data/applicationDisciplineCatalog.json");
 const applicationEntryFeeConfig = require("./src/data/applicationEntryFeeConfig.json");
+const spectatorTicketConfig = require("./src/data/spectatorTicketConfig.json");
 const app = express();
 const port = Number(process.env.PORT || 4000);
 const host = normalizeText(process.env.HOST) || "127.0.0.1";
@@ -45,12 +46,15 @@ const paymentResultCookieName = "mmk_payment_result";
 const applicationDraftCookieName = "mmk_application_draft";
 const applicationEmailVerificationCookieName = "mmk_application_email_verification";
 const stageServiceDraftCookieName = "mmk_stage_service_draft";
+const spectatorDraftCookieName = "mmk_spectator_draft";
 const paymentResultAccessTtlHours = 24;
 const draftAccessTtlHours = 24;
 const paymentOrderTtlMinutes = Math.max(
   1,
   Number(process.env.PAYMENT_ORDER_TTL_MINUTES || 20)
 );
+const spectatorTicketAmount = getPositiveInteger(spectatorTicketConfig.unitAmount, 15000);
+const spectatorTicketCapacity = getPositiveInteger(spectatorTicketConfig.capacity, 500);
 const paymentResultTokenSecret = normalizeText(process.env.PAYMENT_RESULT_TOKEN_SECRET);
 const adminSessionTtlHours = Math.max(
   1,
@@ -293,6 +297,7 @@ app.use(function (req, res, next) {
     req.path.startsWith("/admin") ||
     req.path.startsWith("/applications") ||
     req.path.startsWith("/stage-services") ||
+    req.path.startsWith("/spectators") ||
     req.path.startsWith("/kcp") ||
     req.path.startsWith("/webhooks")
   ) {
@@ -583,6 +588,7 @@ function normalizeKcpPaymentContext(value) {
 
   if (
     normalized === "stageService" ||
+    normalized === "spectator" ||
     normalized === "kcpTest" ||
     normalized === "stageServiceTest"
   ) {
@@ -593,6 +599,9 @@ function normalizeKcpPaymentContext(value) {
 }
 
 function getKcpDraftBindingTable(context) {
+  if (context === "spectator") {
+    return "spectator_drafts";
+  }
   return context === "stageService" || context === "stageServiceTest"
     ? "stage_service_drafts"
     : "application_drafts";
@@ -602,6 +611,8 @@ function getKcpSuccessPath(context) {
   switch (context) {
     case "stageService":
       return "/stage-services/payment/success";
+    case "spectator":
+      return "/spectators/payment/success";
     case "kcpTest":
       return "/kcp-test/success";
     case "stageServiceTest":
@@ -615,6 +626,8 @@ function getKcpFailPath(context) {
   switch (context) {
     case "stageService":
       return "/stage-services/fail";
+    case "spectator":
+      return "/spectators/fail";
     case "kcpTest":
       return "/kcp-test/fail";
     case "stageServiceTest":
@@ -1165,6 +1178,18 @@ function resolveApplicationBaseFee(imageKey, date = new Date()) {
     periodId: schedule?.id || "standard",
     periodLabel: schedule?.label || "상시",
     periodLabelEn: schedule?.labelEn || "Standard",
+  };
+}
+
+function getSpectatorSalesStatus(date = new Date()) {
+  const dateKey = getKoreaDateKey(date);
+  const startDate = normalizeText(spectatorTicketConfig.salesStartDate);
+  const endDate = normalizeText(spectatorTicketConfig.salesEndDate);
+  return {
+    isOpen: Boolean(startDate && endDate && dateKey >= startDate && dateKey <= endDate),
+    dateKey,
+    startDate,
+    endDate,
   };
 }
 
@@ -3036,6 +3061,130 @@ function generateStageServiceOrderNumber() {
   return `SS-${new Date().getFullYear()}-${crypto.randomBytes(6).toString("hex").toUpperCase()}`;
 }
 
+async function findLookupOwnedSpectator({ name, email, spectatorOrderNumber }) {
+  const result = await pool.query(
+    `
+      SELECT
+        spectator_orders.*,
+        orders.amount AS order_amount,
+        orders.payment_provider AS order_payment_provider,
+        latest_payment.payment_provider AS latest_payment_provider,
+        latest_payment.status AS latest_payment_status,
+        latest_payment.method AS latest_payment_method,
+        latest_payment.total_amount,
+        latest_payment.approved_at,
+        latest_payment.created_at AS payment_created_at
+      FROM spectator_orders
+      LEFT JOIN orders ON orders.order_id = spectator_orders.order_id
+      LEFT JOIN LATERAL (
+        SELECT payment_provider, status, method, total_amount, approved_at, created_at
+        FROM payments
+        WHERE order_id = spectator_orders.order_id
+        ORDER BY updated_at DESC NULLS LAST, created_at DESC
+        LIMIT 1
+      ) AS latest_payment ON TRUE
+      WHERE spectator_orders.spectator_order_number = $1
+        AND spectator_orders.name = $2
+        AND LOWER(spectator_orders.email) = $3
+      LIMIT 1
+    `,
+    [spectatorOrderNumber, name, email]
+  );
+  return result.rows[0] || null;
+}
+
+function generateSpectatorDraftId() {
+  return `spectator_draft_${Date.now()}_${crypto.randomBytes(8).toString("hex")}`;
+}
+
+function generateSpectatorOrderNumber() {
+  return `SPCT-${new Date().getFullYear()}-${crypto.randomBytes(6).toString("hex").toUpperCase()}`;
+}
+
+function validateSpectatorApplicantPayload(body) {
+  const name = truncateNormalizedText(body.name, 120);
+  const phone = normalizeText(formatPhoneNumber(body.phone));
+  const email = normalizeEmail(body.email);
+
+  if (!name || !phone || !email || !hasValidEmail(email)) {
+    return { ok: false, message: "성함, 연락처, 이메일을 정확히 입력해 주세요." };
+  }
+
+  if (phone.replace(/\D/g, "").length !== 11) {
+    return { ok: false, message: "연락처를 정확히 입력해 주세요." };
+  }
+
+  return { ok: true, payload: { name, phone, email } };
+}
+
+function mapSpectatorDraftRow(row) {
+  return {
+    draftId: row.draft_id,
+    orderId: row.order_id,
+    status: row.status,
+    name: row.name,
+    phone: row.phone,
+    email: row.email,
+    quantity: row.quantity,
+    unitAmount: row.unit_amount,
+    totalAmount: row.total_amount,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapSpectatorOrderRow(row, { maskPersonalInfo = true } = {}) {
+  return {
+    spectatorOrderNumber: row.spectator_order_number,
+    orderId: row.order_id,
+    paymentKey: row.payment_key,
+    paymentStatus: row.payment_status,
+    admissionStatus: row.admission_status,
+    name: row.name,
+    phone: maskPersonalInfo ? maskPhone(row.phone) : row.phone,
+    email: maskPersonalInfo ? maskEmail(row.email) : row.email,
+    quantity: row.quantity,
+    unitAmount: row.unit_amount,
+    totalAmount: row.total_amount,
+    purchasedAt: row.purchased_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+async function findCompletedDuplicateSpectator({ queryable = pool, name, phone, email }) {
+  const result = await queryable.query(
+    `
+      SELECT spectator_order_number
+      FROM spectator_orders
+      WHERE name = $1
+        AND phone = $2
+        AND LOWER(email) = $3
+        AND payment_status = 'DONE'
+      LIMIT 1
+    `,
+    [name, phone, email]
+  );
+  return result.rows[0] || null;
+}
+
+async function getReservedSpectatorTicketCount(queryable = pool) {
+  const result = await queryable.query(
+    `
+      SELECT
+        (SELECT COUNT(*)::int FROM spectator_orders WHERE payment_status = 'DONE') +
+        (SELECT COUNT(*)::int
+         FROM spectator_drafts
+         JOIN orders ON orders.order_id = spectator_drafts.order_id
+         WHERE spectator_drafts.status = 'ORDERED'
+           AND orders.status = 'READY'
+           AND orders.created_at >= NOW() - ($1::text || ' minutes')::interval)
+        AS reserved_count
+    `,
+    [String(paymentOrderTtlMinutes)]
+  );
+  return Number(result.rows[0]?.reserved_count || 0);
+}
+
 function normalizeStageServiceType(value) {
   const normalized = normalizeText(value);
   return normalized && stageServiceDefinitions[normalized] ? normalized : null;
@@ -3422,6 +3571,23 @@ function mapAdminStageServiceRefundRequestRow(row) {
     email: row.service_email || row.requested_by_email,
     division: "무대 서비스",
     discipline: stageServiceDefinitions[row.service_type]?.title || row.service_type,
+    paymentStatus: row.payment_status,
+  };
+}
+
+function mapAdminSpectatorRefundRequestRow(row) {
+  return {
+    ...mapRefundRequestRow(row),
+    refundTarget: "spectator",
+    applicationNumber: row.spectator_order_number,
+    spectatorOrderNumber: row.spectator_order_number,
+    serviceOrderNumber: null,
+    serviceType: null,
+    name: row.spectator_name || row.requested_by_name,
+    phone: row.spectator_phone,
+    email: row.spectator_email || row.requested_by_email,
+    division: "참관객",
+    discipline: "입장권 1매",
     paymentStatus: row.payment_status,
   };
 }
@@ -4851,6 +5017,44 @@ app.post("/kcp/trade/register", async function (req, res) {
       }
     }
 
+    if (context === "spectator") {
+      const salesStatus = getSpectatorSalesStatus();
+      if (!salesStatus.isOpen) {
+        return res.status(409).json({
+          ok: false,
+          code: "SPECTATOR_SALES_CLOSED",
+          message: "현재 참관객 입장권 판매 기간이 아닙니다.",
+        });
+      }
+
+      const spectatorDraftResult = await pool.query(
+        `SELECT name, phone, email, total_amount FROM spectator_drafts WHERE draft_id = $1 LIMIT 1`,
+        [trustedDraftId]
+      );
+      const spectatorDraft = spectatorDraftResult.rows[0];
+
+      if (!spectatorDraft) {
+        return res.status(404).json({ ok: false, code: "SPECTATOR_DRAFT_NOT_FOUND", message: "참관객 신청 초안을 찾을 수 없습니다." });
+      }
+
+      const duplicate = await findCompletedDuplicateSpectator(spectatorDraft);
+      if (duplicate) {
+        return res.status(409).json({
+          ok: false,
+          code: "DUPLICATE_SPECTATOR_TICKET",
+          message: "동일한 정보로 결제 완료된 참관객 입장권이 있습니다.",
+        });
+      }
+
+      if (normalizeAmount(order.amount) !== spectatorTicketAmount || Number(spectatorDraft.total_amount) !== spectatorTicketAmount) {
+        return res.status(409).json({ ok: false, code: "SPECTATOR_AMOUNT_MISMATCH", message: "참관객 입장권 결제 금액이 올바르지 않습니다." });
+      }
+
+      if (await getReservedSpectatorTicketCount() > spectatorTicketCapacity) {
+        return res.status(409).json({ ok: false, code: "SPECTATOR_SOLD_OUT", message: "참관객 입장권이 매진되었습니다." });
+      }
+    }
+
     const regType = resolveKcpRegType(req.headers["user-agent"]);
     const signatureSource = [
       kcpSiteCode,
@@ -5318,6 +5522,94 @@ async function finalizePaidStageServiceOrder({ draftId, orderId }) {
   }
 }
 
+async function finalizePaidSpectatorOrder({ draftId, orderId }) {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('spectator-ticket-capacity'))");
+
+    const existingResult = await client.query(
+      `SELECT * FROM spectator_orders WHERE draft_id = $1 LIMIT 1`,
+      [draftId]
+    );
+    if (existingResult.rowCount > 0) {
+      const existing = existingResult.rows[0];
+      if (existing.order_id !== orderId) {
+        throw Object.assign(new Error("Completed spectator order does not match"), { code: "DRAFT_ORDER_MISMATCH" });
+      }
+      await client.query("COMMIT");
+      return { spectatorOrder: mapSpectatorOrderRow(existing), idempotent: true };
+    }
+
+    const draftResult = await client.query(
+      `SELECT * FROM spectator_drafts WHERE draft_id = $1 FOR UPDATE`,
+      [draftId]
+    );
+    const orderResult = await client.query(
+      `SELECT order_id, amount, status, payment_provider, payment_method, customer_name, customer_email FROM orders WHERE order_id = $1 FOR UPDATE`,
+      [orderId]
+    );
+    const paymentResult = await client.query(
+      `SELECT order_id, payment_key, provider_payment_id, payment_provider, status, total_amount FROM payments WHERE order_id = $1 ORDER BY updated_at DESC LIMIT 1 FOR UPDATE`,
+      [orderId]
+    );
+    const draft = draftResult.rows[0];
+    const order = orderResult.rows[0];
+    const payment = paymentResult.rows[0];
+    const bindingValidation = validateCompletionPaymentBinding({
+      draft,
+      order,
+      payment,
+      expectedAmount: spectatorTicketAmount,
+    });
+    if (!bindingValidation.ok) {
+      throw Object.assign(new Error(bindingValidation.message), { code: bindingValidation.code });
+    }
+
+    const duplicate = await findCompletedDuplicateSpectator({ queryable: client, ...draft });
+    if (duplicate) {
+      throw Object.assign(new Error("동일한 정보로 결제 완료된 참관객 입장권이 있습니다."), { code: "DUPLICATE_SPECTATOR_TICKET" });
+    }
+
+    const capacityResult = await client.query(`SELECT COUNT(*)::int AS count FROM spectator_orders WHERE payment_status = 'DONE'`);
+    if (Number(capacityResult.rows[0]?.count || 0) >= spectatorTicketCapacity) {
+      throw Object.assign(new Error("참관객 입장권이 매진되었습니다."), { code: "SPECTATOR_SOLD_OUT" });
+    }
+
+    const spectatorOrderResult = await client.query(
+      `
+        INSERT INTO spectator_orders (
+          spectator_order_number, draft_id, order_id, payment_key, payment_status,
+          admission_status, name, phone, email, quantity, unit_amount, total_amount,
+          purchased_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, 'READY', $6, $7, $8, 1, $9, $9, NOW(), NOW())
+        RETURNING *
+      `,
+      [
+        generateSpectatorOrderNumber(),
+        draft.draft_id,
+        orderId,
+        payment.payment_key,
+        payment.status,
+        draft.name,
+        draft.phone,
+        draft.email,
+        spectatorTicketAmount,
+      ]
+    );
+    await client.query(`UPDATE spectator_drafts SET status = 'COMPLETED', updated_at = NOW() WHERE draft_id = $1`, [draftId]);
+    await client.query(`UPDATE spectator_consents SET spectator_order_id = $2 WHERE draft_id = $1 AND spectator_order_id IS NULL`, [draftId, spectatorOrderResult.rows[0].id]);
+    await client.query("COMMIT");
+    return { spectatorOrder: mapSpectatorOrderRow(spectatorOrderResult.rows[0]), idempotent: false };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 app.get("/kcp/return", async function (req, res) {
   const context = normalizeKcpPaymentContext(req.query.context);
   const draftId = normalizeText(req.query.draftId);
@@ -5411,7 +5703,8 @@ app.post("/kcp/return", async function (req, res) {
           amount,
           payment_provider,
           payment_method,
-          status
+          status,
+          created_at
         FROM orders
         WHERE order_id = $1
         FOR UPDATE
@@ -5486,12 +5779,14 @@ app.post("/kcp/return", async function (req, res) {
       await client.query("COMMIT");
       let finalizationPending = false;
 
-      if (context === "application" || context === "stageService") {
+      if (context === "application" || context === "stageService" || context === "spectator") {
         try {
           if (context === "application") {
             await finalizePaidApplicationOrder({ draftId: trustedDraftId, orderId: order.order_id });
-          } else {
+          } else if (context === "stageService") {
             await finalizePaidStageServiceOrder({ draftId: trustedDraftId, orderId: order.order_id });
+          } else {
+            await finalizePaidSpectatorOrder({ draftId: trustedDraftId, orderId: order.order_id });
           }
         } catch (error) {
           finalizationPending = true;
@@ -5521,6 +5816,19 @@ app.post("/kcp/return", async function (req, res) {
     if (order.status !== "READY") {
       await client.query("ROLLBACK");
       return redirectFailure("ORDER_NOT_READY", "결제 가능한 주문 상태가 아닙니다.");
+    }
+
+    if (context === "spectator" && isPaymentOrderExpired(order.created_at)) {
+      await client.query(
+        `UPDATE orders SET status = 'CANCELED', updated_at = NOW() WHERE order_id = $1 AND status = 'READY'`,
+        [order.order_id]
+      );
+      await client.query(
+        `UPDATE spectator_drafts SET order_id = NULL, status = 'DRAFT', updated_at = NOW() WHERE draft_id = $1 AND order_id = $2`,
+        [trustedDraftId, order.order_id]
+      );
+      await client.query("COMMIT");
+      return redirectFailure("PAYMENT_ORDER_EXPIRED", `결제 대기 시간이 ${paymentOrderTtlMinutes}분을 초과했습니다.`);
     }
 
     const kcpMethod = mapClientPaymentMethodToKcp(order.payment_method);
@@ -5657,12 +5965,14 @@ app.post("/kcp/return", async function (req, res) {
 
     let finalizationPending = false;
 
-    if (context === "application" || context === "stageService") {
+    if (context === "application" || context === "stageService" || context === "spectator") {
       try {
         if (context === "application") {
           await finalizePaidApplicationOrder({ draftId: trustedDraftId, orderId: order.order_id });
-        } else {
+        } else if (context === "stageService") {
           await finalizePaidStageServiceOrder({ draftId: trustedDraftId, orderId: order.order_id });
+        } else {
+          await finalizePaidSpectatorOrder({ draftId: trustedDraftId, orderId: order.order_id });
         }
       } catch (error) {
         finalizationPending = true;
@@ -6799,6 +7109,136 @@ app.get("/admin/stage-services", requireAdminAuth, async function (req, res) {
   }
 });
 
+app.get("/admin/spectators", requireAdminAuth, async function (req, res) {
+  try {
+    const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+    const requestedPageSize = Number.parseInt(req.query.pageSize, 10) || 50;
+    const exportAll = normalizeText(req.query.export) === "1";
+    const pageSize = exportAll ? 5000 : Math.min(50, Math.max(1, requestedPageSize));
+    const search = normalizeText(req.query.search);
+    const paymentStatus = normalizeText(req.query.paymentStatus);
+    const admissionStatus = normalizeText(req.query.admissionStatus);
+    const requestedSortKey = normalizeText(req.query.sortKey) || "purchasedAt";
+    const sortDirection = normalizeText(req.query.sortDirection) === "asc" ? "ASC" : "DESC";
+    const sortColumns = {
+      spectatorOrderNumber: "spectator_orders.spectator_order_number",
+      name: "spectator_orders.name",
+      paymentStatus: "spectator_orders.payment_status",
+      admissionStatus: "spectator_orders.admission_status",
+      totalAmount: "spectator_orders.total_amount",
+      purchasedAt: "spectator_orders.purchased_at",
+    };
+    const sortColumn = sortColumns[requestedSortKey] || sortColumns.purchasedAt;
+    const clauses = ["1 = 1"];
+    const values = [];
+
+    function addFilter(clause, value) {
+      values.push(value);
+      clauses.push(clause.replaceAll("?", `$${values.length}`));
+    }
+
+    if (paymentStatus && paymentStatus !== "all") {
+      addFilter("spectator_orders.payment_status = ?", paymentStatus);
+    }
+    if (admissionStatus && admissionStatus !== "all") {
+      addFilter("spectator_orders.admission_status = ?", admissionStatus);
+    }
+    if (search) {
+      addFilter(
+        `(
+          spectator_orders.spectator_order_number ILIKE ? OR
+          spectator_orders.order_id ILIKE ? OR spectator_orders.payment_key ILIKE ? OR
+          spectator_orders.name ILIKE ? OR spectator_orders.phone ILIKE ? OR
+          spectator_orders.email ILIKE ?
+        )`,
+        `%${search}%`
+      );
+    }
+
+    const whereClause = clauses.join(" AND ");
+    const summaryResult = await pool.query(
+      `
+        SELECT
+          COUNT(*)::int AS total_count,
+          COUNT(*) FILTER (WHERE payment_status = 'DONE')::int AS paid_count,
+          COALESCE(SUM(quantity) FILTER (WHERE payment_status = 'DONE'), 0)::int AS sold_count
+        FROM spectator_orders
+        WHERE ${whereClause}
+      `,
+      values
+    );
+    const totalCount = summaryResult.rows[0]?.total_count || 0;
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+    const effectivePage = exportAll ? 1 : Math.min(page, totalPages);
+    const offset = exportAll ? 0 : (effectivePage - 1) * pageSize;
+    const pageValues = exportAll ? values : [...values, pageSize, offset];
+    const pageLimit = exportAll
+      ? "LIMIT 5000"
+      : `LIMIT $${values.length + 1} OFFSET $${values.length + 2}`;
+    const result = await pool.query(
+      `
+        SELECT
+          spectator_orders.*,
+          payments.approved_at AS payment_completed_at,
+          consents.privacy_consent,
+          consents.refund_consent,
+          consents.marketing_consent,
+          consents.photo_video_consent
+        FROM spectator_orders
+        LEFT JOIN payments
+          ON payments.payment_key = spectator_orders.payment_key
+          OR payments.order_id = spectator_orders.order_id
+        LEFT JOIN LATERAL (
+          SELECT privacy_consent, refund_consent, marketing_consent, photo_video_consent
+          FROM spectator_consents
+          WHERE spectator_consents.spectator_order_id = spectator_orders.id
+             OR spectator_consents.draft_id = spectator_orders.draft_id
+          ORDER BY spectator_consents.consented_at DESC
+          LIMIT 1
+        ) AS consents ON TRUE
+        WHERE ${whereClause}
+        ORDER BY ${sortColumn} ${sortDirection} NULLS LAST,
+          spectator_orders.spectator_order_number DESC
+        ${pageLimit}
+      `,
+      pageValues
+    );
+
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: exportAll ? "ADMIN_EXPORT_SPECTATORS" : "ADMIN_VIEW_SPECTATORS",
+      targetType: "spectator_orders",
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+      metadata: { count: result.rowCount, page: effectivePage, pageSize, exportAll },
+    });
+
+    return res.status(200).json({
+      ok: true,
+      pagination: { page: effectivePage, pageSize, totalCount, totalPages },
+      summary: {
+        totalCount,
+        paidCount: summaryResult.rows[0]?.paid_count || 0,
+        soldCount: summaryResult.rows[0]?.sold_count || 0,
+        capacity: spectatorTicketCapacity,
+      },
+      spectators: result.rows.map((row) => ({
+        ...mapSpectatorOrderRow(row, { maskPersonalInfo: false }),
+        paymentCompletedAt: row.payment_completed_at,
+        consents: {
+          privacy: row.privacy_consent === true,
+          refund: row.refund_consent === true,
+          marketing: row.marketing_consent === true,
+          photoVideo: row.photo_video_consent === true,
+        },
+      })),
+    });
+  } catch (error) {
+    console.error("Failed to fetch admin spectators:", error);
+    return res.status(500).json({ ok: false, message: "Failed to fetch admin spectators" });
+  }
+});
+
 app.get("/admin/applications/:applicationNumber/files/:fileReference/download", requireAdminAuth, async function (req, res) {
   try {
     if (!ensureR2ReadReady()) {
@@ -6945,6 +7385,29 @@ app.get("/admin/refund-requests", requireAdminAuth, async function (req, res) {
           `
         )
       : { rows: [] };
+    const spectatorRefundRequestTableResult = await pool.query(
+      "SELECT to_regclass('public.spectator_refund_requests') AS table_name"
+    );
+    const spectatorRequestsResult = spectatorRefundRequestTableResult.rows[0]?.table_name
+      ? await pool.query(
+          `
+            SELECT
+              requests.*,
+              spectator_orders.name AS spectator_name,
+              spectator_orders.phone AS spectator_phone,
+              spectator_orders.email AS spectator_email,
+              payments.status AS payment_status
+            FROM spectator_refund_requests AS requests
+            LEFT JOIN spectator_orders
+              ON spectator_orders.spectator_order_number = requests.spectator_order_number
+            LEFT JOIN payments
+              ON payments.payment_key = requests.payment_key
+              OR payments.order_id = requests.order_id
+            ORDER BY requests.created_at DESC
+            LIMIT 5000
+          `
+        )
+      : { rows: [] };
 
     const allRequests = [
       ...applicationRequestsResult.rows.map((row) => ({
@@ -6960,6 +7423,7 @@ app.get("/admin/refund-requests", requireAdminAuth, async function (req, res) {
         paymentStatus: row.payment_status,
       })),
       ...stageRequestsResult.rows.map(mapAdminStageServiceRefundRequestRow),
+      ...spectatorRequestsResult.rows.map(mapAdminSpectatorRefundRequestRow),
     ];
     const filteredRequests = allRequests.filter((row) => {
       if (requestStatus && requestStatus !== "all" && row.requestStatus !== requestStatus) {
@@ -6973,6 +7437,7 @@ app.get("/admin/refund-requests", requireAdminAuth, async function (req, res) {
       return [
         row.applicationNumber,
         row.serviceOrderNumber,
+        row.spectatorOrderNumber,
         row.serviceType,
         row.orderId,
         row.paymentKey,
@@ -7079,7 +7544,10 @@ app.get("/admin/canceled-payments", requireAdminAuth, async function (req, res) 
           applications.phone ILIKE ? OR applications.email ILIKE ? OR
           stage_service_orders.service_order_number ILIKE ? OR
           stage_service_orders.name ILIKE ? OR stage_service_orders.phone ILIKE ? OR
-          stage_service_orders.email ILIKE ? OR orders.customer_name ILIKE ? OR orders.customer_email ILIKE ?
+          stage_service_orders.email ILIKE ? OR
+          spectator_orders.spectator_order_number ILIKE ? OR spectator_orders.name ILIKE ? OR
+          spectator_orders.phone ILIKE ? OR spectator_orders.email ILIKE ? OR
+          orders.customer_name ILIKE ? OR orders.customer_email ILIKE ?
         )`,
         `%${search}%`
       );
@@ -7094,6 +7562,7 @@ app.get("/admin/canceled-payments", requireAdminAuth, async function (req, res) 
         FROM payments
         LEFT JOIN applications ON applications.order_id = payments.order_id
         LEFT JOIN stage_service_orders ON stage_service_orders.order_id = payments.order_id
+        LEFT JOIN spectator_orders ON spectator_orders.order_id = payments.order_id
         LEFT JOIN orders ON orders.order_id = payments.order_id
         WHERE ${whereClause}
       `,
@@ -7128,12 +7597,17 @@ app.get("/admin/canceled-payments", requireAdminAuth, async function (req, res) 
           stage_service_orders.name AS stage_service_name,
           stage_service_orders.phone AS stage_service_phone,
           stage_service_orders.email AS stage_service_email,
+          spectator_orders.spectator_order_number,
+          spectator_orders.name AS spectator_name,
+          spectator_orders.phone AS spectator_phone,
+          spectator_orders.email AS spectator_email,
           orders.customer_name,
           orders.customer_email,
           orders.status AS order_status
         FROM payments
         LEFT JOIN applications ON applications.order_id = payments.order_id
         LEFT JOIN stage_service_orders ON stage_service_orders.order_id = payments.order_id
+        LEFT JOIN spectator_orders ON spectator_orders.order_id = payments.order_id
         LEFT JOIN orders ON orders.order_id = payments.order_id
         WHERE ${whereClause}
         ORDER BY ${sortColumn} ${sortDirection} NULLS LAST, payments.order_id DESC
@@ -7157,15 +7631,18 @@ app.get("/admin/canceled-payments", requireAdminAuth, async function (req, res) 
       refunds: result.rows.map((row) => ({
         orderId: row.order_id,
         paymentKey: row.payment_key,
-        refundTarget: row.service_order_number ? "stage-service" : "application",
-        applicationNumber: row.application_number || row.stage_linked_application_number,
+        refundTarget: row.service_order_number ? "stage-service" : row.spectator_order_number ? "spectator" : "application",
+        applicationNumber: row.application_number || row.stage_linked_application_number || row.spectator_order_number,
         serviceOrderNumber: row.service_order_number,
+        spectatorOrderNumber: row.spectator_order_number,
         serviceType: row.service_type,
-        name: row.name || row.stage_service_name || row.customer_name,
-        phone: row.phone || row.stage_service_phone,
-        email: row.email || row.stage_service_email || row.customer_email,
-        division: row.service_order_number ? "무대 서비스" : row.division,
-        discipline: row.service_order_number
+        name: row.name || row.stage_service_name || row.spectator_name || row.customer_name,
+        phone: row.phone || row.stage_service_phone || row.spectator_phone,
+        email: row.email || row.stage_service_email || row.spectator_email || row.customer_email,
+        division: row.service_order_number ? "무대 서비스" : row.spectator_order_number ? "참관객" : row.division,
+        discipline: row.spectator_order_number
+          ? "입장권 1매"
+          : row.service_order_number
           ? stageServiceDefinitions[row.service_type]?.title || row.service_type
           : getCanonicalApplicationDisciplineTitle({ discipline: row.discipline }),
         paymentStatus: row.status,
@@ -7607,6 +8084,30 @@ app.post(
         stageServiceCount = stageServiceUpdateResult.rowCount;
       }
 
+      let spectatorCount = 0;
+      const spectatorTableResult = await client.query(
+        "SELECT to_regclass('public.spectator_orders') AS table_name"
+      );
+
+      if (spectatorTableResult.rows[0]?.table_name) {
+        const spectatorUpdateResult = await client.query(
+          `
+            UPDATE spectator_orders
+            SET
+              payment_status = $2,
+              admission_status = CASE
+                WHEN $2 = 'CANCELED' THEN 'REFUNDED'
+                WHEN $2 = 'PARTIAL_CANCELED' THEN 'PARTIAL_REFUNDED'
+                ELSE admission_status
+              END,
+              updated_at = NOW()
+            WHERE order_id = $1
+          `,
+          [orderId, nextPaymentStatus]
+        );
+        spectatorCount = spectatorUpdateResult.rowCount;
+      }
+
       let refundRequestSynced = false;
 
       if (
@@ -7653,6 +8154,48 @@ app.post(
           );
           refundRequestSynced = refundRequestUpdateResult.rowCount > 0;
         }
+
+        if (!refundRequestSynced && spectatorCount > 0) {
+          const spectatorRefundTableResult = await client.query(
+            "SELECT to_regclass('public.spectator_refund_requests') AS table_name"
+          );
+          if (spectatorRefundTableResult.rows[0]?.table_name) {
+            const spectatorRefundUpdateResult = await client.query(
+              `
+                WITH target_request AS (
+                  SELECT id
+                  FROM spectator_refund_requests
+                  WHERE order_id = $1
+                    AND request_status IN ('PROCESSING', 'FAILED', 'SYNC_FAILED')
+                    AND original_amount = $2
+                    AND original_amount - refund_amount = $3
+                  ORDER BY created_at DESC
+                  LIMIT 1
+                  FOR UPDATE
+                )
+                UPDATE spectator_refund_requests AS requests
+                SET
+                  request_status = 'COMPLETED',
+                  provider_status_code = $4,
+                  provider_error_code = NULL,
+                  provider_error_message = NULL,
+                  provider_response_json = $5::jsonb,
+                  processed_at = NOW(),
+                  updated_at = NOW()
+                FROM target_request
+                WHERE requests.id = target_request.id
+              `,
+              [
+                orderId,
+                orderAmount,
+                interpretedInquiry.remainingAmount,
+                inquiryResponse.httpStatus,
+                inquiryPayloadJson,
+              ]
+            );
+            refundRequestSynced = spectatorRefundUpdateResult.rowCount > 0;
+          }
+        }
       }
 
       await client.query("COMMIT");
@@ -7674,6 +8217,7 @@ app.post(
           remainingAmount: interpretedInquiry.remainingAmount,
           applicationCount: applicationUpdateResult.rowCount,
           stageServiceCount,
+          spectatorCount,
           refundRequestSynced,
         },
       });
@@ -7693,6 +8237,7 @@ app.post(
           canceledAt: interpretedInquiry.canceledAt,
           applicationCount: applicationUpdateResult.rowCount,
           stageServiceCount,
+          spectatorCount,
           refundRequestSynced,
         },
       });
@@ -8029,22 +8574,157 @@ app.post("/admin/stage-service-refunds/:refundRequestId/retry-sync", requireAdmi
 
     return res.status(200).json({
       ok: true,
-      pagination: {
-        page: effectivePage,
-        pageSize,
-        totalCount,
-        totalPages,
-      },
-      summary: {
-        totalCount: summaryResult.rows[0]?.total_count || 0,
-        paidCount: summaryResult.rows[0]?.paid_count || 0,
-      },
       refundRequest: mapStageServiceRefundRequestRow(completedRequestResult.rows[0]),
     });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     console.error("Failed to retry stage service refund sync:", error);
     return res.status(500).json({ ok: false, message: "Failed to retry stage service refund sync" });
+  } finally {
+    client.release();
+  }
+});
+
+app.post("/admin/spectator-refunds/:refundRequestId/retry-sync", requireAdminAuth, async function (req, res) {
+  if (!hasTrustedAdminOrigin(req)) {
+    return res.status(403).json({ ok: false, message: "Untrusted admin origin" });
+  }
+
+  const refundRequestId = Number(req.params.refundRequestId);
+  if (!Number.isInteger(refundRequestId) || refundRequestId <= 0) {
+    return res.status(400).json({ ok: false, message: "Invalid refund request id" });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const requestResult = await client.query(
+      `SELECT * FROM spectator_refund_requests WHERE id = $1 LIMIT 1 FOR UPDATE`,
+      [refundRequestId]
+    );
+    if (requestResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ ok: false, message: "Spectator refund request not found" });
+    }
+
+    const refundRequest = requestResult.rows[0];
+    if (refundRequest.request_status !== "SYNC_FAILED") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        code: refundRequest.request_status === "COMPLETED"
+          ? "REFUND_REQUEST_ALREADY_COMPLETED"
+          : "REFUND_REQUEST_NOT_RETRYABLE",
+        message: refundRequest.request_status === "COMPLETED"
+          ? "이미 완료된 환불 요청입니다."
+          : "현재 상태에서는 재동기화를 실행할 수 없습니다.",
+      });
+    }
+
+    let providerResponse = refundRequest.provider_response_json;
+    if (typeof providerResponse === "string") {
+      try {
+        providerResponse = JSON.parse(providerResponse);
+      } catch (_error) {
+        providerResponse = null;
+      }
+    }
+    if (!providerResponse || typeof providerResponse !== "object") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        code: "REFUND_PROVIDER_RESPONSE_MISSING",
+        message: "결제사 환불 응답 원본이 없어 재동기화를 진행할 수 없습니다.",
+      });
+    }
+
+    const nextPaymentStatus = providerResponse.status || "CANCELED";
+    await client.query(
+      `
+        UPDATE payments
+        SET
+          method = COALESCE($3, method),
+          payment_type = COALESCE($4, payment_type),
+          status = $5,
+          approved_at = COALESCE($6, approved_at),
+          total_amount = COALESCE($7, total_amount),
+          raw_response_json = CASE
+            WHEN payment_provider = 'kcp' THEN jsonb_build_object(
+              'approval', raw_response_json,
+              'cancellations', jsonb_build_array($8::jsonb)
+            )
+            ELSE COALESCE($8::jsonb, raw_response_json)
+          END,
+          updated_at = NOW()
+        WHERE payment_key = $1 OR order_id = $2
+      `,
+      [
+        refundRequest.payment_key,
+        refundRequest.order_id,
+        providerResponse.method || null,
+        providerResponse.type || null,
+        nextPaymentStatus,
+        providerResponse.approvedAt || null,
+        providerResponse.totalAmount ?? refundRequest.original_amount ?? null,
+        JSON.stringify(providerResponse),
+      ]
+    );
+    await client.query(
+      `UPDATE orders SET status = $2, updated_at = NOW() WHERE order_id = $1`,
+      [refundRequest.order_id, mapPaymentStatusToOrderStatus(nextPaymentStatus) || "CANCELED"]
+    );
+    const spectatorResult = await client.query(
+      `
+        UPDATE spectator_orders
+        SET
+          payment_status = $2,
+          admission_status = CASE
+            WHEN $2 = 'CANCELED' THEN 'REFUNDED'
+            WHEN $2 = 'PARTIAL_CANCELED' THEN 'PARTIAL_REFUNDED'
+            ELSE admission_status
+          END,
+          updated_at = NOW()
+        WHERE spectator_order_number = $1
+        RETURNING spectator_order_number
+      `,
+      [refundRequest.spectator_order_number, nextPaymentStatus]
+    );
+    if (spectatorResult.rowCount === 0) {
+      throw new Error("Spectator order not found for refund sync");
+    }
+    const completedResult = await client.query(
+      `
+        UPDATE spectator_refund_requests
+        SET request_status = 'COMPLETED', processed_at = COALESCE(processed_at, NOW()), updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+      `,
+      [refundRequestId]
+    );
+    await client.query("COMMIT");
+
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_RETRY_SPECTATOR_REFUND_SYNC",
+      targetType: "spectator_refund_request",
+      targetId: String(refundRequestId),
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+      metadata: {
+        spectatorOrderNumber: refundRequest.spectator_order_number,
+        nextPaymentStatus,
+      },
+    });
+
+    return res.status(200).json({
+      ok: true,
+      refundRequest: mapRefundRequestRow(completedResult.rows[0]),
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error("Failed to retry spectator refund sync:", error);
+    return res.status(500).json({ ok: false, message: "Failed to retry spectator refund sync" });
   } finally {
     client.release();
   }
@@ -10496,7 +11176,31 @@ app.post("/applications/lookup", async function (req, res) {
       [name, email]
     );
 
-    if (result.rowCount === 0) {
+    const spectatorResult = await pool.query(
+      `
+        SELECT
+          spectator_orders.*,
+          orders.amount AS payment_amount,
+          latest_payment.approved_at,
+          latest_payment.created_at AS payment_created_at
+        FROM spectator_orders
+        LEFT JOIN orders ON orders.order_id = spectator_orders.order_id
+        LEFT JOIN LATERAL (
+          SELECT approved_at, created_at
+          FROM payments
+          WHERE payments.order_id = spectator_orders.order_id
+          ORDER BY approved_at DESC NULLS LAST, created_at DESC
+          LIMIT 1
+        ) AS latest_payment ON TRUE
+        WHERE spectator_orders.name = $1
+          AND LOWER(spectator_orders.email) = $2
+        ORDER BY spectator_orders.purchased_at DESC NULLS LAST, spectator_orders.updated_at DESC
+        LIMIT 10
+      `,
+      [name, email]
+    );
+
+    if (result.rowCount === 0 && spectatorResult.rowCount === 0) {
       return res.status(404).json({
         ok: false,
         message: "입력한 정보와 일치하는 신청 내역을 찾을 수 없습니다.",
@@ -10505,8 +11209,13 @@ app.post("/applications/lookup", async function (req, res) {
 
     return res.status(200).json({
       ok: true,
-      application: mapApplicationRow(result.rows[0]),
+      application: result.rowCount ? mapApplicationRow(result.rows[0]) : null,
       applications: result.rows.map(mapApplicationRow),
+      spectators: spectatorResult.rows.map((row) => ({
+        ...mapSpectatorOrderRow(row, { maskPersonalInfo: false }),
+        paymentAmount: Number(row.payment_amount || row.total_amount || 0),
+        paymentCompletedAt: row.approved_at || row.payment_created_at || null,
+      })),
     });
   } catch (error) {
     console.error("Failed to lookup application:", error);
@@ -11011,6 +11720,332 @@ app.post("/applications/refund/request", async function (req, res) {
   }
 });
 
+app.post("/spectators/refund/quote", async function (req, res) {
+  try {
+    const name = normalizeText(req.body.name);
+    const email = normalizeEmail(req.body.email);
+    const verificationToken = normalizeText(req.body.verificationToken);
+    const spectatorOrderNumber = normalizeText(req.body.spectatorOrderNumber);
+    if (!name || !email || !verificationToken || !spectatorOrderNumber) return res.status(400).json({ ok: false, message: "환불 조회 정보가 부족합니다." });
+    if (!(await hasVerifiedLookupSession({ name, email, verificationToken }))) return res.status(403).json({ ok: false, message: "이메일 인증이 만료되었거나 유효하지 않습니다." });
+    const spectatorOrder = await findLookupOwnedSpectator({ name, email, spectatorOrderNumber });
+    if (!spectatorOrder) return res.status(404).json({ ok: false, message: "참관객 신청을 찾을 수 없습니다." });
+    const refundQuote = calculateRefundQuote({
+      applicationStatus: spectatorOrder.admission_status,
+      paymentStatus: spectatorOrder.latest_payment_status || spectatorOrder.payment_status,
+      amount: spectatorOrder.total_amount || spectatorOrder.order_amount,
+      paymentCompletedAt: spectatorOrder.approved_at || spectatorOrder.payment_created_at,
+      paymentMethod: spectatorOrder.latest_payment_method,
+      requestedAt: new Date(),
+    });
+    return res.status(200).json({ ok: true, spectatorOrder: mapSpectatorOrderRow(spectatorOrder, { maskPersonalInfo: false }), refundQuote });
+  } catch (error) {
+    console.error("Failed to calculate spectator refund quote:", error);
+    return res.status(500).json({ ok: false, message: "참관객 환불 정보를 계산하지 못했습니다." });
+  }
+});
+
+app.post("/spectators/refund/request", async function (req, res) {
+  let client = null;
+  let refundRequestId = null;
+  let providerCancelResult = null;
+  let providerCancelStatusCode = null;
+  try {
+    const name = normalizeText(req.body.name);
+    const email = normalizeEmail(req.body.email);
+    const verificationToken = normalizeText(req.body.verificationToken);
+    const spectatorOrderNumber = normalizeText(req.body.spectatorOrderNumber);
+    const requestReason = normalizeText(req.body.requestReason) || "사용자 요청 자동 환불";
+    if (!name || !email || !verificationToken || !spectatorOrderNumber) return res.status(400).json({ ok: false, message: "환불 요청 정보가 부족합니다." });
+    if (!(await hasVerifiedLookupSession({ name, email, verificationToken }))) return res.status(403).json({ ok: false, message: "이메일 인증이 만료되었거나 유효하지 않습니다." });
+    const spectatorOrder = await findLookupOwnedSpectator({ name, email, spectatorOrderNumber });
+    if (!spectatorOrder) return res.status(404).json({ ok: false, message: "참관객 신청을 찾을 수 없습니다." });
+    const originalAmount = Number(spectatorOrder.total_amount || spectatorOrder.order_amount || 0);
+    const refundQuote = calculateRefundQuote({
+      applicationStatus: spectatorOrder.admission_status,
+      paymentStatus: spectatorOrder.latest_payment_status || spectatorOrder.payment_status,
+      amount: originalAmount,
+      paymentCompletedAt: spectatorOrder.approved_at || spectatorOrder.payment_created_at,
+      paymentMethod: spectatorOrder.latest_payment_method,
+      requestedAt: new Date(),
+    });
+    if (!refundQuote.canAutoRefund || !refundQuote.isRefundable || refundQuote.requiresManualReview) return res.status(409).json({ ok: false, code: refundQuote.reasonCode, message: refundQuote.message, refundQuote });
+    if (!spectatorOrder.payment_key) return res.status(409).json({ ok: false, code: "PAYMENT_KEY_MISSING", message: "환불 처리에 필요한 결제 키가 없습니다." });
+    const refundProvider = spectatorOrder.latest_payment_provider || spectatorOrder.order_payment_provider;
+    if (refundProvider !== paymentProviders.KCP) return res.status(409).json({ ok: false, code: "PAYMENT_PROVIDER_MISMATCH", message: "KCP 결제 건만 환불할 수 있습니다." });
+    assertKcpConfigured();
+
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const activeResult = await client.query(`SELECT * FROM spectator_refund_requests WHERE spectator_order_number = $1 AND request_status IN ('REQUESTED','PROCESSING','COMPLETED','SYNC_FAILED') ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [spectatorOrderNumber]);
+    if (activeResult.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ ok: false, code: "REFUND_ALREADY_REQUESTED", message: "이미 환불 요청이 접수되었거나 처리되었습니다." });
+    }
+    if (!(await consumeVerifiedLookupSession(client, { name, email, verificationToken }))) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ ok: false, message: "이메일 인증이 이미 사용되었거나 만료되었습니다." });
+    }
+    const insertResult = await client.query(
+      `INSERT INTO spectator_refund_requests (spectator_order_number, order_id, payment_key, request_reason, request_status, refund_percent, refund_amount, original_amount, policy_version, policy_rule_id, policy_rule_label, policy_snapshot_json, requested_by_name, requested_by_email, provider_idempotency_key) VALUES ($1,$2,$3,$4,'PROCESSING',$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14) RETURNING *`,
+      [spectatorOrderNumber, spectatorOrder.order_id, spectatorOrder.payment_key, requestReason, refundQuote.refundPercent, refundQuote.refundAmount, originalAmount, refundQuote.policyVersion, refundQuote.matchedRuleId, refundQuote.matchedRuleLabel, JSON.stringify(refundQuote), name, email, generateRefundIdempotencyKey()]
+    );
+    refundRequestId = insertResult.rows[0].id;
+    await client.query("COMMIT");
+    client.release();
+    client = null;
+
+    const cancellation = await requestKcpCancellation({ paymentKey: spectatorOrder.payment_key, cancelAmount: refundQuote.refundAmount, remainingAmount: originalAmount, originalAmount, reason: requestReason });
+    providerCancelResult = cancellation.result;
+    providerCancelStatusCode = cancellation.httpStatus;
+    client = await pool.connect();
+    await client.query("BEGIN");
+    if (!cancellation.ok) {
+      await client.query(`UPDATE spectator_refund_requests SET request_status = 'FAILED', provider_status_code = $2, provider_error_code = $3, provider_error_message = $4, provider_response_json = $5::jsonb, processed_at = NOW(), updated_at = NOW() WHERE id = $1`, [refundRequestId, cancellation.httpStatus, cancellation.errorCode, cancellation.errorMessage, JSON.stringify(cancellation.result)]);
+      await client.query("COMMIT");
+      return res.status(cancellation.httpStatus >= 400 ? cancellation.httpStatus : 502).json({ ok: false, code: cancellation.errorCode || "REFUND_REQUEST_FAILED", message: cancellation.errorMessage || "환불 처리에 실패했습니다." });
+    }
+    const nextPaymentStatus = cancellation.result.status || "CANCELED";
+    await client.query(`UPDATE payments SET status = $3, total_amount = COALESCE($4, total_amount), raw_response_json = jsonb_build_object('approval', raw_response_json, 'cancellations', jsonb_build_array($5::jsonb)), updated_at = NOW() WHERE payment_key = $1 OR order_id = $2`, [spectatorOrder.payment_key, spectatorOrder.order_id, nextPaymentStatus, cancellation.result.totalAmount, JSON.stringify(cancellation.result)]);
+    await client.query(`UPDATE orders SET status = $2, updated_at = NOW() WHERE order_id = $1`, [spectatorOrder.order_id, mapPaymentStatusToOrderStatus(nextPaymentStatus) || "CANCELED"]);
+    await client.query(`UPDATE spectator_orders SET payment_status = $2, admission_status = $3, updated_at = NOW() WHERE spectator_order_number = $1`, [spectatorOrderNumber, nextPaymentStatus, nextPaymentStatus === "PARTIAL_CANCELED" ? "PARTIAL_REFUNDED" : "REFUNDED"]);
+    await client.query(`UPDATE spectator_refund_requests SET request_status = 'COMPLETED', provider_status_code = $2, provider_response_json = $3::jsonb, processed_at = NOW(), updated_at = NOW() WHERE id = $1`, [refundRequestId, providerCancelStatusCode, JSON.stringify(providerCancelResult)]);
+    await client.query("COMMIT");
+    return res.status(200).json({ ok: true, refundQuote: { ...refundQuote, canAutoRefund: false, message: "환불 요청이 정상적으로 처리되었습니다." } });
+  } catch (error) {
+    if (client) await client.query("ROLLBACK").catch(() => undefined);
+    if (refundRequestId) {
+      await pool.query(`UPDATE spectator_refund_requests SET request_status = CASE WHEN request_status = 'COMPLETED' THEN request_status WHEN $3::boolean THEN 'SYNC_FAILED' ELSE 'FAILED' END, provider_status_code = COALESCE(provider_status_code, $4), provider_response_json = COALESCE(provider_response_json, $5::jsonb), provider_error_message = COALESCE(provider_error_message, $2), updated_at = NOW() WHERE id = $1`, [refundRequestId, error.message || "Failed to process spectator refund", Boolean(providerCancelResult), providerCancelStatusCode, providerCancelResult ? JSON.stringify(providerCancelResult) : null]).catch(() => undefined);
+    }
+    console.error("Failed to process spectator refund:", error);
+    if (error.code === "23505") return res.status(409).json({ ok: false, code: "REFUND_ALREADY_REQUESTED", message: "이미 환불 요청이 접수되었거나 처리되었습니다." });
+    return res.status(500).json({ ok: false, message: "참관객 환불 처리에 실패했습니다." });
+  } finally {
+    client?.release();
+  }
+});
+
+app.post("/spectators/draft", async function (req, res) {
+  if (!hasTrustedWriteOrigin(req)) {
+    return res.status(403).json({ ok: false, message: "Untrusted request origin" });
+  }
+
+  const validation = validateSpectatorApplicantPayload(req.body);
+  if (!validation.ok) return res.status(400).json(validation);
+  if (!getSpectatorSalesStatus().isOpen) {
+    return res.status(409).json({ ok: false, code: "SPECTATOR_SALES_CLOSED", message: "현재 참관객 입장권 판매 기간이 아닙니다." });
+  }
+
+  const { payload } = validation;
+  const emailVerification = validateApplicationEmailVerificationToken({
+    providedToken: getApplicationEmailVerificationToken(req),
+    name: payload.name,
+    email: payload.email,
+    requiredStatus: "VERIFIED",
+  });
+  if (!emailVerification.ok) {
+    return res.status(403).json({ ok: false, code: "EMAIL_VERIFICATION_REQUIRED", message: "이메일 인증을 완료해 주세요." });
+  }
+
+  try {
+    const duplicate = await findCompletedDuplicateSpectator(payload);
+    if (duplicate) {
+      return res.status(409).json({ ok: false, code: "DUPLICATE_SPECTATOR_TICKET", message: "동일한 정보로 결제 완료된 참관객 입장권이 있습니다." });
+    }
+
+    const result = await pool.query(
+      `
+        INSERT INTO spectator_drafts (
+          draft_id, status, name, phone, email, quantity, unit_amount, total_amount,
+          email_verified_at, created_at, updated_at
+        ) VALUES ($1, 'DRAFT', $2, $3, $4, 1, $5, $5, NOW(), NOW(), NOW())
+        RETURNING *
+      `,
+      [generateSpectatorDraftId(), payload.name, payload.phone, payload.email, spectatorTicketAmount]
+    );
+    issueDraftAccessCookie(res, { draftId: result.rows[0].draft_id, draftType: "spectator", cookieName: spectatorDraftCookieName });
+    return res.status(201).json({ ok: true, draft: mapSpectatorDraftRow(result.rows[0]) });
+  } catch (error) {
+    console.error("Failed to create spectator draft:", error);
+    return res.status(500).json({ ok: false, message: "참관객 신청 정보를 저장하지 못했습니다." });
+  }
+});
+
+app.patch("/spectators/draft/:draftId/consents", async function (req, res) {
+  const draftId = normalizeText(req.params.draftId);
+  if (!requireRequestDraftAccess(req, res, { draftId, draftType: "spectator", cookieName: spectatorDraftCookieName })) return;
+  const consents = req.body.consents || {};
+  if (consents.privacy !== true || consents.refund !== true) {
+    return res.status(400).json({ ok: false, code: "REQUIRED_CONSENTS_MISSING", message: "개인정보 수집 및 환불 규정 필수 동의가 필요합니다." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const draftResult = await client.query(`SELECT draft_id, status FROM spectator_drafts WHERE draft_id = $1 FOR UPDATE`, [draftId]);
+    if (!draftResult.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ ok: false, message: "참관객 신청 초안을 찾을 수 없습니다." });
+    }
+    if (draftResult.rows[0].status === "COMPLETED") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ ok: false, message: "이미 결제 완료된 신청입니다." });
+    }
+    await client.query(`DELETE FROM spectator_consents WHERE draft_id = $1 AND spectator_order_id IS NULL`, [draftId]);
+    await client.query(
+      `INSERT INTO spectator_consents (draft_id, privacy_consent, refund_consent, marketing_consent, photo_video_consent, consent_version, consented_at) VALUES ($1, TRUE, TRUE, $2, $3, $4, NOW())`,
+      [draftId, consents.marketing === true, consents.photoVideo === true, normalizeText(consents.version) || "spectator-v1"]
+    );
+    await client.query(`UPDATE spectator_drafts SET status = 'CONSENTED', updated_at = NOW() WHERE draft_id = $1`, [draftId]);
+    await client.query("COMMIT");
+    return res.status(200).json({ ok: true });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error("Failed to update spectator consents:", error);
+    return res.status(500).json({ ok: false, message: "참관객 동의 사항을 저장하지 못했습니다." });
+  } finally {
+    client.release();
+  }
+});
+
+app.get("/spectators/draft/:draftId", async function (req, res) {
+  const draftId = normalizeText(req.params.draftId);
+  if (!requireRequestDraftAccess(req, res, { draftId, draftType: "spectator", cookieName: spectatorDraftCookieName })) return;
+  try {
+    const result = await pool.query(`SELECT * FROM spectator_drafts WHERE draft_id = $1`, [draftId]);
+    if (!result.rowCount) return res.status(404).json({ ok: false, message: "참관객 신청 초안을 찾을 수 없습니다." });
+    return res.status(200).json({ ok: true, draft: mapSpectatorDraftRow(result.rows[0]) });
+  } catch (error) {
+    console.error("Failed to fetch spectator draft:", error);
+    return res.status(500).json({ ok: false, message: "참관객 신청 정보를 불러오지 못했습니다." });
+  }
+});
+
+app.post("/spectators/orders", async function (req, res) {
+  const draftId = normalizeText(req.body.draftId);
+  if (!draftId) return res.status(400).json({ ok: false, message: "Missing draftId" });
+  if (!requireRequestDraftAccess(req, res, { draftId, draftType: "spectator", cookieName: spectatorDraftCookieName })) return;
+  if (!getSpectatorSalesStatus().isOpen) return res.status(409).json({ ok: false, code: "SPECTATOR_SALES_CLOSED", message: "현재 참관객 입장권 판매 기간이 아닙니다." });
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('spectator-ticket-capacity'))");
+    const draftResult = await client.query(`SELECT * FROM spectator_drafts WHERE draft_id = $1 FOR UPDATE`, [draftId]);
+    if (!draftResult.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ ok: false, message: "참관객 신청 초안을 찾을 수 없습니다." });
+    }
+    const draft = draftResult.rows[0];
+    const consentResult = await client.query(`SELECT id FROM spectator_consents WHERE draft_id = $1 AND privacy_consent = TRUE AND refund_consent = TRUE LIMIT 1`, [draftId]);
+    if (!consentResult.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ ok: false, code: "REQUIRED_CONSENTS_MISSING", message: "필수 동의 사항을 확인해 주세요." });
+    }
+
+    if (draft.order_id) {
+      const existingOrderState = await releaseReusableDraftOrder({ client, draftTable: "spectator_drafts", draftId, orderId: draft.order_id });
+      if (!existingOrderState.reusable) {
+        const order = existingOrderState.order;
+        const token = createPaymentResultAccessToken({ orderId: order.order_id, secret: paymentResultTokenSecret, ttlSeconds: paymentResultAccessTtlHours * 3600 });
+        await client.query("COMMIT");
+        res.setHeader("Set-Cookie", createPaymentResultAccessCookie(token));
+        return res.status(200).json({ ok: true, order: { orderId: order.order_id, orderName: order.order_name, amount: order.amount, status: order.status, createdAt: order.created_at } });
+      }
+    }
+
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`${draft.name}|${draft.phone}|${draft.email}`]);
+    const duplicate = await findCompletedDuplicateSpectator({ queryable: client, ...draft });
+    if (duplicate) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ ok: false, code: "DUPLICATE_SPECTATOR_TICKET", message: "동일한 정보로 결제 완료된 참관객 입장권이 있습니다." });
+    }
+    const activeResult = await client.query(
+      `SELECT d.draft_id FROM spectator_drafts d JOIN orders o ON o.order_id = d.order_id WHERE d.name = $1 AND d.phone = $2 AND LOWER(d.email) = $3 AND d.draft_id <> $4 AND (o.status = 'PAID' OR (o.status = 'READY' AND o.created_at >= NOW() - ($5::text || ' minutes')::interval)) LIMIT 1`,
+      [draft.name, draft.phone, draft.email, draftId, String(paymentOrderTtlMinutes)]
+    );
+    if (activeResult.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ ok: false, code: "SPECTATOR_PAYMENT_IN_PROGRESS", message: "동일한 정보의 입장권 결제가 이미 진행 중입니다." });
+    }
+
+    const reservedCount = await getReservedSpectatorTicketCount(client);
+    if (reservedCount >= spectatorTicketCapacity) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ ok: false, code: "SPECTATOR_SOLD_OUT", message: "참관객 입장권이 매진되었습니다." });
+    }
+
+    const providerResolution = resolvePaymentProvider({ requestedProvider: paymentProviders.KCP, amount: spectatorTicketAmount });
+    if (!providerResolution.ok) {
+      await client.query("ROLLBACK");
+      return res.status(providerResolution.status).json({ ok: false, message: providerResolution.message });
+    }
+    const orderId = generateOrderId();
+    const token = createPaymentResultAccessToken({ orderId, secret: paymentResultTokenSecret, ttlSeconds: paymentResultAccessTtlHours * 3600 });
+    const orderResult = await client.query(
+      `INSERT INTO orders (order_id, order_name, amount, customer_name, customer_email, payment_provider, status) VALUES ($1, '2026 MUSCLEMANIA® 참관객 입장권', $2, $3, $4, $5, 'READY') RETURNING *`,
+      [orderId, spectatorTicketAmount, draft.name, draft.email, providerResolution.provider]
+    );
+    await client.query(`UPDATE spectator_drafts SET order_id = $2, status = 'ORDERED', updated_at = NOW() WHERE draft_id = $1`, [draftId, orderId]);
+    await client.query("COMMIT");
+    res.setHeader("Set-Cookie", createPaymentResultAccessCookie(token));
+    const order = orderResult.rows[0];
+    return res.status(201).json({ ok: true, order: { orderId: order.order_id, orderName: order.order_name, amount: order.amount, status: order.status, createdAt: order.created_at } });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error("Failed to create spectator order:", error);
+    return res.status(500).json({ ok: false, message: "참관객 결제 주문을 생성하지 못했습니다." });
+  } finally {
+    client.release();
+  }
+});
+
+app.post("/spectators/orders/:orderId/cancel", async function (req, res) {
+  const orderId = normalizeText(req.params.orderId);
+  const draftId = normalizeText(req.body?.draftId);
+  if (!orderId || !draftId) return res.status(400).json({ ok: false, message: "Missing orderId or draftId" });
+  if (!requireRequestDraftAccess(req, res, { draftId, draftType: "spectator", cookieName: spectatorDraftCookieName })) return;
+  try {
+    const result = await cancelPendingDraftOrder({ draftTable: "spectator_drafts", draftId, orderId });
+    if (!result.ok) return res.status(result.code === "PAYMENT_ALREADY_COMPLETED" ? 409 : 404).json({ ok: false, code: result.code, message: "참관객 결제 주문을 취소할 수 없습니다." });
+    return res.status(200).json({ ok: true, orderId, status: "CANCELED" });
+  } catch (error) {
+    console.error("Failed to cancel spectator order:", error);
+    return res.status(500).json({ ok: false, message: "참관객 결제 주문 취소에 실패했습니다." });
+  }
+});
+
+app.post("/spectators/complete", async function (req, res) {
+  const draftId = normalizeText(req.body.draftId);
+  const orderId = normalizeText(req.body.orderId);
+  if (!draftId || !orderId) return res.status(400).json({ ok: false, message: "Missing draftId or orderId" });
+  try {
+    const orderResult = await pool.query(`SELECT * FROM orders WHERE order_id = $1 LIMIT 1`, [orderId]);
+    if (!orderResult.rowCount) return res.status(404).json({ ok: false, message: "주문을 찾을 수 없습니다." });
+    const access = validateOrderPaymentResultAccess(req, orderResult.rows[0]);
+    if (!access.ok) return res.status(403).json(access);
+    const result = await finalizePaidSpectatorOrder({ draftId, orderId });
+    return res.status(200).json({ ok: true, ...result });
+  } catch (error) {
+    console.error("Failed to complete spectator order:", error);
+    return res.status(409).json({ ok: false, code: error.code || "SPECTATOR_COMPLETE_FAILED", message: error.message || "참관객 신청 완료 처리에 실패했습니다." });
+  }
+});
+
+app.get("/spectators/:spectatorOrderNumber", async function (req, res) {
+  const spectatorOrderNumber = normalizeText(req.params.spectatorOrderNumber);
+  try {
+    const result = await pool.query(`SELECT * FROM spectator_orders WHERE spectator_order_number = $1 LIMIT 1`, [spectatorOrderNumber]);
+    if (!result.rowCount) return res.status(404).json({ ok: false, message: "참관객 신청을 찾을 수 없습니다." });
+    const access = validateOrderPaymentResultAccess(req, result.rows[0]);
+    if (!access.ok) return res.status(403).json(access);
+    return res.status(200).json({ ok: true, spectatorOrder: mapSpectatorOrderRow(result.rows[0]) });
+  } catch (error) {
+    console.error("Failed to fetch spectator order:", error);
+    return res.status(500).json({ ok: false, message: "참관객 신청을 불러오지 못했습니다." });
+  }
+});
+
 app.post("/applications/email-verification/send", async function (req, res) {
   try {
     if (!hasTrustedWriteOrigin(req)) {
@@ -11257,11 +12292,16 @@ app.post("/applications/lookup-verification/send", async function (req, res) {
 
     const applicationResult = await pool.query(
       `
-        SELECT application_number
-        FROM applications
-        WHERE name = $1
-          AND LOWER(email) = $2
-        ORDER BY submitted_at DESC NULLS LAST, updated_at DESC
+        SELECT 1
+        FROM (
+          SELECT application_number AS reference_number
+          FROM applications
+          WHERE name = $1 AND LOWER(email) = $2
+          UNION ALL
+          SELECT spectator_order_number AS reference_number
+          FROM spectator_orders
+          WHERE name = $1 AND LOWER(email) = $2
+        ) AS lookup_targets
         LIMIT 1
       `,
       [name, email]

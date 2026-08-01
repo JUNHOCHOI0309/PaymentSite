@@ -5,9 +5,11 @@ import { SiteFavicon } from "./components/layout/SiteFavicon";
 import { ScrollToTop } from "./components/layout/ScrollToTop";
 import { ApplicationFlowRouteGuard } from "./components/routing/ApplicationFlowRouteGuard";
 import { StageServiceFlowRouteGuard } from "./components/routing/StageServiceFlowRouteGuard";
+import { SpectatorFlowRouteGuard } from "./components/routing/SpectatorFlowRouteGuard";
 import { ApplicationFlowProvider } from "./context/ApplicationFlowContext";
 import { LanguageProvider } from "./context/LanguageContext";
 import { StageServiceFlowProvider } from "./context/StageServiceFlowContext";
+import { SpectatorFlowProvider, spectatorFlowSteps } from "./context/SpectatorFlowContext";
 import { applicationFlowSteps } from "./lib/applicationFlowAccess";
 import { stageServiceFlowSteps } from "./lib/stageServiceFlowAccess";
 import { ApplyCompletePage } from "./pages/ApplyCompletePage";
@@ -49,6 +51,12 @@ import { RefundRequestPage } from "./pages/RefundRequestPage";
 import { TermsPage } from "./pages/TermsPage";
 import { StageServicePaymentCheckoutPage } from "./pages/stageService/StageServicePaymentCheckout";
 import { StageServicePaymentSuccessPage } from "./pages/stageService/StageServicePaymentSuccess";
+import { SpectatorApplyPage } from "./pages/SpectatorApplyPage";
+import { SpectatorCompletePage } from "./pages/SpectatorCompletePage";
+import { SpectatorConsentPage } from "./pages/SpectatorConsentPage";
+import { SpectatorReviewPage } from "./pages/SpectatorReviewPage";
+import { SpectatorPaymentCheckoutPage } from "./pages/spectator/SpectatorPaymentCheckout";
+import { SpectatorPaymentSuccessPage } from "./pages/spectator/SpectatorPaymentSuccess";
 
 const adminHosts = new Set(["admin.mmkorea.com", "mmkorea-admin.pages.dev"]);
 
@@ -87,6 +95,22 @@ const router = createBrowserRouter([
       {
         path: "apply/stage-services",
         element: <StageServiceSelectPage />,
+      },
+      {
+        path: "apply/spectator",
+        element: <SpectatorApplyPage />,
+      },
+      {
+        path: "apply/spectator/consent",
+        element: <SpectatorFlowRouteGuard minStep={spectatorFlowSteps.CONSENT} requireDraftId><SpectatorConsentPage /></SpectatorFlowRouteGuard>,
+      },
+      {
+        path: "apply/spectator/review",
+        element: <SpectatorFlowRouteGuard minStep={spectatorFlowSteps.REVIEW} requireDraftId><SpectatorReviewPage /></SpectatorFlowRouteGuard>,
+      },
+      {
+        path: "apply/spectator/complete",
+        element: <SpectatorFlowRouteGuard minStep={spectatorFlowSteps.COMPLETE} requireDraftId requireOrderId><SpectatorCompletePage /></SpectatorFlowRouteGuard>,
       },
       {
         path: "apply/stage-services/detail",
@@ -298,6 +322,18 @@ const router = createBrowserRouter([
         element: <FailPage />,
       },
       {
+        path: "spectators/payment/checkout",
+        element: <SpectatorFlowRouteGuard minStep={spectatorFlowSteps.CHECKOUT} requireDraftId requireOrderId><SpectatorPaymentCheckoutPage /></SpectatorFlowRouteGuard>,
+      },
+      {
+        path: "spectators/payment/success",
+        element: <SpectatorFlowRouteGuard minStep={spectatorFlowSteps.CHECKOUT} requireDraftId requireOrderId requireSearchParams={["orderId", "amount", "paymentKey"]}><SpectatorPaymentSuccessPage /></SpectatorFlowRouteGuard>,
+      },
+      {
+        path: "spectators/fail",
+        element: <FailPage />,
+      },
+      {
         path: "fail",
         element: (
           <ApplicationFlowRouteGuard
@@ -317,7 +353,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
   <LanguageProvider>
     <ApplicationFlowProvider>
       <StageServiceFlowProvider>
-        <RouterProvider router={router} />
+        <SpectatorFlowProvider>
+          <RouterProvider router={router} />
+        </SpectatorFlowProvider>
       </StageServiceFlowProvider>
     </ApplicationFlowProvider>
   </LanguageProvider>,

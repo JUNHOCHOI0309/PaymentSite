@@ -7,6 +7,7 @@ import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
 import {
   getApplicationRefundQuote,
+  getSpectatorRefundQuote,
   getStageServiceSummary,
   lookupApplication,
   sendLookupVerificationCode,
@@ -105,6 +106,7 @@ export function LookupPage() {
   const [emailDomainSelection, setEmailDomainSelection] = useState("");
   const [emailCustomDomain, setEmailCustomDomain] = useState("");
   const [results, setResults] = useState([]);
+  const [spectatorResults, setSpectatorResults] = useState([]);
   const [actionErrorMessage, setActionErrorMessage] = useState("");
   const [verificationMessage, setVerificationMessage] = useState("");
   const [verificationToken, setVerificationToken] = useState("");
@@ -174,6 +176,7 @@ export function LookupPage() {
 
     setActionErrorMessage("");
     setResults([]);
+    setSpectatorResults([]);
 
     if (field === "name" || field === "email") {
       setVerificationToken("");
@@ -215,6 +218,7 @@ export function LookupPage() {
     }));
     setActionErrorMessage("");
     setResults([]);
+    setSpectatorResults([]);
     resetLookupVerification();
   }
 
@@ -385,6 +389,7 @@ export function LookupPage() {
         : json.application
           ? [json.application]
           : [];
+      const spectators = Array.isArray(json.spectators) ? json.spectators : [];
 
       const applicationsWithRefundQuotes = await Promise.all(
         applications.map(async (application) => {
@@ -441,9 +446,26 @@ export function LookupPage() {
       );
 
       setResults(applicationsWithStageServiceSummary);
+      const spectatorsWithRefundQuotes = await Promise.all(
+        spectators.map(async (spectator) => {
+          try {
+            const refundJson = await getSpectatorRefundQuote({
+              name: lookupName,
+              email: lookupEmail,
+              verificationToken: lookupVerificationToken,
+              spectatorOrderNumber: spectator.spectatorOrderNumber,
+            });
+            return { ...spectator, refundQuote: refundJson.refundQuote || null, refundQuoteError: "" };
+          } catch (error) {
+            return { ...spectator, refundQuote: null, refundQuoteError: error.message || "환불 정보를 불러오지 못했습니다." };
+          }
+        }),
+      );
+      setSpectatorResults(spectatorsWithRefundQuotes);
       setVerificationMessage(t("lookup.lookupDone"));
     } catch (error) {
       setResults([]);
+      setSpectatorResults([]);
       setActionErrorMessage(error.message || t("lookup.lookupFailed"));
     } finally {
       setIsSubmitting(false);
@@ -481,12 +503,16 @@ export function LookupPage() {
   const completedStageServicePurchases = results.flatMap((result) =>
     (result.stageServiceSummary?.purchases || []).filter((purchase) => purchase.paymentStatus === "DONE")
   );
+  const completedSpectatorResults = spectatorResults.filter((result) => result.paymentStatus === "DONE");
   const totalPaidAmount = completedPaymentResults.reduce(
     (total, result) => total + Number(result.paymentAmount || 0),
     0,
   ) + completedStageServicePurchases.reduce(
     (total, purchase) => total + Number(purchase.totalAmount || 0),
     0
+  ) + completedSpectatorResults.reduce(
+    (total, result) => total + Number(result.paymentAmount || result.totalAmount || 0),
+    0,
   );
   const paymentSummaryCopy =
     locale === "ko"
@@ -668,7 +694,7 @@ export function LookupPage() {
             </Link>
           </NoticeBox>
 
-          {results.length > 0 ? (
+          {results.length > 0 || spectatorResults.length > 0 ? (
             <div className="site-result-card">
               <h3>{t("lookup.resultTitle")}</h3>
               <div className="site-lookup-results">
@@ -855,11 +881,41 @@ export function LookupPage() {
                   );
                 })}
               </div>
+              {spectatorResults.length > 0 ? (
+                <section className="site-lookup-spectators" aria-label="참관객 신청 내역">
+                  <h3>참관객 신청 내역</h3>
+                  {spectatorResults.map((spectator) => {
+                    const canRequestRefund = spectator.paymentStatus === "DONE" && spectator.refundQuote?.canAutoRefund === true;
+                    const disabledReason = spectator.refundQuote?.message || spectator.refundQuoteError || "현재 환불 가능 여부를 확인할 수 없습니다.";
+                    return (
+                      <article className="site-lookup-result" key={spectator.spectatorOrderNumber}>
+                        <div className="site-review-row"><span>신청번호</span><strong>{spectator.spectatorOrderNumber}</strong></div>
+                        <div className="site-review-row"><span>신청자</span><strong>{spectator.name}</strong></div>
+                        <div className="site-review-row"><span>입장권</span><strong>{spectator.quantity || 1}매</strong></div>
+                        <div className="site-review-row"><span>결제 상태</span><strong>{spectator.paymentStatus}</strong></div>
+                        <div className="site-review-row"><span>결제 금액</span><strong>{formatAmount(spectator.paymentAmount || spectator.totalAmount, locale)}</strong></div>
+                        <div className="site-review-row"><span>결제 완료 시점</span><strong>{formatPaymentCompletedAt(spectator.paymentCompletedAt, locale)}</strong></div>
+                        <div className="site-lookup-refund">
+                          <h4>환불 가능 정보</h4>
+                          <div className="site-review-row"><span>환불 비율</span><strong>{typeof spectator.refundQuote?.refundPercent === "number" ? `${spectator.refundQuote.refundPercent}%` : "-"}</strong></div>
+                          <div className="site-review-row"><span>예상 환불 금액</span><strong>{formatAmount(spectator.refundQuote?.refundAmount, locale)}</strong></div>
+                          <div className="site-lookup-refund__actions">
+                            <span className="site-lookup-refund__action-tooltip" tabIndex={canRequestRefund ? -1 : 0}>
+                              <Button disabled={!canRequestRefund} onClick={() => navigate(`/refund/request?type=spectator&id=${encodeURIComponent(spectator.spectatorOrderNumber)}`)}>환불 신청</Button>
+                              {!canRequestRefund ? <span className="site-lookup-refund__tooltip" role="tooltip">{disabledReason}</span> : null}
+                            </span>
+                          </div>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </section>
+              ) : null}
               <section className="site-lookup-payment-summary" aria-label={paymentSummaryCopy.title}>
                 <h4>{paymentSummaryCopy.title}</h4>
                 <div className="site-review-row">
                   <span>{paymentSummaryCopy.completedCount}</span>
-                  <strong>{completedPaymentResults.length}</strong>
+                  <strong>{completedPaymentResults.length + completedStageServicePurchases.length + completedSpectatorResults.length}</strong>
                 </div>
                 <div className="site-review-row">
                   <span>{paymentSummaryCopy.totalPaid}</span>

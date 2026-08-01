@@ -6,8 +6,10 @@ import refundPolicy from "../data/refundPolicy.json";
 import {
   getApplicationRefundQuote,
   getStageServiceRefundQuote,
+  getSpectatorRefundQuote,
   requestApplicationRefund,
   requestStageServiceRefund,
+  requestSpectatorRefund,
 } from "../lib/applicationApi";
 
 const lookupSessionStorageKey = "mmkorea-lookup-session";
@@ -46,6 +48,7 @@ export function RefundRequestPage() {
   const targetId = searchParams.get("id");
   const isStageService = refundType === "stage-service";
   const isApplication = refundType === "application";
+  const isSpectator = refundType === "spectator";
   const [lookupSession] = useState(getLookupSession);
   const [quote, setQuote] = useState(null);
   const [target, setTarget] = useState(null);
@@ -56,7 +59,7 @@ export function RefundRequestPage() {
 
   const targetTitle = useMemo(() => {
     if (!target) {
-      return isStageService ? "무대 서비스" : "대회 신청";
+      return isStageService ? "무대 서비스" : isSpectator ? "참관객 입장권" : "대회 신청";
     }
 
     if (isStageService) {
@@ -64,12 +67,14 @@ export function RefundRequestPage() {
       return target.linkedDiscipline ? `${serviceTitle} · ${target.linkedDiscipline}` : serviceTitle;
     }
 
+    if (isSpectator) return `참관객 입장권 · ${target.spectatorOrderNumber || ""}`;
+
     return target.discipline || target.categoryTitle || "대회 신청";
-  }, [isStageService, target]);
+  }, [isSpectator, isStageService, target]);
 
   useEffect(() => {
     async function loadRefundQuote() {
-      if ((!isApplication && !isStageService) || !targetId) {
+      if ((!isApplication && !isStageService && !isSpectator) || !targetId) {
         setErrorMessage("환불 대상을 찾을 수 없습니다. 신청 조회에서 다시 선택해 주세요.");
         setIsLoading(false);
         return;
@@ -91,14 +96,18 @@ export function RefundRequestPage() {
           verificationToken: lookupSession.verificationToken,
           ...(isStageService
             ? { serviceOrderNumber: targetId }
+            : isSpectator
+              ? { spectatorOrderNumber: targetId }
             : { applicationNumber: targetId }),
         };
         const response = isStageService
           ? await getStageServiceRefundQuote(payload)
-          : await getApplicationRefundQuote(payload);
+          : isSpectator
+            ? await getSpectatorRefundQuote(payload)
+            : await getApplicationRefundQuote(payload);
 
         setQuote(response.refundQuote || null);
-        setTarget(response.serviceOrder || response.application || null);
+        setTarget(response.serviceOrder || response.spectatorOrder || response.application || null);
       } catch (error) {
         setErrorMessage(error.message || "환불 정보를 불러오지 못했습니다.");
       } finally {
@@ -107,7 +116,7 @@ export function RefundRequestPage() {
     }
 
     loadRefundQuote();
-  }, [isApplication, isStageService, lookupSession, targetId]);
+  }, [isApplication, isSpectator, isStageService, lookupSession, targetId]);
 
   async function handleRefund() {
     if (!quote?.canAutoRefund || !isAcknowledged || isSubmitting || !lookupSession) {
@@ -125,11 +134,15 @@ export function RefundRequestPage() {
         requestReason: "사용자 요청 자동 환불",
         ...(isStageService
           ? { serviceOrderNumber: targetId }
+          : isSpectator
+            ? { spectatorOrderNumber: targetId }
           : { applicationNumber: targetId }),
       };
       const response = isStageService
         ? await requestStageServiceRefund(payload)
-        : await requestApplicationRefund(payload);
+        : isSpectator
+          ? await requestSpectatorRefund(payload)
+          : await requestApplicationRefund(payload);
 
       window.sessionStorage.removeItem(lookupSessionStorageKey);
       navigate("/refund/complete", {
@@ -153,7 +166,7 @@ export function RefundRequestPage() {
         <article className="site-document site-refund-page">
           <p className="site-kicker">REFUND</p>
           <h1>환불 진행</h1>
-          <p>대상 결제와 환불 규정을 확인한 뒤 환불을 진행해 주세요. 대회 신청과 무대 서비스에 동일한 환불 규정이 적용됩니다.</p>
+          <p>대상 결제와 환불 규정을 확인한 뒤 환불을 진행해 주세요. 대회 신청, 무대 서비스, 참관객 입장권에 동일한 환불 규정이 적용됩니다.</p>
 
           {isLoading ? <p className="site-lookup-refund__pending">환불 정보를 확인하고 있습니다.</p> : null}
           {errorMessage ? <p className="site-lookup-refund__error">{errorMessage}</p> : null}

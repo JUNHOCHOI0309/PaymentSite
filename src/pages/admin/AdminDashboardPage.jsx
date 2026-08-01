@@ -22,6 +22,7 @@ import {
   getAdminCanceledPayments,
   getAdminMe,
   getAdminRefundRequests,
+  getAdminSpectators,
   getAdminStageServices,
   getAdminUsers,
   keepAliveAdminSession,
@@ -786,6 +787,13 @@ export function AdminDashboardPage() {
   const [applications, setApplications] = useState([]);
   const [applicationSummary, setApplicationSummary] = useState({ totalCount: 0, paidCount: 0 });
   const [stageServices, setStageServices] = useState([]);
+  const [spectators, setSpectators] = useState([]);
+  const [spectatorSummary, setSpectatorSummary] = useState({
+    totalCount: 0,
+    paidCount: 0,
+    soldCount: 0,
+    capacity: 500,
+  });
   const [refundRequests, setRefundRequests] = useState([]);
   const [refunds, setRefunds] = useState([]);
   const [adminUsers, setAdminUsers] = useState([]);
@@ -816,6 +824,20 @@ export function AdminDashboardPage() {
     totalPages: 1,
   });
   const [stageServiceSort, setStageServiceSort] = useState({
+    sortKey: "purchasedAt",
+    sortDirection: "desc",
+  });
+  const [spectatorSearch, setSpectatorSearch] = useState("");
+  const [spectatorPaymentStatusFilter, setSpectatorPaymentStatusFilter] = useState("all");
+  const [spectatorAdmissionStatusFilter, setSpectatorAdmissionStatusFilter] = useState("all");
+  const [spectatorPage, setSpectatorPage] = useState(1);
+  const [spectatorPagination, setSpectatorPagination] = useState({
+    page: 1,
+    pageSize: 50,
+    totalCount: 0,
+    totalPages: 1,
+  });
+  const [spectatorSort, setSpectatorSort] = useState({
     sortKey: "purchasedAt",
     sortDirection: "desc",
   });
@@ -886,6 +908,7 @@ export function AdminDashboardPage() {
   const hasInitializedAdminDataRef = useRef(false);
   const skipInitialApplicationQueryRef = useRef(true);
   const skipInitialStageServiceQueryRef = useRef(true);
+  const skipInitialSpectatorQueryRef = useRef(true);
   const skipInitialAuditQueryRef = useRef(true);
   const skipInitialRefundRequestQueryRef = useRef(true);
   const skipInitialRefundPaymentQueryRef = useRef(true);
@@ -940,6 +963,25 @@ export function AdminDashboardPage() {
       sortDirection: stageServiceSort.sortDirection,
     }),
     [stageServicePage, stageServiceSearch, stageServiceSort, stageServiceTypeFilter],
+  );
+
+  const spectatorQuery = useMemo(
+    () => ({
+      page: spectatorPage,
+      pageSize: 50,
+      search: spectatorSearch,
+      paymentStatus: spectatorPaymentStatusFilter,
+      admissionStatus: spectatorAdmissionStatusFilter,
+      sortKey: spectatorSort.sortKey,
+      sortDirection: spectatorSort.sortDirection,
+    }),
+    [
+      spectatorAdmissionStatusFilter,
+      spectatorPage,
+      spectatorPaymentStatusFilter,
+      spectatorSearch,
+      spectatorSort,
+    ],
   );
 
   const auditQuery = useMemo(
@@ -1001,6 +1043,23 @@ export function AdminDashboardPage() {
     });
   }, [stageServiceQuery]);
 
+  const loadSpectators = useCallback(async () => {
+    const response = await getAdminSpectators(spectatorQuery);
+    setSpectators(response.spectators || []);
+    setSpectatorSummary(response.summary || {
+      totalCount: response.spectators?.length || 0,
+      paidCount: 0,
+      soldCount: 0,
+      capacity: 500,
+    });
+    setSpectatorPagination(response.pagination || {
+      page: 1,
+      pageSize: 50,
+      totalCount: response.spectators?.length || 0,
+      totalPages: 1,
+    });
+  }, [spectatorQuery]);
+
   const loadAuditLogs = useCallback(async () => {
     const response = await getAdminAuditLogs(auditQuery);
     setAuditLogs(response.auditLogs || []);
@@ -1053,12 +1112,14 @@ export function AdminDashboardPage() {
       const [
         applicationsResponse,
         stageServicesResponse,
+        spectatorsResponse,
         refundsResponse,
         auditLogsResponse,
         adminUsersResponse,
       ] = await Promise.all([
         getAdminApplications(applicationQuery),
         getAdminStageServices(stageServiceQuery),
+        getAdminSpectators(spectatorQuery),
         Promise.all([
           getAdminRefundRequests(refundRequestQuery),
           getAdminCanceledPayments(refundPaymentQuery),
@@ -1087,6 +1148,19 @@ export function AdminDashboardPage() {
         page: 1,
         pageSize: 50,
         totalCount: stageServicesResponse.stageServices?.length || 0,
+        totalPages: 1,
+      });
+      setSpectators(spectatorsResponse.spectators || []);
+      setSpectatorSummary(spectatorsResponse.summary || {
+        totalCount: spectatorsResponse.spectators?.length || 0,
+        paidCount: 0,
+        soldCount: 0,
+        capacity: 500,
+      });
+      setSpectatorPagination(spectatorsResponse.pagination || {
+        page: 1,
+        pageSize: 50,
+        totalCount: spectatorsResponse.spectators?.length || 0,
         totalPages: 1,
       });
       const [refundRequestsResponse, canceledPaymentsResponse] = refundsResponse;
@@ -1142,6 +1216,7 @@ export function AdminDashboardPage() {
     forceAdminLogout,
     refundPaymentQuery,
     refundRequestQuery,
+    spectatorQuery,
     stageServiceQuery,
   ]);
 
@@ -1209,6 +1284,40 @@ export function AdminDashboardPage() {
 
     return () => window.clearTimeout(timerId);
   }, [forceAdminLogout, isInitialAdminDataLoaded, loadStageServices, stageServiceQuery, stageServiceSearch]);
+
+  useEffect(() => {
+    if (!isInitialAdminDataLoaded) {
+      return undefined;
+    }
+
+    if (skipInitialSpectatorQueryRef.current) {
+      skipInitialSpectatorQueryRef.current = false;
+      return undefined;
+    }
+
+    const timerId = window.setTimeout(() => {
+      loadSpectators().catch((error) => {
+        if (
+          error.code === "ADMIN_AUTH_REQUIRED"
+          || error.code === "ADMIN_SESSION_EXPIRED"
+          || error.code === "ADMIN_SESSION_IDLE_EXPIRED"
+        ) {
+          forceAdminLogout();
+          return;
+        }
+
+        setErrorMessage(error.message || "참관객 신청 장부를 불러오지 못했습니다.");
+      });
+    }, spectatorSearch ? 300 : 0);
+
+    return () => window.clearTimeout(timerId);
+  }, [
+    forceAdminLogout,
+    isInitialAdminDataLoaded,
+    loadSpectators,
+    spectatorQuery,
+    spectatorSearch,
+  ]);
 
   useEffect(() => {
     if (!isInitialAdminDataLoaded) {
@@ -1517,6 +1626,14 @@ export function AdminDashboardPage() {
     })),
     [],
   );
+  const spectatorPaymentStatusOptions = useMemo(
+    () => ["DONE", "CANCELED", "PARTIAL_CANCELED", "FAILED"].map((value) => ({ value, label: value })),
+    [],
+  );
+  const spectatorAdmissionStatusOptions = useMemo(
+    () => ["READY", "ADMITTED", "REFUNDED", "PARTIAL_REFUNDED"].map((value) => ({ value, label: value })),
+    [],
+  );
   const refundRequestStatusOptions = useMemo(
     () => ["REQUESTED", "PROCESSING", "COMPLETED", "FAILED", "SYNC_FAILED"].map((value) => ({ value, label: value })),
     [],
@@ -1538,6 +1655,7 @@ export function AdminDashboardPage() {
     [applications],
   );
   const filteredStageServices = useMemo(() => stageServices, [stageServices]);
+  const filteredSpectators = useMemo(() => spectators, [spectators]);
   const filteredRefundRequests = useMemo(() => refundRequests, [refundRequests]);
   const filteredRefundPayments = useMemo(() => refunds, [refunds]);
   const filteredAuditLogs = useMemo(() => auditLogs, [auditLogs]);
@@ -1546,6 +1664,7 @@ export function AdminDashboardPage() {
     { id: "overview", label: "개요" },
     { id: "applications", label: "등록 현황" },
     { id: "stageServices", label: "무대 서비스 관리" },
+    { id: "spectators", label: "참관객 신청 장부" },
     { id: "refunds", label: "환불 / 취소 현황" },
     { id: "audit", label: "감사 로그" },
     ...(adminUser?.role === "superadmin" ? [{ id: "accounts", label: "관리자 계정" }] : []),
@@ -1746,6 +1865,7 @@ export function AdminDashboardPage() {
         <SummaryCard label="전체 등록 건수" value={applicationSummary.totalCount} />
         <SummaryCard label="결제 완료" value={paidApplicationCount} />
         <SummaryCard label="무대 서비스 주문" value={stageServicePagination.totalCount} />
+        <SummaryCard label="참관객 판매" value={`${spectatorSummary.soldCount} / ${spectatorSummary.capacity}`} />
         <SummaryCard label="환불 요청" value={refundRequests.length} />
         <SummaryCard label="최근 감사 로그" value={auditPagination.totalCount} />
         {adminUser?.role === "superadmin" ? <SummaryCard label="활성 관리자" value={adminUsers.filter((item) => item.isActive).length} /> : null}
@@ -2218,6 +2338,136 @@ export function AdminDashboardPage() {
             </>
           ) : null}
 
+          {activeSection === "spectators" ? (
+            <>
+              <div className="site-admin-mini-summary">
+                <SummaryCard label="전체 신청" value={spectatorSummary.totalCount} />
+                <SummaryCard label="결제 완료" value={spectatorSummary.paidCount} />
+                <SummaryCard label="판매 수량" value={spectatorSummary.soldCount} />
+                <SummaryCard label="잔여 수량" value={Math.max(0, spectatorSummary.capacity - spectatorSummary.soldCount)} />
+              </div>
+              <SectionControls
+                searchPlaceholder="신청번호, 주문번호, 성함, 연락처, 이메일 검색"
+                searchValue={spectatorSearch}
+                onSearchChange={(value) => {
+                  setSpectatorSearch(value);
+                  setSpectatorPage(1);
+                }}
+                filterValue={spectatorPaymentStatusFilter}
+                onFilterChange={(value) => {
+                  setSpectatorPaymentStatusFilter(value);
+                  setSpectatorPage(1);
+                }}
+                filterOptions={spectatorPaymentStatusOptions}
+                additionalFilters={[
+                  {
+                    key: "admissionStatus",
+                    value: spectatorAdmissionStatusFilter,
+                    onChange: (value) => {
+                      setSpectatorAdmissionStatusFilter(value);
+                      setSpectatorPage(1);
+                    },
+                    allLabel: "전체 입장 상태",
+                    options: spectatorAdmissionStatusOptions,
+                  },
+                ]}
+                onDownload={async () => {
+                  const exportResponse = await getAdminSpectators({
+                    ...spectatorQuery,
+                    page: 1,
+                    export: 1,
+                  });
+
+                  return downloadWorkbookFile(
+                    "admin-spectators.xlsx",
+                    "참관객 신청 장부",
+                    [
+                      { key: "spectatorOrderNumber", label: "참관객 신청번호" },
+                      { key: "name", label: "성함" },
+                      { key: "phone", label: "연락처" },
+                      { key: "email", label: "이메일" },
+                      { key: "quantity", label: "수량" },
+                      { key: "unitAmount", label: "단가", getValue: (row) => Number(row.unitAmount || 0) },
+                      { key: "totalAmount", label: "결제금액", getValue: (row) => Number(row.totalAmount || 0) },
+                      { key: "paymentStatus", label: "결제상태" },
+                      { key: "admissionStatus", label: "입장상태" },
+                      { key: "orderId", label: "주문번호" },
+                      { key: "paymentKey", label: "결제키" },
+                      { key: "privacyConsent", label: "개인정보동의", getValue: (row) => row.consents?.privacy ? "Y" : "N" },
+                      { key: "refundConsent", label: "환불규정동의", getValue: (row) => row.consents?.refund ? "Y" : "N" },
+                      { key: "marketingConsent", label: "마케팅수신동의", getValue: (row) => row.consents?.marketing ? "Y" : "N" },
+                      { key: "photoVideoConsent", label: "사진영상동의", getValue: (row) => row.consents?.photoVideo ? "Y" : "N" },
+                      { key: "paymentCompletedAt", label: "결제완료시각", getValue: (row) => formatDateTime(row.paymentCompletedAt) },
+                      { key: "purchasedAt", label: "접수시각", getValue: (row) => formatDateTime(row.purchasedAt) },
+                    ],
+                    exportResponse.spectators || [],
+                  );
+                }}
+                downloadDisabled={!filteredSpectators.length}
+              />
+              <TableSection
+                title="참관객 신청 장부"
+                defaultSortKey="purchasedAt"
+                columns={[
+                  {
+                    key: "spectatorOrderNumber",
+                    label: "신청 / 주문",
+                    render: (row) => (
+                      <MetaCell primary={row.spectatorOrderNumber} secondary={row.orderId || "-"} />
+                    ),
+                  },
+                  {
+                    key: "name",
+                    label: "참관객",
+                    render: (row) => (
+                      <MetaCell primary={row.name} secondary={`${row.phone || "-"} / ${row.email || "-"}`} />
+                    ),
+                  },
+                  {
+                    key: "quantity",
+                    label: "입장권",
+                    render: (row) => `${row.quantity || 1}매 / ${formatAmount(row.totalAmount)}`,
+                  },
+                  {
+                    key: "paymentStatus",
+                    label: "결제 상태",
+                    render: (row) => (
+                      <MetaCell primary={row.paymentStatus || "-"} secondary={formatDateTime(row.paymentCompletedAt)} />
+                    ),
+                  },
+                  { key: "admissionStatus", label: "입장 상태" },
+                  {
+                    key: "consents",
+                    label: "선택 동의",
+                    sortable: false,
+                    render: (row) => (
+                      <MetaCell
+                        primary={`마케팅 ${row.consents?.marketing ? "Y" : "N"}`}
+                        secondary={`사진·영상 ${row.consents?.photoVideo ? "Y" : "N"}`}
+                      />
+                    ),
+                  },
+                  {
+                    key: "purchasedAt",
+                    label: "접수 일시",
+                    render: (row) => formatDateTime(row.purchasedAt),
+                  },
+                ]}
+                rows={filteredSpectators}
+                emptyText="조건에 맞는 참관객 신청이 없습니다."
+                pageSize={50}
+                pagination={spectatorPagination}
+                onPageChange={setSpectatorPage}
+                controlledSortKey={spectatorSort.sortKey}
+                controlledSortDirection={spectatorSort.sortDirection}
+                onSortChange={(nextSort) => {
+                  setSpectatorSort(nextSort);
+                  setSpectatorPage(1);
+                }}
+              />
+            </>
+          ) : null}
+
           {activeSection === "refunds" ? (
             <>
               <form className="site-admin-reconciliation" onSubmit={handleKcpReconciliation}>
@@ -2278,6 +2528,7 @@ export function AdminDashboardPage() {
                     "admin-refund-requests.xlsx",
                     "환불 요청",
                     [
+                      { key: "refundTarget", label: "환불 구분" },
                       { key: "applicationNumber", label: "신청번호" },
                       { key: "orderId", label: "주문번호" },
                       { key: "paymentKey", label: "결제키" },
@@ -2313,7 +2564,7 @@ export function AdminDashboardPage() {
                     render: (row) => (
                       <MetaCell
                         primary={row.applicationNumber || row.serviceOrderNumber || "-"}
-                        secondary={`${row.refundTarget === "stage-service" ? "무대 서비스" : "대회 신청"} / ${row.orderId || "-"}`}
+                        secondary={`${row.refundTarget === "stage-service" ? "무대 서비스" : row.refundTarget === "spectator" ? "참관객" : "대회 신청"} / ${row.orderId || "-"}`}
                       />
                     ),
                   },
