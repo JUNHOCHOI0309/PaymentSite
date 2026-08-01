@@ -5016,6 +5016,10 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
+.site-stage-service-price-box--mobile {
+  display: none;
+}
+
 .site-stage-service-price-box__row {
   display: flex;
   justify-content: space-between;
@@ -6360,6 +6364,16 @@ body {
 
   .site-apply-detail__additional-info {
     border-radius: 32px;
+  }
+
+  .site-stage-service-price-box--desktop {
+    display: none;
+  }
+
+  .site-stage-service-price-box--mobile {
+    display: grid;
+    width: 100%;
+    margin-top: -12px;
   }
 }
 

@@ -488,6 +488,27 @@ export function StageServiceDetailPage() {
     return null;
   }
 
+  const renderPriceBox = (variant) => (
+    <div className={`site-stage-service-price-box site-stage-service-price-box--${variant}`}>
+      <div className="site-stage-service-price-box__row">
+        <span>{t("stageService.totalAmount")}</span>
+        <strong>{formatStageServiceAmount(totalAmount, locale)}</strong>
+      </div>
+      {selectedLinkedApplications.length ? (
+        <>
+          <div className="site-stage-service-price-box__row">
+            <span>{isHairMakeupService ? "선택 종목" : t("stageService.linkedApplication")}</span>
+            <strong>{selectedLinkedApplications.map((application) => application.applicationNumber).join(", ")}</strong>
+          </div>
+          <div className="site-stage-service-price-box__row">
+            <span>{isHairMakeupService ? "참가 부문" : t("stageService.linkedDiscipline")}</span>
+            <strong>{selectedLinkedApplications.map((application) => application.discipline).join(", ") || "-"}</strong>
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+
   return (
     <PageShell>
       <section className="site-page site-page--stage-service">
@@ -498,24 +519,7 @@ export function StageServiceDetailPage() {
                 {`< ${t("apply.back")}`}
               </Link>
               <h1>{getStageServiceTitle(serviceKey, locale)}</h1>
-              <div className="site-stage-service-price-box">
-                <div className="site-stage-service-price-box__row">
-                  <span>{t("stageService.totalAmount")}</span>
-                  <strong>{formatStageServiceAmount(totalAmount, locale)}</strong>
-                </div>
-                {selectedLinkedApplications.length ? (
-                  <>
-                    <div className="site-stage-service-price-box__row">
-                      <span>{isHairMakeupService ? "선택 종목" : t("stageService.linkedApplication")}</span>
-                      <strong>{selectedLinkedApplications.map((application) => application.applicationNumber).join(", ")}</strong>
-                    </div>
-                    <div className="site-stage-service-price-box__row">
-                      <span>{isHairMakeupService ? "참가 부문" : t("stageService.linkedDiscipline")}</span>
-                      <strong>{selectedLinkedApplications.map((application) => application.discipline).join(", ") || "-"}</strong>
-                    </div>
-                  </>
-                ) : null}
-              </div>
+              {renderPriceBox("desktop")}
             </aside>
 
             <div className="site-apply-detail__form">
@@ -789,6 +793,7 @@ export function StageServiceDetailPage() {
 
               {errorMessage ? <p className="site-error-message">{errorMessage}</p> : null}
             </div>
+            {renderPriceBox("mobile")}
           </div>
 
           <NoticeBox title={t("stageService.noticeTitle")}>
