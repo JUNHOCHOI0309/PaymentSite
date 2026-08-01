@@ -10,7 +10,10 @@
       "startDate": "2026-08-03",
       "endDate": "2026-08-31",
       "displayOriginalAmount": 300000,
-      "amount": 200000
+      "amount": 200000,
+      "disciplineAmounts": {
+        "register/common_3.png": 200000
+      }
     },
     {
       "id": "2026-first-registration",
@@ -19,7 +22,10 @@
       "startDate": "2026-09-01",
       "endDate": "2026-09-30",
       "displayOriginalAmount": 300000,
-      "amount": 250000
+      "amount": 250000,
+      "disciplineAmounts": {
+        "register/common_3.png": 200000
+      }
     },
     {
       "id": "2026-final-registration",
@@ -27,7 +33,10 @@
       "labelEn": "Final registration (Oct 1 - Oct 18)",
       "startDate": "2026-10-01",
       "endDate": "2026-10-18",
-      "amount": 300000
+      "amount": 300000,
+      "disciplineAmounts": {
+        "register/common_3.png": 200000
+      }
     }
   ],
   "items": [
@@ -59,7 +68,7 @@
     {
       "imageKey": "register/common_3.png",
       "title": "Denim",
-      "amount": 300000
+      "amount": 200000
     },
     {
       "imageKey": "register/common_4.png",
