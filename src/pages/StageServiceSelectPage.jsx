@@ -19,6 +19,10 @@ const stageServiceItems = [
   {
     key: "musclemania-tan",
     titleKey: "stageServiceSelect.musclemaniaTan",
+    displayTitle: {
+      ko: "오피셜 탄",
+      en: "Official Tan",
+    },
     imageKey: "register/musclemaniatan.png",
     disabled: true,
   },
@@ -29,10 +33,14 @@ const stageServiceItems = [
   },
 ];
 
+function getStageServiceItemTitle(item, locale, t) {
+  return item.displayTitle?.[locale] || t(item.titleKey);
+}
+
 export function StageServiceSelectPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { t } = useLanguage();
+  const { locale, t } = useLanguage();
   const trackRef = useRef(null);
   const dragStateRef = useRef({
     isDown: false,
@@ -200,12 +208,12 @@ export function StageServiceSelectPage() {
             >
               <div className="site-register-card__placeholder-media">
                 <img
-                  alt={t(item.titleKey)}
+                  alt={getStageServiceItemTitle(item, locale, t)}
                   src={buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(item.imageKey)}`)}
                 />
               </div>
               <strong className="site-register-card__placeholder-title">
-                {t(item.titleKey)}
+                {getStageServiceItemTitle(item, locale, t)}
               </strong>
             </button>
           ))}
