@@ -5759,6 +5759,82 @@ body {
   line-height: 1.65;
 }
 
+.site-apply-guide__regulations {
+  display: grid;
+  gap: 16px;
+}
+
+.site-apply-guide__regulations > p {
+  margin: 0;
+  color: #5d687a;
+  font-size: 0.92rem;
+  line-height: 1.7;
+}
+
+.site-apply-guide__regulation-list {
+  display: grid;
+  gap: 12px;
+}
+
+.site-apply-guide__regulation-item {
+  display: grid;
+  gap: 10px;
+  padding: 20px 22px;
+  border-radius: 8px;
+}
+
+.site-apply-guide__regulation-item > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.site-apply-guide__regulation-item h3,
+.site-apply-guide__regulation-item p {
+  margin: 0;
+}
+
+.site-apply-guide__regulation-item h3 {
+  color: #243049;
+  font-size: 1rem;
+}
+
+.site-apply-guide__regulation-item p {
+  color: #5d687a;
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.site-apply-guide__regulation-badge {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.site-apply-guide__regulation-badge--required {
+  background: #183f6b;
+  color: #fff;
+}
+
+.site-apply-guide__regulation-badge--optional {
+  background: #edf1f7;
+  color: #5d687a;
+}
+
+.site-apply-guide__regulation-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.site-apply-guide__regulation-links a {
+  color: #183f6b;
+  font-weight: 700;
+}
+
 .site-introduce-page__body-image {
   display: block;
   width: 100%;
