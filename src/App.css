@@ -3332,52 +3332,149 @@ body {
   background: #f3f5f8;
 }
 
-.site-home-hero__media {
+.site-home-hero__stage {
   position: relative;
   width: 100%;
+  min-height: 680px;
   height: 100vh;
-  min-height: 620px;
   overflow: hidden;
-  background: #15171d;
+  background: #000;
 }
 
-.site-home-hero__asset {
+.site-home-hero__stream {
+  position: absolute;
+  bottom: 0;
+  z-index: 0;
+  width: 39.5%;
+  height: 85%;
+  overflow: hidden;
+  background: #080808;
+}
+
+.site-home-hero__stream--left {
+  left: 0;
+}
+
+.site-home-hero__stream--right {
+  right: 0;
+}
+
+.site-home-hero__stream::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background: rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+
+.site-home-hero__slide {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  animation: siteFadeIn 0.8s ease;
+  opacity: 0;
+  animation: siteHomeHeroSlide 20s ease-in-out infinite;
+  animation-delay: var(--site-home-hero-delay, 0s);
+  will-change: opacity, transform;
 }
 
-.site-home-hero__placeholder {
+.site-home-hero__stream--left .site-home-hero__slide {
+  transform-origin: 24% 50%;
+}
+
+.site-home-hero__stream--right .site-home-hero__slide {
+  transform-origin: 76% 50%;
+}
+
+.site-home-hero__center {
   position: absolute;
   inset: 0;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 32px;
-  background: #d8d8d8;
-  color: #0d0d0f;
+  padding: 88px 32px 0;
+  color: #fff;
   text-align: center;
+  pointer-events: none;
 }
 
-.site-home-hero__placeholder h1 {
+.site-home-hero__logo {
+  display: block;
+  width: min(100%, 720px);
+  max-height: 520px;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 28px rgba(0, 0, 0, 0.56));
+}
+
+.site-home-hero__details {
+  width: min(100%, 1360px);
+  margin-top: 48px;
+  text-shadow: 0 5px 18px rgba(0, 0, 0, 0.72);
+}
+
+.site-home-hero__details dl {
+  display: grid;
+  gap: 20px;
   margin: 0;
-  font-family: var(--font-heading);
-  font-size: clamp(2rem, 4vw, 3rem);
-  font-weight: 800;
-  line-height: 1.2;
-  letter-spacing: 0;
-  max-width: none;
 }
 
-.site-home-hero__placeholder p {
-  max-width: 520px;
-  margin: 16px 0 0;
-  color: #2c2c2c;
-  line-height: 1.7;
+.site-home-hero__details dl > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 14px 24px;
+}
+
+.site-home-hero__details dt {
+  color: #d7a11e;
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.site-home-hero__details dd {
+  margin: 0;
+  color: #fff;
+  font-size: 5.1rem;
+  font-weight: 900;
+  line-height: 0.92;
+}
+
+@keyframes siteHomeHeroSlide {
+  0% {
+    opacity: 0;
+    transform: scale(1.06) translate3d(0, 0, 0);
+  }
+
+  5%,
+  25% {
+    opacity: 1;
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+
+  30%,
+  100% {
+    opacity: 0;
+    transform: scale(1.025) translate3d(0, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-home-hero__slide {
+    animation: none;
+  }
+
+  .site-home-hero__slide:not(:first-child) {
+    display: none;
+  }
+
+  .site-home-hero__slide:first-child {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .site-home-up,
@@ -3938,8 +4035,30 @@ body {
     padding: 0;
   }
 
-  .site-home-hero__media {
+  .site-home-hero__stage {
     min-height: 560px;
+  }
+
+  .site-home-hero__stream {
+    width: 36%;
+    height: 85%;
+  }
+
+  .site-home-hero__center {
+    padding: 72px 24px 0;
+  }
+
+  .site-home-hero__logo {
+    width: min(100%, 520px);
+    max-height: 360px;
+  }
+
+  .site-home-hero__details {
+    margin-top: 28px;
+  }
+
+  .site-home-hero__details dd {
+    font-size: 3.4rem;
   }
 
   .site-home-up,
@@ -3957,6 +4076,36 @@ body {
 }
 
 @media (max-width: 640px) {
+  .site-home-hero__stage {
+    min-height: max(560px, 100svh);
+  }
+
+  .site-home-hero__stream {
+    width: 34%;
+    height: 85%;
+  }
+
+  .site-home-hero__center {
+    padding: 84px 18px 0;
+  }
+
+  .site-home-hero__logo {
+    width: min(100%, 360px);
+    max-height: 250px;
+  }
+
+  .site-home-hero__details {
+    margin-top: 22px;
+  }
+
+  .site-home-hero__details dl > div {
+    gap: 8px 12px;
+  }
+
+  .site-home-hero__details dd {
+    font-size: 1.7rem;
+  }
+
   .site-home-benefits-modal {
     top: 84px;
     left: 50%;

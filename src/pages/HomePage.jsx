@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
 import { getApplicationDisciplineTitleByImageKey } from "../data/applicationDisciplines";
-import { buildApiUrl, getHomeGalleryImages } from "../lib/applicationApi";
+import { buildApiUrl } from "../lib/applicationApi";
 
 const homeUpImageKeys = Array.from({ length: 10 }, (_, index) => `home/home_up_${index + 1}.png`);
+const homeHeroLeftImageKeys = ["home/main_1.png", "home/main_3.png", "home/main_5.png", "home/main_7.png"];
+const homeHeroRightImageKeys = ["home/main_2.png", "home/main_4.png", "home/main_6.png", "home/main_8.png"];
 const participantBenefitsDismissalStorageKey = "mmkorea-home-participant-benefits-dismissed-date";
 const sponsorLogos = [
   { key: "home/logo_1.png", href: "https://www.xn--2i4b21aq3g7vaq7vn4ifle.com/" },
@@ -238,24 +240,6 @@ function getCompetitionGroups(locale) {
   };
 }
 
-function isVideoMedia(media) {
-  return media?.type === "video" || /\.(mp4|webm|mov)$/i.test(media?.key || media?.src || "");
-}
-
-function getVideoMimeType(media) {
-  const source = (media?.key || media?.src || "").toLowerCase();
-
-  if (source.endsWith(".webm")) {
-    return "video/webm";
-  }
-
-  if (source.endsWith(".mov")) {
-    return "video/quicktime";
-  }
-
-  return "video/mp4";
-}
-
 function getHomeImageUrl(key) {
   return buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(key)}`);
 }
@@ -271,26 +255,11 @@ function getLocalDateKey() {
 
 export function HomePage() {
   const { locale, t } = useLanguage();
-  const [images, setImages] = useState([]);
-  const [galleryError, setGalleryError] = useState("");
   const [activeGroup, setActiveGroup] = useState("man");
   const [activeItemKey, setActiveItemKey] = useState(null);
   const [isParticipantBenefitsOpen, setIsParticipantBenefitsOpen] = useState(false);
 
   const competitionGroups = useMemo(() => getCompetitionGroups(locale), [locale]);
-
-  useEffect(() => {
-    async function fetchGalleryImages() {
-      try {
-        const json = await getHomeGalleryImages();
-        setImages(json.images || []);
-      } catch (error) {
-        setGalleryError(error.message || t("home.loadGalleryError"));
-      }
-    }
-
-    fetchGalleryImages();
-  }, [t]);
 
   useEffect(() => {
     try {
@@ -317,8 +286,6 @@ export function HomePage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isParticipantBenefitsOpen]);
 
-  const heroMedia = images.find(isVideoMedia) || images[0] || null;
-  const heroIsVideo = isVideoMedia(heroMedia);
   const activeGroupData = competitionGroups[activeGroup] || competitionGroups.man || null;
   const activeItems = activeGroupData?.items || [];
   const activeItem = activeItems.find((item) => item.key === activeItemKey) || activeItems[0] || null;
@@ -388,30 +355,53 @@ export function HomePage() {
       ) : null}
 
       <section className="site-home-hero">
-        <div className="site-home-hero__media">
-          {heroMedia ? (
-            heroIsVideo ? (
-              <video
-                key={heroMedia.src}
-                className="site-home-hero__asset"
-                autoPlay
-                muted
-                loop
-                playsInline
-                preload="metadata"
-                aria-label={t("home.heroVideoLabel")}
-              >
-                <source src={heroMedia.src} type={getVideoMimeType(heroMedia)} />
-              </video>
-            ) : (
-              <img className="site-home-hero__asset" src={heroMedia.src} alt={t("home.heroImageAlt")} />
-            )
-          ) : (
-            <div className="site-home-hero__placeholder">
-              <h1>{t("home.heroPlaceholderTitle")}</h1>
-              <p>{galleryError || t("home.heroPlaceholderBody")}</p>
+        <h1 className="sr-only">
+          {locale === "ko" ? "2026 머슬마니아 코리아 내추럴 챔피언십" : "2026 Musclemania Korea Natural Championship"}
+        </h1>
+        <div className="site-home-hero__stage">
+          <div className="site-home-hero__stream site-home-hero__stream--left" aria-hidden="true">
+            {homeHeroLeftImageKeys.map((key, index) => (
+              <img
+                className="site-home-hero__slide"
+                key={key}
+                src={getHomeImageUrl(key)}
+                alt=""
+                style={{ "--site-home-hero-delay": `${index * 5}s` }}
+              />
+            ))}
+          </div>
+
+          <div className="site-home-hero__center">
+            <img
+              className="site-home-hero__logo"
+              src={getHomeImageUrl("home/muscle_mania.png")}
+              alt="Musclemania"
+            />
+            <div className="site-home-hero__details">
+              <dl>
+                <div>
+                  <dt>{locale === "ko" ? "대회일" : "Competition"}</dt>
+                  <dd>2026. 10. 25 (SUN)</dd>
+                </div>
+                <div>
+                  <dt>{locale === "ko" ? "신청 기간" : "Registration"}</dt>
+                  <dd>2026. 08. 03 - 10. 18</dd>
+                </div>
+              </dl>
             </div>
-          )}
+          </div>
+
+          <div className="site-home-hero__stream site-home-hero__stream--right" aria-hidden="true">
+            {homeHeroRightImageKeys.map((key, index) => (
+              <img
+                className="site-home-hero__slide"
+                key={key}
+                src={getHomeImageUrl(key)}
+                alt=""
+                style={{ "--site-home-hero-delay": `${index * 5 + 0.65}s` }}
+              />
+            ))}
+          </div>
         </div>
       </section>
 
