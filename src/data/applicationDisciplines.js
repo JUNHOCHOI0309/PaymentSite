@@ -53,7 +53,15 @@ export function getCanonicalApplicationDisciplineTitle({
   return getApplicationDisciplineDefinition({ imageKey, discipline })?.title || discipline || "";
 }
 
-export function normalizeApplicationSelection(selection = {}) {
+export function isCommonApplicationDiscipline(selection = {}) {
+  return Boolean(getApplicationDisciplineDefinition(selection)?.isCommon);
+}
+
+export function getParticipantGenderFromDivision(division = "") {
+  return division === "woman" ? "female" : "male";
+}
+
+export function normalizeApplicationSelection(selection = { imageKey: "", discipline: "" }) {
   return {
     ...selection,
     discipline: getCanonicalApplicationDisciplineTitle({

@@ -5,7 +5,10 @@ import { NoticeBox } from "../components/common/NoticeBox";
 import { PageShell } from "../components/layout/PageShell";
 import { useApplicationFlow } from "../context/ApplicationFlowContext";
 import { useLanguage } from "../context/LanguageContext";
-import { getCanonicalApplicationDisciplineTitle } from "../data/applicationDisciplines";
+import {
+  getCanonicalApplicationDisciplineTitle,
+  isCommonApplicationDiscipline,
+} from "../data/applicationDisciplines";
 import {
   formatApplicationEntryFee,
   getApplicationEntryFeePricing,
@@ -81,6 +84,11 @@ export function ApplyReviewPage() {
     imageKey: selectedImageKey,
     discipline: reviewDraft?.discipline || state.selection.discipline,
   });
+  const isCommonDiscipline = isCommonApplicationDiscipline({
+    imageKey: selectedImageKey,
+    discipline: selectedDiscipline,
+  });
+  const participantGender = reviewDraft?.participantGender || state.selection.participantGender;
   const fallbackEntryFeePricing = getApplicationEntryFeePricing(selectedImageKey);
   const entryFeePricing = draftSnapshot?.pricing || fallbackEntryFeePricing;
   const entryFeeAmount = entryFeePricing.amount;
@@ -195,6 +203,22 @@ export function ApplyReviewPage() {
           <div className="site-review-grid">
             <ReviewRow label={t("review.division")} value={reviewDraft?.division || state.selection.division} />
             <ReviewRow label={t("review.discipline")} value={selectedDiscipline} />
+            {isCommonDiscipline ? (
+              <ReviewRow
+                label={locale === "ko" ? "성별" : "Gender"}
+                value={
+                  participantGender === "female"
+                    ? locale === "ko"
+                      ? "여"
+                      : "Female"
+                    : participantGender === "male"
+                      ? locale === "ko"
+                        ? "남"
+                        : "Male"
+                      : "-"
+                }
+              />
+            ) : null}
             <ReviewRow label={t("review.name")} value={draftSnapshot?.draft?.name || state.applicantInfo.name} />
             <ReviewRow label={t("review.phone")} value={draftSnapshot?.draft?.phone || state.applicantInfo.phone} />
             <ReviewRow label={t("review.email")} value={draftSnapshot?.draft?.email || state.applicantInfo.email} />

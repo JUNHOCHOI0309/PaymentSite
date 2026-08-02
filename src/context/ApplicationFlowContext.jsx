@@ -16,6 +16,7 @@ const initialState = {
     division: "",
     discipline: "",
     imageKey: "",
+    participantGender: "",
   },
   applicantInfo: {
     name: "",

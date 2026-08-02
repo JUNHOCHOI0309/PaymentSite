@@ -2118,6 +2118,16 @@ export function AdminDashboardPage() {
                       { key: "introduction", label: "자기소개" },
                       { key: "division", label: "부문" },
                       { key: "discipline", label: "종목" },
+                      {
+                        key: "participantGender",
+                        label: "성별",
+                        getValue: (row) =>
+                          row.participantGender === "female"
+                            ? "여"
+                            : row.participantGender === "male"
+                              ? "남"
+                              : "-",
+                      },
                       { key: "weightClass", label: "체급" },
                       { key: "paymentStatus", label: "결제상태" },
                       { key: "documentOriginalFilename", label: "문서 파일" },
@@ -2179,7 +2189,17 @@ export function AdminDashboardPage() {
                     render: (row) => (
                       <MetaCell
                         primary={row.discipline}
-                        secondary={`${row.division || "-"} / 체급 ${row.weightClass || "-"}`}
+                        secondary={[
+                          row.division || "-",
+                          row.participantGender === "female"
+                            ? "여"
+                            : row.participantGender === "male"
+                              ? "남"
+                              : null,
+                          `체급 ${row.weightClass || "-"}`,
+                        ]
+                          .filter(Boolean)
+                          .join(" / ")}
                       />
                     ),
                   },

@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
-import { getApplicationDisciplineTitleByImageKey } from "../data/applicationDisciplines";
+import {
+  getApplicationDisciplineTitleByImageKey,
+  getParticipantGenderFromDivision,
+  isCommonApplicationDiscipline,
+} from "../data/applicationDisciplines";
 import { buildApiUrl } from "../lib/applicationApi";
 
 const commonItems = [
@@ -155,6 +159,10 @@ export function ApplySelectPage() {
       discipline: item.title,
       imageKey: item.key,
     });
+
+    if (isCommonApplicationDiscipline({ imageKey: item.key })) {
+      params.set("participantGender", getParticipantGenderFromDivision(activeGroup));
+    }
 
     navigate(`/apply/detail?${params.toString()}`, {
       state: { source: "select" },

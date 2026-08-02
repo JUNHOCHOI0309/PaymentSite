@@ -11,6 +11,8 @@ import { useLanguage } from "../context/LanguageContext";
 import { getApplicationAdditionalInfo } from "../data/applicationAdditionalInfo";
 import {
   getCanonicalApplicationDisciplineTitle,
+  getParticipantGenderFromDivision,
+  isCommonApplicationDiscipline,
   normalizeApplicationSelection,
 } from "../data/applicationDisciplines";
 import {
@@ -100,6 +102,7 @@ function getInitialFieldErrors() {
     email: "",
     birthDate: "",
     weightClass: "",
+    participantGender: "",
   };
 }
 
@@ -219,6 +222,11 @@ export function ApplyPage() {
       imageKey: selectedImageKey,
       discipline: searchParams.get("discipline") || "",
     }) || t("apply.fallbackCompetition");
+  const isCommonDiscipline = isCommonApplicationDiscipline({
+    imageKey: selectedImageKey,
+    discipline: competitionName,
+  });
+  const defaultParticipantGender = getParticipantGenderFromDivision(selectedDivision);
   const additionalInfo = getApplicationAdditionalInfo(locale, selectedImageKey);
   const weightClassOptions = getWeightClassOptions(selectedImageKey);
   const hasWeightClassOptions = weightClassOptions.length > 0;
@@ -325,13 +333,17 @@ export function ApplyPage() {
       division: selectedDivision,
       discipline: searchParams.get("discipline") || "",
       imageKey: selectedImageKey,
+      participantGender: isCommonDiscipline
+        ? searchParams.get("participantGender") || defaultParticipantGender
+        : "",
     });
 
     const hasSavedSelection = Object.values(state.selection || {}).some(Boolean);
     const isSameSelection =
       state.selection?.division === incomingSelection.division &&
       state.selection?.discipline === incomingSelection.discipline &&
-      state.selection?.imageKey === incomingSelection.imageKey;
+      state.selection?.imageKey === incomingSelection.imageKey &&
+      state.selection?.participantGender === incomingSelection.participantGender;
     const navigationSource = location.state?.source;
     const shouldHandleNavigationSource =
       Boolean(navigationSource) && handledLocationKeyRef.current !== location.key;
@@ -378,6 +390,8 @@ export function ApplyPage() {
     searchParams,
     selectedDivision,
     selectedImageKey,
+    isCommonDiscipline,
+    defaultParticipantGender,
     state.selection,
   ]);
 
@@ -482,6 +496,12 @@ export function ApplyPage() {
       email: validateApplicantField("email", state.applicantInfo.email),
       birthDate: validateApplicantField("birthDate", state.applicantInfo.birthDate),
       weightClass: validateApplicantField("weightClass", state.applicantInfo.weightClass),
+      participantGender:
+        isCommonDiscipline && !["male", "female"].includes(state.selection.participantGender)
+          ? locale === "ko"
+            ? "성별을 선택해 주세요."
+            : "Select a gender."
+          : "",
     };
 
     setFieldErrors(nextErrors);
@@ -583,6 +603,20 @@ export function ApplyPage() {
         }));
       }
     };
+  }
+
+  function handleParticipantGenderChange(event) {
+    dispatch({
+      type: "SET_SELECTION",
+      value: {
+        ...state.selection,
+        participantGender: event.target.value,
+      },
+    });
+    setFieldErrors((current) => ({
+      ...current,
+      participantGender: "",
+    }));
   }
 
   function handleEmailLocalPartChange(event) {
@@ -1030,6 +1064,43 @@ export function ApplyPage() {
                 value={state.applicantInfo.organization}
                 onChange={setApplicantField("organization")}
               />
+              {isCommonDiscipline ? (
+                <div className="site-field site-participant-gender">
+                  <span className="site-field__label">
+                    {locale === "ko" ? "성별" : "Gender"}
+                    <span className="site-field__requirement">({t("apply.required")})</span>
+                  </span>
+                  <div
+                    className="site-participant-gender__options"
+                    role="radiogroup"
+                    aria-label={locale === "ko" ? "성별" : "Gender"}
+                  >
+                    <label className="site-participant-gender__option">
+                      <input
+                        type="radio"
+                        name="participantGender"
+                        value="male"
+                        checked={state.selection.participantGender === "male"}
+                        onChange={handleParticipantGenderChange}
+                      />
+                      <span>{locale === "ko" ? "남" : "Male"}</span>
+                    </label>
+                    <label className="site-participant-gender__option">
+                      <input
+                        type="radio"
+                        name="participantGender"
+                        value="female"
+                        checked={state.selection.participantGender === "female"}
+                        onChange={handleParticipantGenderChange}
+                      />
+                      <span>{locale === "ko" ? "여" : "Female"}</span>
+                    </label>
+                  </div>
+                  {fieldErrors.participantGender ? (
+                    <span className="site-field__error">{fieldErrors.participantGender}</span>
+                  ) : null}
+                </div>
+              ) : null}
               <label className="site-field site-field--full">
                 <span className="site-field__label">
                   {t("apply.snsId")}

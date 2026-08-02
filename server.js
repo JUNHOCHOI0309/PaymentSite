@@ -3010,6 +3010,7 @@ function mapDraftRow(row) {
     instagramId: row.instagram_id,
     introduction: row.introduction,
     weightClass: row.weight_class,
+    participantGender: row.participant_gender,
     division: row.division,
     discipline: getCanonicalApplicationDisciplineTitle({
       imageKey: row.image_key,
@@ -3041,6 +3042,7 @@ function mapApplicationRow(row) {
     instagramId: row.instagram_id,
     introduction: row.introduction,
     weightClass: row.weight_class,
+    participantGender: row.participant_gender,
     division: row.division,
     discipline: getCanonicalApplicationDisciplineTitle({
       imageKey: row.image_key,
@@ -3934,6 +3936,9 @@ function validateDraftPayload(body) {
     discipline: normalizeText(body.selection?.discipline),
     imageKey: normalizeText(body.selection?.imageKey),
   });
+  const requestedParticipantGender = normalizeText(
+    body.selection?.participantGender
+  ).toLowerCase();
 
   const consents = {
     privacy: normalizeBoolean(body.consents?.privacy),
@@ -3961,6 +3966,24 @@ function validateDraftPayload(body) {
       message: "Missing required applicant fields",
     };
   }
+
+  const participantGender = /\/man_/.test(selection.imageKey)
+    ? "male"
+    : /\/woman_/.test(selection.imageKey)
+      ? "female"
+      : requestedParticipantGender;
+
+  if (
+    !["male", "female"].includes(participantGender) ||
+    (disciplineDefinition.isCommon && !["male", "female"].includes(requestedParticipantGender))
+  ) {
+    return {
+      ok: false,
+      message: "Participant gender is required for this application",
+    };
+  }
+
+  selection.participantGender = participantGender;
 
   if (!hasValidEmail(email) || String(phone).replace(/\D/g, "").length !== 11) {
     return {
@@ -5533,7 +5556,7 @@ async function finalizePaidApplicationOrder({ draftId, orderId }) {
       `
         SELECT application_number, draft_id, order_id, payment_key, status, payment_status,
           name, phone, email, birth_date, organization, instagram_id, introduction,
-          weight_class, division, discipline, image_key, submitted_at, updated_at
+          weight_class, participant_gender, division, discipline, image_key, submitted_at, updated_at
         FROM applications
         WHERE draft_id = $1
         LIMIT 1
@@ -5557,7 +5580,7 @@ async function finalizePaidApplicationOrder({ draftId, orderId }) {
     const draftResult = await client.query(
       `
         SELECT id, draft_id, order_id, payment_method, name, phone, email, birth_date,
-          organization, instagram_id, introduction, weight_class, division, discipline, image_key
+          organization, instagram_id, introduction, weight_class, participant_gender, division, discipline, image_key
         FROM application_drafts
         WHERE draft_id = $1
         FOR UPDATE
@@ -5598,12 +5621,12 @@ async function finalizePaidApplicationOrder({ draftId, orderId }) {
         INSERT INTO applications (
           application_number, draft_id, order_id, payment_key, status, payment_status,
           name, phone, email, birth_date, organization, instagram_id, introduction,
-          weight_class, division, discipline, image_key, submitted_at, updated_at
+          weight_class, participant_gender, division, discipline, image_key, submitted_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, 'SUBMITTED', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW())
+        VALUES ($1, $2, $3, $4, 'SUBMITTED', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW(), NOW())
         RETURNING id, application_number, draft_id, order_id, payment_key, status, payment_status,
           name, phone, email, birth_date, organization, instagram_id, introduction,
-          weight_class, division, discipline, image_key, submitted_at, updated_at
+          weight_class, participant_gender, division, discipline, image_key, submitted_at, updated_at
       `,
       [
         generateApplicationNumber(),
@@ -5619,6 +5642,7 @@ async function finalizePaidApplicationOrder({ draftId, orderId }) {
         draft.instagram_id,
         draft.introduction,
         draft.weight_class,
+        draft.participant_gender,
         draft.division,
         draft.discipline,
         draft.image_key,
@@ -6890,7 +6914,7 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
           a.application_number ILIKE ? OR a.order_id ILIKE ? OR a.name ILIKE ? OR
           a.phone ILIKE ? OR a.email ILIKE ? OR a.organization ILIKE ? OR
           a.division ILIKE ? OR a.discipline ILIKE ? OR a.weight_class ILIKE ? OR
-          a.instagram_id ILIKE ? OR a.introduction ILIKE ?
+          a.participant_gender ILIKE ? OR a.instagram_id ILIKE ? OR a.introduction ILIKE ?
         )`,
         `%${search}%`
       );
@@ -6932,6 +6956,7 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
           a.instagram_id,
           a.introduction,
           a.weight_class,
+          a.participant_gender,
           a.division,
           a.discipline,
           a.payment_status,
@@ -6999,6 +7024,7 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
           instagramId: row.instagram_id,
           introduction: row.introduction,
           weightClass: row.weight_class,
+          participantGender: row.participant_gender,
           division: row.division,
           discipline: getCanonicalApplicationDisciplineTitle({
             discipline: row.discipline,
@@ -7073,7 +7099,7 @@ app.patch("/admin/applications/:applicationNumber", requireAdminAuth, async func
         WHERE application_number = $1
           AND admin_deleted_at IS NULL
         RETURNING application_number, order_id, status, name, phone, email, birth_date, organization,
-          instagram_id, introduction, division, discipline, weight_class, payment_status, submitted_at
+          instagram_id, introduction, participant_gender, division, discipline, weight_class, payment_status, submitted_at
       `,
       [
         applicationNumber,
@@ -7131,6 +7157,7 @@ app.patch("/admin/applications/:applicationNumber", requireAdminAuth, async func
         organization: application.organization,
         snsIdentity: application.instagram_id,
         introduction: application.introduction,
+        participantGender: application.participant_gender,
         division: application.division,
         discipline: getCanonicalApplicationDisciplineTitle({ discipline: application.discipline }),
         weightClass: application.weight_class,
@@ -9331,13 +9358,14 @@ app.post("/applications/draft", async function (req, res) {
           instagram_id,
           introduction,
           weight_class,
+          participant_gender,
           division,
           discipline,
           image_key,
           created_at,
           updated_at
         )
-        VALUES ($1, $2, 'DRAFT', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
+        VALUES ($1, $2, 'DRAFT', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
         RETURNING
           draft_id,
           order_id,
@@ -9351,6 +9379,7 @@ app.post("/applications/draft", async function (req, res) {
           instagram_id,
           introduction,
           weight_class,
+          participant_gender,
           division,
           discipline,
           image_key,
@@ -9368,6 +9397,7 @@ app.post("/applications/draft", async function (req, res) {
         payload.instagramId,
         payload.introduction,
         payload.weightClass,
+        payload.selection.participantGender,
         payload.selection.division,
         payload.selection.discipline,
         payload.selection.imageKey,
@@ -9515,9 +9545,10 @@ app.patch("/applications/draft/:draftId", async function (req, res) {
           instagram_id = $8,
           introduction = $9,
           weight_class = $10,
-          division = $11,
-          discipline = $12,
-          image_key = $13,
+          participant_gender = $11,
+          division = $12,
+          discipline = $13,
+          image_key = $14,
           updated_at = NOW()
         WHERE draft_id = $1
         RETURNING
@@ -9533,6 +9564,7 @@ app.patch("/applications/draft/:draftId", async function (req, res) {
           instagram_id,
           introduction,
           weight_class,
+          participant_gender,
           division,
           discipline,
           image_key,
@@ -9550,6 +9582,7 @@ app.patch("/applications/draft/:draftId", async function (req, res) {
         payload.instagramId,
         payload.introduction,
         payload.weightClass,
+        payload.selection.participantGender,
         payload.selection.division,
         payload.selection.discipline,
         payload.selection.imageKey,
@@ -9647,6 +9680,7 @@ app.get("/applications/draft/:draftId", async function (req, res) {
           instagram_id,
           introduction,
           weight_class,
+          participant_gender,
           division,
           discipline,
           image_key,
@@ -11516,6 +11550,7 @@ app.post("/applications/lookup", async function (req, res) {
           applications.instagram_id,
           applications.introduction,
           applications.weight_class,
+          applications.participant_gender,
           applications.division,
           applications.discipline,
           applications.image_key,
@@ -11988,6 +12023,7 @@ app.post("/applications/refund/request", async function (req, res) {
           birth_date,
           organization,
           weight_class,
+          participant_gender,
           division,
           discipline,
           image_key,
@@ -12968,6 +13004,7 @@ app.post("/applications/complete", async function (req, res) {
           instagram_id,
           introduction,
           weight_class,
+          participant_gender,
           division,
           discipline,
           image_key,
@@ -13023,6 +13060,7 @@ app.post("/applications/complete", async function (req, res) {
           instagram_id,
           introduction,
           weight_class,
+          participant_gender,
           division,
           discipline,
           image_key
@@ -13137,13 +13175,14 @@ app.post("/applications/complete", async function (req, res) {
           instagram_id,
           introduction,
           weight_class,
+          participant_gender,
           division,
           discipline,
           image_key,
           submitted_at,
           updated_at
         )
-        VALUES ($1, $2, $3, $4, 'SUBMITTED', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW())
+        VALUES ($1, $2, $3, $4, 'SUBMITTED', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW(), NOW())
         RETURNING
           id,
           application_number,
@@ -13160,6 +13199,7 @@ app.post("/applications/complete", async function (req, res) {
           instagram_id,
           introduction,
           weight_class,
+          participant_gender,
           division,
           discipline,
           image_key,
@@ -13180,6 +13220,7 @@ app.post("/applications/complete", async function (req, res) {
         draft.instagram_id,
         draft.introduction,
         draft.weight_class,
+        draft.participant_gender,
         draft.division,
         draft.discipline,
         draft.image_key,
@@ -13260,6 +13301,7 @@ app.get("/applications/:applicationNumber", async function (req, res) {
           instagram_id,
           introduction,
           weight_class,
+          participant_gender,
           division,
           discipline,
           image_key,
@@ -13316,6 +13358,7 @@ app.get("/applications/by-order/:orderId", async function (req, res) {
           email,
           birth_date,
           organization,
+          participant_gender,
           division,
           discipline,
           image_key,

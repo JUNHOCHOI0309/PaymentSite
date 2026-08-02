@@ -18,21 +18,25 @@
     {
       "imageKey": "register/common_1.png",
       "title": "Model",
+      "isCommon": true,
       "aliases": ["Model", "Model Korea"]
     },
     {
       "imageKey": "register/common_2.png",
       "title": "Fitness",
+      "isCommon": true,
       "aliases": ["Fitness", "Fitness Korea"]
     },
     {
       "imageKey": "register/common_3.png",
       "title": "Denim",
+      "isCommon": true,
       "aliases": ["Denim", "Danim Korea"]
     },
     {
       "imageKey": "register/common_4.png",
       "title": "Transformation",
+      "isCommon": true,
       "aliases": ["Transformation"]
     },
     {

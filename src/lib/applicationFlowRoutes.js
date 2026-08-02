@@ -16,6 +16,10 @@ export function buildApplyDetailPath(selection) {
     params.set("imageKey", normalizedSelection.imageKey);
   }
 
+  if (normalizedSelection?.participantGender) {
+    params.set("participantGender", normalizedSelection.participantGender);
+  }
+
   const query = params.toString();
   return query ? `/apply/detail?${query}` : "/apply/detail";
 }
