@@ -16,8 +16,6 @@ const initialState = {
     email: "",
   },
   formData: {
-    photoHasAdditionalDiscipline: "X",
-    photoAdditionalDiscipline: "",
     videoType: "",
     videoAdditionalDiscipline: "",
     hairParticipantDiscipline: "",

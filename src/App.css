@@ -5155,6 +5155,10 @@ body {
   height: auto;
 }
 
+.site-stage-photo-price-table-wrap {
+  margin-top: 24px;
+}
+
 .site-stage-service-review-card .site-review-card__header h1 {
   color: #050609;
 }

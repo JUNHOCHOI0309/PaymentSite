@@ -61,6 +61,22 @@ export function getStageServiceByKey(serviceKey) {
   return config.services[serviceKey] || null;
 }
 
+export function getStagePhotoPackages() {
+  return getStageServiceByKey("stage-photo")?.photoPackages || [];
+}
+
+export function getStagePhotoPackage(disciplineCount) {
+  const normalizedCount = Number(disciplineCount);
+
+  if (!Number.isInteger(normalizedCount) || normalizedCount < 1 || normalizedCount > 3) {
+    return null;
+  }
+
+  return getStagePhotoPackages().find(
+    (stagePhotoPackage) => Number(stagePhotoPackage.disciplineCount) === normalizedCount,
+  ) || null;
+}
+
 export function getStageServiceDisciplineLabel(discipline, locale = "ko") {
   return getLocalizedText(
     localizedDisciplineLabels[discipline],
@@ -262,7 +278,7 @@ export function getStageVideoAdditionalDisciplineChoices(locale = "ko") {
 
 export function calculateStageServiceTotalAmount({
   serviceKey,
-  photoHasAdditionalDiscipline = "X",
+  photoDisciplineCount = 1,
   videoType = "",
   videoAdditionalDiscipline = "",
   hairOption = "",
@@ -272,11 +288,7 @@ export function calculateStageServiceTotalAmount({
   hairOptionalOption = "",
 }) {
   if (serviceKey === "stage-photo") {
-    const basePrice = getStageServiceByKey("stage-photo")?.basePrice || 0;
-    const additionalDisciplinePrice =
-      getStageServiceByKey("stage-photo")?.additionalDisciplinePrice || 0;
-
-    return basePrice + (photoHasAdditionalDiscipline === "O" ? additionalDisciplinePrice : 0);
+    return Number(getStagePhotoPackage(photoDisciplineCount)?.price || 0);
   }
 
   if (serviceKey === "stage-video") {

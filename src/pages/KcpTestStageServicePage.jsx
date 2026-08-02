@@ -22,8 +22,6 @@ const initialForm = {
   phone: "",
   email: "",
   serviceType: "stage-photo",
-  photoHasAdditionalDiscipline: "X",
-  photoAdditionalDiscipline: "",
   videoType: "",
   videoAdditionalDiscipline: "",
   hairParticipantDiscipline: "",
@@ -51,12 +49,6 @@ function validateForm(form) {
   if (form.phone.replace(/\D/g, "").length !== 11) return "연락처를 11자리로 입력해 주세요.";
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
     return "올바른 이메일 주소를 입력해 주세요.";
-  }
-
-  if (form.serviceType === "stage-photo") {
-    if (form.photoHasAdditionalDiscipline === "O" && !form.photoAdditionalDiscipline) {
-      return "추가 종목을 선택해 주세요.";
-    }
   }
 
   if (form.serviceType === "stage-video" && !form.videoType) {
@@ -163,12 +155,6 @@ export function KcpTestStageServicePage() {
   ]);
 
   useEffect(() => {
-    if (form.photoHasAdditionalDiscipline === "X" && form.photoAdditionalDiscipline) {
-      setForm((current) => ({ ...current, photoAdditionalDiscipline: "" }));
-    }
-  }, [form.photoAdditionalDiscipline, form.photoHasAdditionalDiscipline]);
-
-  useEffect(() => {
     if (!form.hairAdditionalDiscipline && form.hairRetouchCount !== "0") {
       setForm((current) => ({ ...current, hairRetouchCount: "0" }));
     }
@@ -255,23 +241,6 @@ export function KcpTestStageServicePage() {
                 ))}
               </select>
             </label>
-
-            {form.serviceType === "stage-photo" ? <>
-              <label className="kcp-test-field">
-                종목 추가 여부 <em>(필수)</em>
-                <select value={form.photoHasAdditionalDiscipline} onChange={(event) => updateField("photoHasAdditionalDiscipline", event.target.value)}>
-                  <option value="X">X</option>
-                  <option value="O">O</option>
-                </select>
-              </label>
-              <label className="kcp-test-field">
-                추가 종목 <em>(선택)</em>
-                <select value={form.photoAdditionalDiscipline} onChange={(event) => updateField("photoAdditionalDiscipline", event.target.value)} disabled={form.photoHasAdditionalDiscipline !== "O"}>
-                  <option value="">추가 종목을 선택해 주세요</option>
-                  {disciplineOptions.map((discipline) => <option key={discipline} value={discipline}>{discipline}</option>)}
-                </select>
-              </label>
-            </> : null}
 
             {form.serviceType === "stage-video" ? <>
               <label className="kcp-test-field">

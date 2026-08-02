@@ -6,6 +6,7 @@ import applicationDisciplineCatalog from "../../data/applicationDisciplineCatalo
 import {
   getHairAdditionalOptionLabels,
   getHairOptionChoices,
+  getStagePhotoPackage,
   stageServiceItems,
   getStageServiceTitle,
   getStageVideoAdditionalDisciplineMeta,
@@ -128,6 +129,16 @@ function getStageServiceMeta(row) {
   const title = getStageServiceTitle(row.serviceType) || row.serviceType || "-";
 
   if (row.serviceType === "stage-photo") {
+    const linkedApplications = getLinkedApplications(row);
+    const stagePhotoPackage = getStagePhotoPackage(linkedApplications.length);
+
+    if (stagePhotoPackage && Number(row.totalAmount) === Number(stagePhotoPackage.price)) {
+      return {
+        primary: `${title} / ${stagePhotoPackage.disciplineCount}종목`,
+        secondary: `${stagePhotoPackage.photoCount}장 제공 / ${getLinkedDisciplines(row) || "-"}`,
+      };
+    }
+
     return {
       primary: title,
       secondary:

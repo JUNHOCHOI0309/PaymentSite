@@ -19,8 +19,23 @@
   "services": {
     "stage-photo": {
       "title": "무대 사진 촬영",
-      "basePrice": 180000,
-      "additionalDisciplinePrice": 60000
+      "photoPackages": [
+        {
+          "disciplineCount": 1,
+          "photoCount": 6,
+          "price": 120000
+        },
+        {
+          "disciplineCount": 2,
+          "photoCount": 9,
+          "price": 150000
+        },
+        {
+          "disciplineCount": 3,
+          "photoCount": 12,
+          "price": 180000
+        }
+      ]
     },
     "stage-video": {
       "title": "무대 영상 촬영",

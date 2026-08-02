@@ -12,8 +12,9 @@ import {
   getHairAddOnChoices,
   getHairOptionChoices,
   getHairRetouchCountChoices,
+  getStagePhotoPackage,
+  getStagePhotoPackages,
   getStageServiceByKey,
-  getStageServiceDisciplineOptions,
   getStageServiceTitle,
   getStageVideoAdditionalDisciplineChoices,
   getVideoTypeOptions,
@@ -51,24 +52,9 @@ function getInitialFieldErrors() {
     phone: "",
     email: "",
     linkedApplication: "",
-    photoHasAdditionalDiscipline: "",
-    photoAdditionalDiscipline: "",
     videoType: "",
     hairOption: "",
   };
-}
-
-function normalizeDisciplineOptions(options) {
-  return options.map((option) => {
-    if (typeof option === "string") {
-      return { value: option, label: option };
-    }
-
-    return {
-      value: option?.value || "",
-      label: option?.label || option?.value || "",
-    };
-  });
 }
 
 export function StageServiceDetailPage() {
@@ -89,10 +75,10 @@ export function StageServiceDetailPage() {
   const prefillName = searchParams.get("name") || "";
   const prefillEmail = searchParams.get("email") || "";
   const prefillPhone = searchParams.get("phone") || "";
-  const disciplineOptions = normalizeDisciplineOptions(getStageServiceDisciplineOptions(locale));
   const videoTypeOptions = getVideoTypeOptions(locale);
   const isHairMakeupService = serviceKey === "hair-makeup";
-  const selectedLinkedApplications = isHairMakeupService
+  const isMultiApplicationService = serviceKey === "stage-photo" || isHairMakeupService;
+  const selectedLinkedApplications = isMultiApplicationService
     ? state.linkedApplications
     : state.linkedApplication.applicationNumber
       ? [state.linkedApplication]
@@ -104,7 +90,11 @@ export function StageServiceDetailPage() {
     selectedHairDisciplines.every((discipline) => isHairMakeupOptionAllowed(discipline, option)),
   );
   const maxHairRetouchCount = Math.max(0, selectedHairDisciplines.length - 1);
-  const hasPhotoAdditionalDiscipline = state.formData.photoHasAdditionalDiscipline === "O";
+  const stagePhotoPackage =
+    serviceKey === "stage-photo"
+      ? getStagePhotoPackage(selectedLinkedApplications.length)
+      : null;
+  const stagePhotoPackages = getStagePhotoPackages();
   const hairAddOnChoices = getHairAddOnChoices(locale);
   const hairRetouchCountChoices = getHairRetouchCountChoices(state.formData.hairOption, locale)
     .filter((option) => option.count <= maxHairRetouchCount);
@@ -115,7 +105,7 @@ export function StageServiceDetailPage() {
     () =>
       calculateStageServiceTotalAmount({
         serviceKey,
-        photoHasAdditionalDiscipline: state.formData.photoHasAdditionalDiscipline,
+        photoDisciplineCount: selectedLinkedApplications.length,
         videoType: state.formData.videoType,
         videoAdditionalDiscipline: state.formData.videoAdditionalDiscipline,
         hairOption: state.formData.hairOption,
@@ -125,7 +115,7 @@ export function StageServiceDetailPage() {
       }),
     [
       serviceKey,
-      state.formData.photoHasAdditionalDiscipline,
+      selectedLinkedApplications.length,
       state.formData.videoType,
       state.formData.videoAdditionalDiscipline,
       state.formData.hairOption,
@@ -212,12 +202,6 @@ export function StageServiceDetailPage() {
   ]);
 
   useEffect(() => {
-    if (!hasPhotoAdditionalDiscipline && state.formData.photoAdditionalDiscipline) {
-      dispatch({ type: "SET_FORM_FIELD", field: "photoAdditionalDiscipline", value: "" });
-    }
-  }, [dispatch, hasPhotoAdditionalDiscipline, state.formData.photoAdditionalDiscipline]);
-
-  useEffect(() => {
     if (Number(state.formData.hairRetouchCount || 0) > maxHairRetouchCount) {
       dispatch({ type: "SET_FORM_FIELD", field: "hairRetouchCount", value: "0" });
     }
@@ -254,19 +238,13 @@ export function StageServiceDetailPage() {
           ? ""
           : t("stageService.emailError");
       case "linkedApplication":
-        if (isHairMakeupService) {
+        if (isMultiApplicationService) {
           return state.linkedApplications.length
             ? ""
             : "신청한 종목 내역에서 1개 이상 선택해 주세요.";
         }
 
         return state.linkedApplication.applicationNumber ? "" : "신청한 종목 내역에서 연결할 종목을 선택해 주세요.";
-      case "photoHasAdditionalDiscipline":
-        return normalizedValue ? "" : t("stageService.photoAdditionalFlagError");
-      case "photoAdditionalDiscipline":
-        return hasPhotoAdditionalDiscipline && !normalizedValue
-          ? t("stageService.additionalDisciplineError")
-          : "";
       case "videoType":
         return normalizedValue ? "" : t("stageService.videoTypeError");
       case "hairOption":
@@ -282,14 +260,6 @@ export function StageServiceDetailPage() {
       phone: validateField("phone", state.applicantInfo.phone),
       email: validateField("email", state.applicantInfo.email),
       linkedApplication: validateField("linkedApplication", state.linkedApplication.applicationNumber),
-      photoHasAdditionalDiscipline:
-        serviceKey === "stage-photo"
-          ? validateField("photoHasAdditionalDiscipline", state.formData.photoHasAdditionalDiscipline)
-          : "",
-      photoAdditionalDiscipline:
-        serviceKey === "stage-photo"
-          ? validateField("photoAdditionalDiscipline", state.formData.photoAdditionalDiscipline)
-          : "",
       videoType:
         serviceKey === "stage-video" ? validateField("videoType", state.formData.videoType) : "",
       hairOption:
@@ -352,7 +322,7 @@ export function StageServiceDetailPage() {
       const availableApplicationNumbers = new Set(
         applications.map((application) => application.applicationNumber),
       );
-      const currentSelection = isHairMakeupService
+      const currentSelection = isMultiApplicationService
         ? state.linkedApplications
         : [state.linkedApplication];
       const nextSelection = currentSelection.filter((application) =>
@@ -371,7 +341,7 @@ export function StageServiceDetailPage() {
   }
 
   function selectLinkedApplication(application) {
-    if (isHairMakeupService) {
+    if (isMultiApplicationService) {
       const isSelected = state.linkedApplications.some(
         (selectedApplication) => selectedApplication.applicationNumber === application.applicationNumber,
       );
@@ -382,19 +352,25 @@ export function StageServiceDetailPage() {
         : [...state.linkedApplications, application];
 
       if (!isSelected && nextSelection.length > 3) {
-        setErrorMessage("헤어&메이크업은 신청한 종목을 최대 3개까지 선택할 수 있습니다.");
+        setErrorMessage(
+          serviceKey === "stage-photo"
+            ? "무대 사진 촬영은 신청한 종목을 최대 3개까지 선택할 수 있습니다."
+            : "헤어&메이크업은 신청한 종목을 최대 3개까지 선택할 수 있습니다.",
+        );
         return;
       }
 
-      const selectedGenders = new Set(
-        nextSelection
-          .map((selectedApplication) => getHairMakeupDisciplineGender(selectedApplication.discipline))
-          .filter((gender) => gender !== "all"),
-      );
+      if (isHairMakeupService) {
+        const selectedGenders = new Set(
+          nextSelection
+            .map((selectedApplication) => getHairMakeupDisciplineGender(selectedApplication.discipline))
+            .filter((gender) => gender !== "all"),
+        );
 
-      if (selectedGenders.size > 1) {
-        setErrorMessage("남성 부문과 여성 부문은 하나의 헤어&메이크업 신청으로 함께 선택할 수 없습니다.");
-        return;
+        if (selectedGenders.size > 1) {
+          setErrorMessage("남성 부문과 여성 부문은 하나의 헤어&메이크업 신청으로 함께 선택할 수 없습니다.");
+          return;
+        }
       }
 
       dispatch({ type: "SET_LINKED_APPLICATIONS", value: nextSelection });
@@ -453,8 +429,6 @@ export function StageServiceDetailPage() {
       email: state.applicantInfo.email,
       linkedApplicationNumber: state.linkedApplication.applicationNumber,
       linkedApplicationNumbers: selectedLinkedApplications.map((application) => application.applicationNumber),
-      photoHasAdditionalDiscipline: state.formData.photoHasAdditionalDiscipline,
-      photoAdditionalDiscipline: state.formData.photoAdditionalDiscipline,
       videoType: state.formData.videoType,
       videoAdditionalDiscipline: state.formData.videoAdditionalDiscipline,
       hairOption: state.formData.hairOption,
@@ -497,13 +471,19 @@ export function StageServiceDetailPage() {
       {selectedLinkedApplications.length ? (
         <>
           <div className="site-stage-service-price-box__row">
-            <span>{isHairMakeupService ? "선택 종목" : t("stageService.linkedApplication")}</span>
+            <span>{isMultiApplicationService ? "선택 종목" : t("stageService.linkedApplication")}</span>
             <strong>{selectedLinkedApplications.map((application) => application.applicationNumber).join(", ")}</strong>
           </div>
           <div className="site-stage-service-price-box__row">
-            <span>{isHairMakeupService ? "참가 부문" : t("stageService.linkedDiscipline")}</span>
+            <span>{isMultiApplicationService ? "참가 부문" : t("stageService.linkedDiscipline")}</span>
             <strong>{selectedLinkedApplications.map((application) => application.discipline).join(", ") || "-"}</strong>
           </div>
+          {stagePhotoPackage ? (
+            <div className="site-stage-service-price-box__row">
+              <span>사진 구성</span>
+              <strong>{stagePhotoPackage.disciplineCount}종목 / {stagePhotoPackage.photoCount}장</strong>
+            </div>
+          ) : null}
         </>
       ) : null}
     </div>
@@ -570,16 +550,20 @@ export function StageServiceDetailPage() {
                       {isLoadingApplications ? "불러오는 중" : "신청한 종목 내역 불러오기"}
                     </Button>
                   </div>
-                  {isHairMakeupService ? (
-                    <p className="site-field__hint">헤어&메이크업을 받을 결제 완료 종목을 최대 3개까지 선택해 주세요.</p>
+                  {isMultiApplicationService ? (
+                    <p className="site-field__hint">
+                      {serviceKey === "stage-photo"
+                        ? "무대 사진 촬영을 받을 결제 완료 종목을 최대 3개까지 선택해 주세요."
+                        : "헤어&메이크업을 받을 결제 완료 종목을 최대 3개까지 선택해 주세요."}
+                    </p>
                   ) : null}
                   {eligibleApplications.length ? (
                     <div
                       className="site-stage-service-application-picker__options"
-                      role={isHairMakeupService ? "group" : "radiogroup"}
+                      role={isMultiApplicationService ? "group" : "radiogroup"}
                     >
                       {eligibleApplications.map((application) => {
-                        const selected = isHairMakeupService
+                        const selected = isMultiApplicationService
                           ? state.linkedApplications.some(
                             (selectedApplication) =>
                               selectedApplication.applicationNumber === application.applicationNumber,
@@ -595,7 +579,7 @@ export function StageServiceDetailPage() {
                               checked={selected}
                               name="linked-stage-application"
                               onChange={() => selectLinkedApplication(application)}
-                              type={isHairMakeupService ? "checkbox" : "radio"}
+                              type={isMultiApplicationService ? "checkbox" : "radio"}
                               value={application.applicationNumber}
                             />
                             <span>{application.discipline}</span>
@@ -609,51 +593,6 @@ export function StageServiceDetailPage() {
                     <span className="site-field__error">{fieldErrors.linkedApplication}</span>
                   ) : null}
                 </div>
-
-                {serviceKey === "stage-photo" ? (
-                  <>
-                    <label className="site-field">
-                      <span className="site-field__label">
-                        {t("stageService.photoAdditionalFlag")}
-                        <span className="site-field__requirement">({t("apply.required")})</span>
-                      </span>
-                      <select
-                        className={`site-input ${fieldErrors.photoHasAdditionalDiscipline ? "site-input--error" : ""}`.trim()}
-                        value={state.formData.photoHasAdditionalDiscipline}
-                        onChange={setFormField("photoHasAdditionalDiscipline")}
-                      >
-                        <option value="X">X</option>
-                        <option value="O">O</option>
-                      </select>
-                      {fieldErrors.photoHasAdditionalDiscipline ? (
-                        <span className="site-field__error">{fieldErrors.photoHasAdditionalDiscipline}</span>
-                      ) : null}
-                    </label>
-
-                    <label className="site-field">
-                      <span className="site-field__label">
-                        {t("stageService.additionalDiscipline")}
-                        <span className="site-field__requirement">({t("apply.optional")})</span>
-                      </span>
-                      <select
-                        className={`site-input ${fieldErrors.photoAdditionalDiscipline ? "site-input--error" : ""}`.trim()}
-                        value={state.formData.photoAdditionalDiscipline}
-                        onChange={setFormField("photoAdditionalDiscipline")}
-                        disabled={!hasPhotoAdditionalDiscipline}
-                      >
-                        <option value="">{t("stageService.additionalDisciplinePlaceholder")}</option>
-                        {disciplineOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      {fieldErrors.photoAdditionalDiscipline ? (
-                        <span className="site-field__error">{fieldErrors.photoAdditionalDiscipline}</span>
-                      ) : null}
-                    </label>
-                  </>
-                ) : null}
 
                 {serviceKey === "stage-video" ? (
                   <>
@@ -801,11 +740,48 @@ export function StageServiceDetailPage() {
               <li>{t("stageService.notice1")}</li>
               <li>{t("stageService.notice2")}</li>
               <li>{t("stageService.notice3")}</li>
+              {serviceKey === "stage-photo" ? (
+                <li>모든 전달 사진은 보정 완료본이며, 원본 사이즈로 제공됩니다.</li>
+              ) : null}
               {serviceKey === "hair-makeup" ? (
                 <li>대회장 내에서 공식 헤어&amp;메이크업 업체를 제외한 출장 헤어&amp;메이크업 업체는 입장이 불가합니다.</li>
               ) : null}
             </ul>
+            {serviceKey === "stage-photo" ? (
+              <div className="site-apply-detail__fee-table-wrap site-stage-photo-price-table-wrap">
+                <table className="site-apply-detail__fee-table">
+                  <thead>
+                    <tr>
+                      <th>구성</th>
+                      <th>신청 종목</th>
+                      <th>장수</th>
+                      <th>금액</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stagePhotoPackages.map((stagePhotoPackage, index) => (
+                      <tr key={stagePhotoPackage.disciplineCount}>
+                        {index === 0 ? (
+                          <td rowSpan={stagePhotoPackages.length}>보정 완료 사진<br />원본 사이즈</td>
+                        ) : null}
+                        <td>{stagePhotoPackage.disciplineCount}종목</td>
+                        <td>{stagePhotoPackage.photoCount}장</td>
+                        <td>{formatStageServiceAmount(stagePhotoPackage.price, locale)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
           </NoticeBox>
+          {serviceKey === "stage-photo" ? (
+            <div className="site-stage-service-notice-images">
+              <img
+                src={buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent("register/stagephoto_1.png")}`)}
+                alt="무대 사진 촬영 안내"
+              />
+            </div>
+          ) : null}
           {serviceKey === "hair-makeup" ? (
             <div className="site-stage-service-notice-images">
               {["hairmakeup_1.png", "hairmakeup_2.png"].map((filename) => (

@@ -203,6 +203,9 @@ const stageServiceFemaleHairMakeupDisciplines = new Set(
   stageServiceHairMakeupDisciplineGroups.female || []
 );
 const stageServiceDefinitions = stageServiceConfig.services || {};
+const stagePhotoPackages = Array.isArray(stageServiceDefinitions["stage-photo"]?.photoPackages)
+  ? stageServiceDefinitions["stage-photo"].photoPackages
+  : [];
 const stageVideoTypeDefinitions = Array.isArray(stageServiceDefinitions["stage-video"]?.videoTypes)
   ? stageServiceDefinitions["stage-video"].videoTypes
   : [];
@@ -251,6 +254,18 @@ const hairAddOnMap = new Map(
   hairAddOnDefinitions.map((definition) => [definition.value, definition])
 );
 const hairRetouchPrices = stageServiceDefinitions["hair-makeup"]?.retouchPrices || {};
+
+function getStagePhotoPackage(disciplineCount) {
+  const normalizedCount = Number(disciplineCount);
+
+  if (!Number.isInteger(normalizedCount) || normalizedCount < 1 || normalizedCount > 3) {
+    return null;
+  }
+
+  return stagePhotoPackages.find(
+    (stagePhotoPackage) => Number(stagePhotoPackage.disciplineCount) === normalizedCount,
+  ) || null;
+}
 
 function getStageServiceHairMakeupDisciplineGender(discipline) {
   if (stageServiceMaleHairMakeupDisciplines.has(discipline)) {
@@ -3426,12 +3441,7 @@ function mapStageServiceOrderRow(row) {
 
 function calculateStageServiceAmount(payload) {
   if (payload.serviceType === "stage-photo") {
-    const basePrice = Number(stageServiceDefinitions["stage-photo"]?.basePrice || 0);
-    const additionalPrice = Number(
-      stageServiceDefinitions["stage-photo"]?.additionalDisciplinePrice || 0
-    );
-
-    return basePrice + (payload.photoHasAdditionalDiscipline ? additionalPrice : 0);
+    return Number(getStagePhotoPackage(payload.linkedApplicationNumbers?.length)?.price || 0);
   }
 
   if (payload.serviceType === "stage-video") {
@@ -3511,10 +3521,17 @@ function validateStageServiceDraftPayload(body) {
     };
   }
 
-  if (serviceType !== "hair-makeup" && linkedApplicationNumbers.length !== 1) {
+  if (serviceType === "stage-video" && linkedApplicationNumbers.length !== 1) {
     return {
       ok: false,
       message: "해당 무대 서비스는 연결할 종목을 1개만 선택할 수 있습니다.",
+    };
+  }
+
+  if (serviceType === "stage-photo" && linkedApplicationNumbers.length > 3) {
+    return {
+      ok: false,
+      message: "무대 사진 촬영은 신청한 종목을 최대 3개까지 선택할 수 있습니다.",
     };
   }
 
@@ -3548,15 +3565,16 @@ function validateStageServiceDraftPayload(body) {
   };
 
   if (serviceType === "stage-photo") {
-    payload.photoHasAdditionalDiscipline = normalizeText(body.photoHasAdditionalDiscipline) === "O";
-    payload.photoAdditionalDiscipline = normalizeStageServiceDiscipline(body.photoAdditionalDiscipline);
+    const stagePhotoPackage = getStagePhotoPackage(linkedApplicationNumbers.length);
 
-    if (payload.photoHasAdditionalDiscipline && !payload.photoAdditionalDiscipline) {
+    if (!stagePhotoPackage) {
       return {
         ok: false,
-        message: "추가 종목을 선택해 주세요.",
+        message: "무대 사진 촬영 종목은 1개부터 3개까지 선택해 주세요.",
       };
     }
+
+    payload.photoHasAdditionalDiscipline = linkedApplicationNumbers.length > 1;
   }
 
   if (serviceType === "stage-video") {

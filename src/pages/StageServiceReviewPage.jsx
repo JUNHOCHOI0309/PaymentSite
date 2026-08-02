@@ -9,6 +9,7 @@ import {
   formatStageServiceAmount,
   getHairAdditionalOptionLabels,
   getHairOptionChoices,
+  getStagePhotoPackage,
   getStageServiceDisciplineLabel,
   getStageServiceTitle,
   getStageVideoAdditionalDisciplineMeta,
@@ -87,6 +88,10 @@ export function StageServiceReviewPage() {
     .map((application) => application.discipline)
     .filter(Boolean)
     .join(", ");
+  const stagePhotoPackage =
+    state.serviceKey === "stage-photo"
+      ? getStagePhotoPackage(reviewLinkedApplications.length)
+      : null;
 
   useEffect(() => {
     async function fetchDraft() {
@@ -186,19 +191,10 @@ export function StageServiceReviewPage() {
               value={reviewLinkedDisciplines}
             />
             {state.serviceKey === "stage-photo" ? (
-              <>
-                <ReviewRow
-                  label={t("stageService.photoAdditionalFlag")}
-                  value={reviewDraft?.photoHasAdditionalDiscipline || state.formData.photoHasAdditionalDiscipline}
-                />
-                <ReviewRow
-                  label={t("stageService.additionalDiscipline")}
-                  value={getStageServiceDisciplineLabel(
-                    reviewDraft?.photoAdditionalDiscipline || state.formData.photoAdditionalDiscipline,
-                    locale,
-                  )}
-                />
-              </>
+              <ReviewRow
+                label="사진 패키지"
+                value={stagePhotoPackage ? `${stagePhotoPackage.disciplineCount}종목 / ${stagePhotoPackage.photoCount}장` : "-"}
+              />
             ) : null}
             {state.serviceKey === "stage-video" ? (
               <>
