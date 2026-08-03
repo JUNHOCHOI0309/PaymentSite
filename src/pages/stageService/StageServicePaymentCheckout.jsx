@@ -12,6 +12,7 @@ export function StageServicePaymentCheckoutPage() {
   const { locale, t } = useLanguage();
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("CARD");
   const [errorMessage, setErrorMessage] = useState("");
+  const [isOrderUnavailable, setIsOrderUnavailable] = useState(false);
 
   const orderId = searchParams.get("orderId") || state.orderId;
   const draftId = searchParams.get("draftId") || state.draftId;
@@ -23,6 +24,7 @@ export function StageServicePaymentCheckoutPage() {
     }
 
     try {
+      setErrorMessage("");
       const kcpPayment = await prepareKcpPayment({
         context: "stageService",
         draftId,
@@ -39,7 +41,13 @@ export function StageServicePaymentCheckoutPage() {
 
       submitKcpPayment(kcpPayment.payUrl, kcpPayment.formFields);
     } catch (error) {
-      setErrorMessage(error.message || t("payment.prepareError"));
+      const orderUnavailable = ["PAYMENT_ORDER_EXPIRED", "PAYMENT_ORDER_CANCELED"].includes(error.code);
+      setIsOrderUnavailable(orderUnavailable);
+      setErrorMessage(
+        orderUnavailable
+          ? "결제 주문이 만료되었거나 취소되었습니다. 신청 내용 확인으로 돌아가 새 주문을 생성해 주세요."
+          : error.message || t("payment.prepareError")
+      );
     }
   }
 
@@ -71,7 +79,7 @@ export function StageServicePaymentCheckoutPage() {
           ))}
         </div>
 
-        <button className="site-kcp-checkout__submit" type="button" onClick={requestPayment} disabled={!orderId}>
+        <button className="site-kcp-checkout__submit" type="button" onClick={requestPayment} disabled={!orderId || isOrderUnavailable}>
           {t("payment.pay")}
         </button>
         <button className="site-kcp-checkout__back" type="button" onClick={() => navigate("/apply/stage-services/review")}>

@@ -74,6 +74,7 @@ export function ApplyReviewPage() {
   const detailPath = buildApplyDetailPath(state.selection);
   const [draftSnapshot, setDraftSnapshot] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
+  const [orderMessage, setOrderMessage] = useState("");
   const [isPreparingPayment, setIsPreparingPayment] = useState(false);
 
   const requiredConsentsAccepted = requiredConsentKeys.every((key) => state.consents[key]);
@@ -134,6 +135,75 @@ export function ApplyReviewPage() {
     }
   }, [dispatch, state.paymentMethod]);
 
+  async function prepareOrder() {
+    if (!state.draftId) {
+      navigate(detailPath);
+      return null;
+    }
+
+    const orderResponse = await createOrder({
+      draftId: state.draftId,
+      orderName: t("review.orderName"),
+      amount: entryFeeAmount,
+      customerName: state.applicantInfo.name,
+      customerEmail: state.applicantInfo.email,
+    });
+    const order = orderResponse.order;
+
+    dispatch({
+      type: "SET_ORDER",
+      payload: { orderId: order.orderId },
+    });
+
+    return order;
+  }
+
+  async function handleCreateOrder() {
+    if (!isRegistrationOpen) {
+      setErrorMessage(
+        locale === "ko"
+          ? "현재 대회 참가 접수 기간이 아닙니다. 접수 기간을 확인해 주세요."
+          : "Competition registration is not currently open. Please check the registration period."
+      );
+      return;
+    }
+
+    setIsPreparingPayment(true);
+    setErrorMessage("");
+    setOrderMessage("");
+
+    try {
+      const order = await prepareOrder();
+
+      if (!order) {
+        return;
+      }
+
+      if (order.status !== "READY") {
+        setErrorMessage(
+          locale === "ko"
+            ? "완료되었거나 처리 중인 주문이 있습니다. 신청 조회에서 결제 상태를 확인해 주세요."
+            : "An existing order is already completed or being processed. Please check its status in Application Lookup."
+        );
+        return;
+      }
+
+      setOrderMessage(
+        order.orderId === state.orderId
+          ? locale === "ko"
+            ? "현재 유효한 결제 주문이 있습니다. 결제 진행하기를 눌러 결제를 계속해 주세요."
+            : "A valid payment order already exists. Select Proceed to Payment to continue."
+          : locale === "ko"
+            ? "새 결제 주문이 생성되었습니다. 20분 안에 결제를 진행해 주세요."
+            : "A new payment order has been created. Complete payment within 20 minutes."
+      );
+    } catch (error) {
+      setErrorMessage(error.message || t("review.preparePaymentError"));
+    } finally {
+      setIsPreparingPayment(false);
+    }
+  }
+
   async function handleProceedPayment() {
     if (!isRegistrationOpen) {
       setErrorMessage(
@@ -144,38 +214,29 @@ export function ApplyReviewPage() {
       return;
     }
 
-    if (!state.draftId) {
-      setErrorMessage(t("review.saveFirstError"));
-      navigate(detailPath);
-      return;
-    }
-
     setIsPreparingPayment(true);
     setErrorMessage("");
+    setOrderMessage("");
 
     try {
-      let orderId = state.orderId;
+      const order = await prepareOrder();
 
-      if (!orderId) {
-        const orderResponse = await createOrder({
-          draftId: state.draftId,
-          orderName: t("review.orderName"),
-          amount: entryFeeAmount,
-          customerName: state.applicantInfo.name,
-          customerEmail: state.applicantInfo.email,
-        });
+      if (!order) {
+        return;
+      }
 
-        orderId = orderResponse.order.orderId;
-
-        dispatch({
-          type: "SET_ORDER",
-          payload: { orderId },
-        });
+      if (order.status !== "READY") {
+        setErrorMessage(
+          locale === "ko"
+            ? "완료되었거나 처리 중인 주문이 있습니다. 신청 조회에서 결제 상태를 확인해 주세요."
+            : "An existing order is already completed or being processed. Please check its status in Application Lookup."
+        );
+        return;
       }
 
       const params = new URLSearchParams({
         draftId: state.draftId,
-        orderId,
+        orderId: order.orderId,
       });
 
       dispatch({
@@ -264,11 +325,16 @@ export function ApplyReviewPage() {
             </Link>
           </NoticeBox>
 
-          <div className="site-inline-actions">
-            <Button variant="ghost" onClick={() => navigate("/apply/consent")}>{t("review.previous")}</Button>
-            <Button onClick={handleProceedPayment} disabled={!isRegistrationOpen || isPreparingPayment}>
-              {isPreparingPayment ? t("review.preparing") : t("review.proceed")}
+          <div className="site-review-order-actions">
+            <Button variant="ghost" onClick={handleCreateOrder} disabled={!isRegistrationOpen || isPreparingPayment}>
+              {isPreparingPayment ? t("review.preparing") : "새 주문 생성하기"}
             </Button>
+            <div className="site-review-order-actions__primary">
+              <Button variant="ghost" onClick={() => navigate("/apply/consent")}>{t("review.previous")}</Button>
+              <Button onClick={handleProceedPayment} disabled={!isRegistrationOpen || isPreparingPayment}>
+                {isPreparingPayment ? t("review.preparing") : t("review.proceed")}
+              </Button>
+            </div>
           </div>
 
           {!isRegistrationOpen ? (
@@ -278,6 +344,7 @@ export function ApplyReviewPage() {
                 : "Registration is closed. Live payment is available only during the registration period."}
             </p>
           ) : null}
+          {orderMessage ? <p className="site-review-order-message">{orderMessage}</p> : null}
           {errorMessage ? <p className="site-error-message">{errorMessage}</p> : null}
         </div>
       </section>

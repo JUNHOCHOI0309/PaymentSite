@@ -1839,6 +1839,41 @@ body,
   margin-top: 32px;
 }
 
+.site-review-order-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 32px;
+}
+
+.site-review-order-actions__primary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.site-review-order-message {
+  margin: 14px 0 0;
+  color: #1e5d96;
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+@media (max-width: 560px) {
+  .site-review-order-actions,
+  .site-review-order-actions__primary {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .site-review-order-actions .site-button,
+  .site-review-order-actions__primary .site-button {
+    width: 100%;
+  }
+}
+
 .site-apply-complete-card h1 {
   color: #050609;
 }

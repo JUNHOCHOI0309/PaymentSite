@@ -5723,7 +5723,12 @@ app.post("/kcp/trade/register", async function (req, res) {
     if (order.status !== "READY") {
       return res.status(409).json({
         ok: false,
-        message: `Order is not in READY status. Current status: ${order.status}`,
+        code: order.status === "CANCELED" ? "PAYMENT_ORDER_CANCELED" : "PAYMENT_ORDER_NOT_READY",
+        orderStatus: order.status,
+        message:
+          order.status === "CANCELED"
+            ? "결제 주문이 만료되었거나 취소되었습니다. 신청 내용 확인에서 새 주문을 생성해 주세요."
+            : `Order is not in READY status. Current status: ${order.status}`,
       });
     }
 

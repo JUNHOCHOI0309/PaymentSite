@@ -9,11 +9,18 @@ export function SpectatorPaymentCheckoutPage() {
   const { state } = useSpectatorFlow();
   const [paymentMethod, setPaymentMethod] = useState("CARD");
   const [errorMessage, setErrorMessage] = useState("");
+  const [isOrderUnavailable, setIsOrderUnavailable] = useState(false);
   const draftId = searchParams.get("draftId") || state.draftId;
   const orderId = searchParams.get("orderId") || state.orderId;
 
   async function requestPayment() {
+    if (!orderId) {
+      setErrorMessage("결제 주문 정보를 찾을 수 없습니다.");
+      return;
+    }
+
     try {
+      setErrorMessage("");
       const payment = await prepareKcpPayment({ context: "spectator", draftId, orderId, paymentMethod });
       const form = document.createElement("form");
       form.method = "post";
@@ -28,7 +35,13 @@ export function SpectatorPaymentCheckoutPage() {
       document.body.appendChild(form);
       form.submit();
     } catch (error) {
-      setErrorMessage(error.message || "결제를 준비하지 못했습니다.");
+      const orderUnavailable = ["PAYMENT_ORDER_EXPIRED", "PAYMENT_ORDER_CANCELED"].includes(error.code);
+      setIsOrderUnavailable(orderUnavailable);
+      setErrorMessage(
+        orderUnavailable
+          ? "결제 주문이 만료되었거나 취소되었습니다. 신청 내용 확인으로 돌아가 새 주문을 생성해 주세요."
+          : error.message || "결제를 준비하지 못했습니다."
+      );
     }
   }
 
@@ -57,7 +70,7 @@ export function SpectatorPaymentCheckoutPage() {
           ))}
         </div>
 
-        <button className="site-kcp-checkout__submit" type="button" disabled={!orderId} onClick={requestPayment}>결제하기</button>
+        <button className="site-kcp-checkout__submit" type="button" disabled={!orderId || isOrderUnavailable} onClick={requestPayment}>결제하기</button>
         <button className="site-kcp-checkout__back" type="button" onClick={() => navigate("/apply/spectator/review")}>신청 내용으로 돌아가기</button>
       </section>
     </main>
