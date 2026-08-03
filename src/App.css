@@ -3824,7 +3824,9 @@ body {
   color: #fff;
 }
 
-.site-home-showcase__tab--active {
+.site-home-showcase__tab--active,
+.site-home-showcase__tab--active:hover,
+.site-home-showcase__tab--active:focus-visible {
   background: #fff;
   border-color: #fff;
   color: #050609;
