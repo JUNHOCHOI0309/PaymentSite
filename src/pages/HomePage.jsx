@@ -8,8 +8,8 @@ import { getApplicationDisciplineTitleByImageKey } from "../data/applicationDisc
 import { buildApiUrl } from "../lib/applicationApi";
 
 const homeUpImageKeys = Array.from({ length: 10 }, (_, index) => `home/home_up_${index + 1}.png`);
-const homeHeroLeftImageKeys = ["home/main_1.png", "home/main_3.png", "home/main_5.png", "home/main_7.png"];
-const homeHeroRightImageKeys = ["home/main_2.png", "home/main_4.png", "home/main_6.png", "home/main_8.png"];
+const homeHeroLeftImageKeys = ["home/main_1.webp", "home/main_3.webp", "home/main_5.webp", "home/main_7.webp"];
+const homeHeroRightImageKeys = ["home/main_2.webp", "home/main_4.webp", "home/main_6.webp", "home/main_8.webp"];
 const participantBenefitsDismissalStorageKey = "mmkorea-home-participant-benefits-dismissed-date";
 const sponsorLogos = [
   { key: "home/logo_1.png", href: "https://www.xn--2i4b21aq3g7vaq7vn4ifle.com/" },
@@ -416,7 +416,7 @@ export function HomePage() {
           </h1>
           <img
             className="site-home-benefits-modal__image"
-            src={getHomeImageUrl("home/participant_benefits.png")}
+            src={getHomeImageUrl("home/participant_benefits.webp")}
             alt={locale === "ko" ? "참가자 혜택 안내" : "Participant benefits"}
             decoding="async"
             fetchPriority="high"
