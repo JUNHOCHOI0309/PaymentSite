@@ -823,6 +823,7 @@ export function AdminDashboardPage() {
   const navigate = useNavigate();
   const [adminUser, setAdminUser] = useState(null);
   const [sessionExpiresAt, setSessionExpiresAt] = useState(null);
+  const [sessionClock, setSessionClock] = useState(() => Date.now());
   const [applications, setApplications] = useState([]);
   const [applicationSummary, setApplicationSummary] = useState({ totalCount: 0, paidCount: 0 });
   const [stageServices, setStageServices] = useState([]);
@@ -951,6 +952,33 @@ export function AdminDashboardPage() {
   const skipInitialAuditQueryRef = useRef(true);
   const skipInitialRefundRequestQueryRef = useRef(true);
   const skipInitialRefundPaymentQueryRef = useRef(true);
+
+  const sessionRemainingSeconds = useMemo(() => {
+    if (!sessionExpiresAt) {
+      return null;
+    }
+
+    const expiresAtMs = new Date(sessionExpiresAt).getTime();
+
+    if (!Number.isFinite(expiresAtMs)) {
+      return null;
+    }
+
+    return Math.max(0, Math.ceil((expiresAtMs - sessionClock) / 1000));
+  }, [sessionClock, sessionExpiresAt]);
+
+  useEffect(() => {
+    if (!sessionExpiresAt) {
+      return undefined;
+    }
+
+    setSessionClock(Date.now());
+    const intervalId = window.setInterval(() => {
+      setSessionClock(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [sessionExpiresAt]);
 
   const forceAdminLogout = useCallback(async () => {
     if (isAutoLogoutRunningRef.current) {
@@ -1541,7 +1569,8 @@ export function AdminDashboardPage() {
       lastAdminHeartbeatAtRef.current = Date.now();
 
       try {
-        await keepAliveAdminSession();
+        const heartbeatResponse = await keepAliveAdminSession();
+        setSessionExpiresAt(heartbeatResponse.session?.expiresAt || null);
       } catch (_error) {
         runAutoLogout();
       }
@@ -1721,7 +1750,8 @@ export function AdminDashboardPage() {
     setIsExtendingAdminSession(true);
 
     try {
-      await keepAliveAdminSession();
+      const keepAliveResponse = await keepAliveAdminSession();
+      setSessionExpiresAt(keepAliveResponse.session?.expiresAt || null);
       resetIdleTimersRef.current?.();
     } catch (_error) {
       await forceAdminLogout();
@@ -1889,13 +1919,17 @@ export function AdminDashboardPage() {
               ? `${adminUser.displayName || adminUser.email} / ${adminUser.role}`
               : "관리자 세션 확인 중"}
           </p>
-          {sessionExpiresAt ? (
-            <p>세션 만료 예정: {formatDateTime(sessionExpiresAt)}</p>
-          ) : null}
         </div>
-        <Button variant="ghost" onClick={handleLogout}>
-          로그아웃
-        </Button>
+        <div className="site-admin-page__header-actions">
+          {sessionRemainingSeconds != null ? (
+            <span className="site-admin-session-countdown" aria-live="polite">
+              세션 종료까지 <strong>{formatCountdown(sessionRemainingSeconds)}</strong>
+            </span>
+          ) : null}
+          <Button variant="ghost" onClick={handleLogout}>
+            로그아웃
+          </Button>
+        </div>
       </div>
 
       {errorMessage ? <p className="site-error-message">{errorMessage}</p> : null}
