@@ -6766,6 +6766,10 @@ body {
   color: #101827;
 }
 
+.site-spectator-apply__actions {
+  justify-content: flex-end;
+}
+
 .site-spectator-consent {
   color: #101827;
 }

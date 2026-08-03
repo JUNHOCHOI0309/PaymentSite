@@ -5374,8 +5374,6 @@ app.post("/kcp/test/spectators/orders", async function (req, res) {
         WHERE draft_id = $1
           AND privacy_consent = TRUE
           AND refund_consent = TRUE
-          AND marketing_consent = TRUE
-          AND photo_video_consent = TRUE
         LIMIT 1
       `,
       [draftId]
@@ -13252,7 +13250,7 @@ app.post("/spectators/orders", async function (req, res) {
       return res.status(404).json({ ok: false, message: "참관객 신청 초안을 찾을 수 없습니다." });
     }
     const draft = draftResult.rows[0];
-    const consentResult = await client.query(`SELECT id FROM spectator_consents WHERE draft_id = $1 AND privacy_consent = TRUE AND refund_consent = TRUE AND marketing_consent = TRUE AND photo_video_consent = TRUE LIMIT 1`, [draftId]);
+    const consentResult = await client.query(`SELECT id FROM spectator_consents WHERE draft_id = $1 AND privacy_consent = TRUE AND refund_consent = TRUE LIMIT 1`, [draftId]);
     if (!consentResult.rowCount) {
       await client.query("ROLLBACK");
       return res.status(409).json({ ok: false, code: "REQUIRED_CONSENTS_MISSING", message: "필수 동의 사항을 확인해 주세요." });

@@ -259,7 +259,7 @@ export function SpectatorApplyPage() {
               </table>
             </div>
           </section>
-          <div className="site-inline-actions"><Button disabled={isSubmitting || !isSalesOpen} type="submit">{isSubmitting ? "저장 중" : "동의 사항 확인"}</Button></div>
+          <div className="site-inline-actions site-spectator-apply__actions"><Button disabled={isSubmitting || !isSalesOpen} type="submit">{isSubmitting ? "저장 중" : "다음으로"}</Button></div>
           {!isSalesOpen ? <p className="site-error-message">참관객 입장권은 2026년 8월 3일부터 10월 18일까지 구매할 수 있습니다.</p> : null}
           {errorMessage ? <p className="site-error-message">{errorMessage}</p> : null}
         </form>

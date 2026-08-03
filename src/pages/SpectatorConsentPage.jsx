@@ -48,7 +48,7 @@ export function SpectatorConsentPage() {
         <article className="site-document site-consent-page site-spectator-consent">
           <p className="site-kicker">CONSENT</p>
           <h1>참관객 동의 사항</h1>
-          <p>필수 항목에 동의해야 결제를 진행할 수 있습니다.</p>
+          <p>개인정보 수집 및 이용 동의와 환불 규정 동의는 필수이며, 마케팅 정보 수신 및 사진·동영상 콘텐츠 사용 동의는 선택 항목입니다.</p>
           <label className="site-consent-page__all">
             <input type="checkbox" checked={allAccepted} onChange={() => dispatch({ type: "SET_CONSENTS", payload: Object.fromEntries(items.map((item) => [item.key, !allAccepted])) })} />
             <strong>전체 동의</strong>
