@@ -63,6 +63,10 @@ export function StageServiceDetailPage() {
   const [searchParams] = useSearchParams();
   const { state, dispatch, isHydrated } = useStageServiceFlow();
   const { locale, t } = useLanguage();
+  const repeatRefundReviewNotice =
+    locale === "ko"
+      ? "대회 신청과 무대 서비스의 환불 완료 이력이 최근 30일 내 합산 5회 이상인 경우, 다음 환불 요청은 자동 취소 대신 운영 확인 후 처리됩니다."
+      : "Completed refunds for competition applications and stage services are counted together. Once five completed refunds occur within 30 days, the next refund request is reviewed by the operations team before it is cancelled automatically.";
   const handledLocationKeyRef = useRef("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -740,6 +744,7 @@ export function StageServiceDetailPage() {
               <li>{t("stageService.notice1")}</li>
               <li>{t("stageService.notice2")}</li>
               <li>{t("stageService.notice3")}</li>
+              <li>{repeatRefundReviewNotice}</li>
               {serviceKey === "stage-photo" ? (
                 <li>모든 전달 사진은 보정 완료본이며, 원본 사이즈로 제공됩니다.</li>
               ) : null}

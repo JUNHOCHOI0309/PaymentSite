@@ -4,6 +4,10 @@ const refundRuleText = refundPolicy.personalCancellationRules
   .map((rule) => `- ${rule.label}: 결제 금액의 ${rule.refundPercent}% 환불`)
   .join("\n");
 
+const repeatRefundReviewText = refundPolicy.repeatRefundReview
+  ? `참관객 입장권 환불 완료 이력이 최근 ${refundPolicy.repeatRefundReview.windowDays}일 내 ${refundPolicy.repeatRefundReview.completedRefundThreshold}회 이상인 경우, 다음 환불 요청은 자동 취소 대신 운영 확인 후 처리됩니다.`
+  : "";
+
 export const spectatorConsentItems = [
   {
     key: "privacy",
@@ -26,6 +30,7 @@ export const spectatorConsentItems = [
     key: "refund",
     title: "환불 규정 동의",
     required: true,
+    notice: repeatRefundReviewText,
     content: `참관객 입장권에도 대회 신청과 동일한 환불 기준이 적용됩니다.
 
 ${refundRuleText}

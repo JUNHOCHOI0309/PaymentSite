@@ -58,7 +58,12 @@ export function SpectatorConsentPage() {
                   <label><input type="checkbox" checked={Boolean(state.consents[item.key])} onChange={() => toggleConsent(item.key)} /><strong>[{item.required ? "필수" : "선택"}] {item.title}</strong></label>
                   <button type="button" onClick={() => setExpandedKey(expandedKey === item.key ? "" : item.key)}>{expandedKey === item.key ? "접기" : "내용 보기"}</button>
                 </div>
-                {expandedKey === item.key ? <div className="site-consent-item__content">{item.content}</div> : null}
+                {expandedKey === item.key ? (
+                  <div className="site-consent-item__content">
+                    {item.notice ? <p className="site-consent-page__policy-notice">{item.notice}</p> : null}
+                    {item.content}
+                  </div>
+                ) : null}
               </section>
             ))}
           </div>

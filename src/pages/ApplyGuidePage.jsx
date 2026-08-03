@@ -127,7 +127,7 @@ function RegulationGuide({ locale }) {
               title: "환불 규정",
               required: "필수",
               body:
-                "환불 금액은 결제 완료 시점과 환불 요청 시점의 대회 시작일 기준 구간에 따라 자동 산정되며, 결제 완료 후 동의한 환불 규정이 적용됩니다.",
+                "환불 금액은 결제 완료 시점과 환불 요청 시점의 대회 시작일 기준 구간에 따라 자동 산정됩니다. 대회 신청과 무대 서비스는 환불 이력을 합산하며, 최근 30일 내 환불 완료가 5회 이상이면 다음 요청은 운영 확인 후 처리됩니다. 참관객 입장권 환불 이력은 별도로 계산됩니다.",
             },
             {
               title: "마케팅 정보 수신",
@@ -145,6 +145,11 @@ function RegulationGuide({ locale }) {
           detailPrefix: "전문 확인:",
           privacy: "개인정보처리방침",
           terms: "이용약관",
+          repeatRefundNotice: {
+            title: "반복 환불 요청 안내",
+            body:
+              "대회 신청과 무대 서비스의 환불 완료 이력은 동일한 기준으로 합산합니다. 최근 30일 내 환불 완료가 5회 이상이면 다음 환불 요청은 환불 가능 기간에 해당하더라도 즉시 자동 취소되지 않으며, 운영진이 결제·신청 내역과 환불 규정 적용 구간을 확인한 뒤 처리 결과를 안내합니다. 참관객 입장권 환불 이력은 대회 신청·무대 서비스와 별도로 계산됩니다.",
+          },
         }
       : {
           summary:
@@ -184,6 +189,11 @@ function RegulationGuide({ locale }) {
           detailPrefix: "Full documents:",
           privacy: "Privacy Policy",
           terms: "Terms of Service",
+          repeatRefundNotice: {
+            title: "Repeated refund request notice",
+            body:
+              "Completed refunds for competition applications and stage services are counted together. Once five completed refunds occur within 30 days, the next refund request is reviewed by the operations team before it is cancelled automatically. Spectator ticket refund history is counted separately.",
+          },
         };
 
   return (
@@ -200,6 +210,10 @@ function RegulationGuide({ locale }) {
           </article>
         ))}
       </div>
+      <aside className="site-apply-guide__refund-notice">
+        <h3>{copy.repeatRefundNotice.title}</h3>
+        <p>{copy.repeatRefundNotice.body}</p>
+      </aside>
       <p className="site-apply-guide__regulation-links">
         <span>{copy.detailPrefix}</span>
         <Link to="/privacy">{copy.privacy}</Link>

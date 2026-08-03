@@ -5419,6 +5419,16 @@ body {
   line-height: 1.75;
 }
 
+.site-consent-page__policy-notice {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border-left: 3px solid #d49120;
+  background: rgba(212, 145, 32, 0.12);
+  color: #56380c;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
 .site-consent-page__item-check {
   margin-top: 18px;
 }
@@ -5924,6 +5934,27 @@ body {
 .site-apply-guide__fee {
   display: grid;
   gap: 14px;
+}
+
+.site-apply-guide__refund-notice {
+  margin-top: 18px;
+  padding: 20px 22px;
+  border: 1px solid #e2c886;
+  border-radius: 12px;
+  background: #fff8e7;
+  color: #3d3220;
+}
+
+.site-apply-guide__refund-notice h3 {
+  margin: 0 0 9px;
+  color: #5b4006;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.site-apply-guide__refund-notice p {
+  margin: 0;
+  line-height: 1.7;
 }
 
 .site-apply-guide__fee-table-wrap {

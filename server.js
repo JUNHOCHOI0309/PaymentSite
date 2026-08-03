@@ -191,6 +191,21 @@ const refundPolicyPersonalCancellationRules = Array.isArray(
 )
   ? refundPolicy.personalCancellationRules
   : [];
+const refundPolicyRepeatRefundReview = refundPolicy.repeatRefundReview || {};
+const refundPolicyRepeatRefundReviewGroups =
+  refundPolicyRepeatRefundReview.groups || {};
+const refundRepeatReviewScope = Object.freeze({
+  APPLICATION_STAGE_SERVICE: "applicationStageService",
+  SPECTATOR: "spectator",
+});
+const refundRepeatReviewWindowDays = Math.max(
+  1,
+  Number(refundPolicyRepeatRefundReview.windowDays) || 30
+);
+const refundRepeatReviewCompletedThreshold = Math.max(
+  1,
+  Number(refundPolicyRepeatRefundReview.completedRefundThreshold) || 5
+);
 const stageServiceDisciplineOptions = Array.isArray(stageServiceConfig.disciplineOptions)
   ? stageServiceConfig.disciplineOptions
   : [];
@@ -3161,6 +3176,108 @@ function mapSpectatorDraftRow(row) {
     isTest: row.is_test === true,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function getRepeatRefundReviewGroup(scope) {
+  const groupKey =
+    scope === refundRepeatReviewScope.SPECTATOR
+      ? refundRepeatReviewScope.SPECTATOR
+      : refundRepeatReviewScope.APPLICATION_STAGE_SERVICE;
+  const group = refundPolicyRepeatRefundReviewGroups[groupKey] || {};
+
+  return {
+    key: groupKey,
+    label:
+      normalizeText(group.label) ||
+      (groupKey === refundRepeatReviewScope.SPECTATOR
+        ? "참관객 입장권"
+        : "대회 신청 및 무대 서비스"),
+    message:
+      normalizeText(group.message) ||
+      "최근 환불 이력이 반복되어 이번 환불 요청은 운영 확인 후 처리됩니다.",
+  };
+}
+
+async function getRepeatRefundReview({
+  name,
+  email,
+  scope = refundRepeatReviewScope.APPLICATION_STAGE_SERVICE,
+  client = pool,
+}) {
+  const normalizedName = normalizeText(name);
+  const normalizedEmail = normalizeEmail(email);
+  const repeatRefundReviewGroup = getRepeatRefundReviewGroup(scope);
+
+  if (!normalizedName || !normalizedEmail) {
+    return {
+      requiresManualReview: false,
+      completedRefundCount: 0,
+      windowDays: refundRepeatReviewWindowDays,
+      completedRefundThreshold: refundRepeatReviewCompletedThreshold,
+      group: repeatRefundReviewGroup,
+    };
+  }
+
+  const completedRefundSource =
+    repeatRefundReviewGroup.key === refundRepeatReviewScope.SPECTATOR
+      ? `
+          SELECT requested_by_name, requested_by_email, COALESCE(processed_at, created_at) AS completed_at
+          FROM spectator_refund_requests
+          WHERE request_status = 'COMPLETED'
+        `
+      : `
+          SELECT requested_by_name, requested_by_email, COALESCE(processed_at, created_at) AS completed_at
+          FROM application_refund_requests
+          WHERE request_status = 'COMPLETED'
+
+          UNION ALL
+
+          SELECT requested_by_name, requested_by_email, COALESCE(processed_at, created_at) AS completed_at
+          FROM stage_service_refund_requests
+          WHERE request_status = 'COMPLETED'
+        `;
+
+  const result = await client.query(
+    `
+      SELECT COUNT(*)::int AS completed_refund_count
+      FROM (${completedRefundSource}) AS completed_refunds
+      WHERE lower(trim(requested_by_name)) = lower($1)
+        AND lower(trim(requested_by_email)) = $2
+        AND completed_at >= NOW() - make_interval(days => $3::int)
+    `,
+    [normalizedName, normalizedEmail, refundRepeatReviewWindowDays]
+  );
+  const completedRefundCount = Number(result.rows[0]?.completed_refund_count || 0);
+
+  return {
+    requiresManualReview:
+      completedRefundCount >= refundRepeatReviewCompletedThreshold,
+    completedRefundCount,
+    windowDays: refundRepeatReviewWindowDays,
+    completedRefundThreshold: refundRepeatReviewCompletedThreshold,
+    group: repeatRefundReviewGroup,
+  };
+}
+
+function applyRepeatRefundReview(refundQuote, repeatRefundReview) {
+  if (
+    !refundQuote?.canAutoRefund ||
+    !refundQuote?.isRefundable ||
+    !repeatRefundReview?.requiresManualReview
+  ) {
+    return refundQuote;
+  }
+
+  return {
+    ...refundQuote,
+    canAutoRefund: false,
+    requiresManualReview: true,
+    reasonCode: 'REPEATED_REFUND_REVIEW_REQUIRED',
+    message:
+      normalizeText(repeatRefundReview.group?.message) ||
+      '최근 환불 이력이 반복되어 이번 환불 요청은 운영 확인 후 처리됩니다.',
+    repeatRefundReview,
   };
 }
 
@@ -11487,7 +11604,7 @@ app.post("/stage-services/refund/quote", async function (req, res) {
       return res.status(404).json({ ok: false, message: "일치하는 무대 서비스 주문을 찾을 수 없습니다." });
     }
 
-    const refundQuote = calculateRefundQuote({
+    let refundQuote = calculateRefundQuote({
       serviceStatus: serviceOrder.service_status,
       paymentStatus: serviceOrder.latest_payment_status || serviceOrder.payment_status,
       amount: serviceOrder.total_amount ?? serviceOrder.service_amount ?? serviceOrder.order_amount,
@@ -11495,6 +11612,14 @@ app.post("/stage-services/refund/quote", async function (req, res) {
       paymentMethod: serviceOrder.latest_payment_method,
       requestedAt: new Date(),
     });
+    refundQuote = applyRepeatRefundReview(
+      refundQuote,
+      await getRepeatRefundReview({
+        name,
+        email,
+        scope: refundRepeatReviewScope.APPLICATION_STAGE_SERVICE,
+      })
+    );
 
     return res.status(200).json({
       ok: true,
@@ -11547,7 +11672,7 @@ app.post("/stage-services/refund/request", async function (req, res) {
     }
 
     const originalAmount = Number(serviceOrder.total_amount ?? serviceOrder.service_amount ?? serviceOrder.order_amount);
-    const refundQuote = calculateRefundQuote({
+    let refundQuote = calculateRefundQuote({
       serviceStatus: serviceOrder.service_status,
       paymentStatus: serviceOrder.latest_payment_status || serviceOrder.payment_status,
       amount: originalAmount,
@@ -11555,6 +11680,14 @@ app.post("/stage-services/refund/request", async function (req, res) {
       paymentMethod: serviceOrder.latest_payment_method,
       requestedAt: new Date(),
     });
+    refundQuote = applyRepeatRefundReview(
+      refundQuote,
+      await getRepeatRefundReview({
+        name,
+        email,
+        scope: refundRepeatReviewScope.APPLICATION_STAGE_SERVICE,
+      })
+    );
 
     if (!refundQuote.canAutoRefund || !refundQuote.isRefundable || refundQuote.requiresManualReview) {
       return res.status(409).json({ ok: false, code: refundQuote.reasonCode, message: refundQuote.message, refundQuote });
@@ -12046,7 +12179,7 @@ app.post("/applications/refund/quote", async function (req, res) {
       });
     }
 
-    const refundQuote = calculateRefundQuote({
+    let refundQuote = calculateRefundQuote({
       applicationStatus: row.status,
       paymentStatus: row.latest_payment_status || row.payment_status,
       amount: row.total_amount ?? row.order_amount,
@@ -12054,6 +12187,14 @@ app.post("/applications/refund/quote", async function (req, res) {
       paymentMethod: row.latest_payment_method,
       requestedAt: new Date(),
     });
+    refundQuote = applyRepeatRefundReview(
+      refundQuote,
+      await getRepeatRefundReview({
+        name,
+        email,
+        scope: refundRepeatReviewScope.APPLICATION_STAGE_SERVICE,
+      })
+    );
 
     return res.status(200).json({
       ok: true,
@@ -12126,7 +12267,7 @@ app.post("/applications/refund/request", async function (req, res) {
       });
     }
 
-    const refundQuote = calculateRefundQuote({
+    let refundQuote = calculateRefundQuote({
       applicationStatus: application.status,
       paymentStatus: application.latest_payment_status || application.payment_status,
       amount: application.total_amount ?? application.order_amount,
@@ -12134,6 +12275,14 @@ app.post("/applications/refund/request", async function (req, res) {
       paymentMethod: application.latest_payment_method,
       requestedAt: new Date(),
     });
+    refundQuote = applyRepeatRefundReview(
+      refundQuote,
+      await getRepeatRefundReview({
+        name,
+        email,
+        scope: refundRepeatReviewScope.APPLICATION_STAGE_SERVICE,
+      })
+    );
 
     if (!refundQuote.canAutoRefund || !refundQuote.isRefundable || refundQuote.requiresManualReview) {
       return res.status(409).json({
@@ -12501,7 +12650,7 @@ app.post("/spectators/refund/quote", async function (req, res) {
     if (!(await hasVerifiedLookupSession({ name, email, verificationToken }))) return res.status(403).json({ ok: false, message: "이메일 인증이 만료되었거나 유효하지 않습니다." });
     const spectatorOrder = await findLookupOwnedSpectator({ name, email, spectatorOrderNumber });
     if (!spectatorOrder) return res.status(404).json({ ok: false, message: "참관객 신청을 찾을 수 없습니다." });
-    const refundQuote = calculateRefundQuote({
+    let refundQuote = calculateRefundQuote({
       applicationStatus: spectatorOrder.admission_status,
       paymentStatus: spectatorOrder.latest_payment_status || spectatorOrder.payment_status,
       amount: spectatorOrder.total_amount || spectatorOrder.order_amount,
@@ -12509,6 +12658,14 @@ app.post("/spectators/refund/quote", async function (req, res) {
       paymentMethod: spectatorOrder.latest_payment_method,
       requestedAt: new Date(),
     });
+    refundQuote = applyRepeatRefundReview(
+      refundQuote,
+      await getRepeatRefundReview({
+        name,
+        email,
+        scope: refundRepeatReviewScope.SPECTATOR,
+      })
+    );
     return res.status(200).json({ ok: true, spectatorOrder: mapSpectatorOrderRow(spectatorOrder, { maskPersonalInfo: false }), refundQuote });
   } catch (error) {
     console.error("Failed to calculate spectator refund quote:", error);
@@ -12532,7 +12689,7 @@ app.post("/spectators/refund/request", async function (req, res) {
     const spectatorOrder = await findLookupOwnedSpectator({ name, email, spectatorOrderNumber });
     if (!spectatorOrder) return res.status(404).json({ ok: false, message: "참관객 신청을 찾을 수 없습니다." });
     const originalAmount = Number(spectatorOrder.total_amount || spectatorOrder.order_amount || 0);
-    const refundQuote = calculateRefundQuote({
+    let refundQuote = calculateRefundQuote({
       applicationStatus: spectatorOrder.admission_status,
       paymentStatus: spectatorOrder.latest_payment_status || spectatorOrder.payment_status,
       amount: originalAmount,
@@ -12540,6 +12697,14 @@ app.post("/spectators/refund/request", async function (req, res) {
       paymentMethod: spectatorOrder.latest_payment_method,
       requestedAt: new Date(),
     });
+    refundQuote = applyRepeatRefundReview(
+      refundQuote,
+      await getRepeatRefundReview({
+        name,
+        email,
+        scope: refundRepeatReviewScope.SPECTATOR,
+      })
+    );
     if (!refundQuote.canAutoRefund || !refundQuote.isRefundable || refundQuote.requiresManualReview) return res.status(409).json({ ok: false, code: refundQuote.reasonCode, message: refundQuote.message, refundQuote });
     if (!spectatorOrder.payment_key) return res.status(409).json({ ok: false, code: "PAYMENT_KEY_MISSING", message: "환불 처리에 필요한 결제 키가 없습니다." });
     const refundProvider = spectatorOrder.latest_payment_provider || spectatorOrder.order_payment_provider;

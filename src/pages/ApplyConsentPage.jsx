@@ -191,8 +191,13 @@ function renderConsentContent(content) {
   });
 }
 
-function ConsentCopy({ content }) {
-  return <div className="site-consent-page__item-copy">{renderConsentContent(content)}</div>;
+function ConsentCopy({ content, notice }) {
+  return (
+    <div className="site-consent-page__item-copy">
+      {notice ? <p className="site-consent-page__policy-notice">{notice}</p> : null}
+      {renderConsentContent(content)}
+    </div>
+  );
 }
 
 function ConsentItem({ item, checked, isExpanded, onToggleExpand, onToggleConsent, t }) {
@@ -215,7 +220,7 @@ function ConsentItem({ item, checked, isExpanded, onToggleExpand, onToggleConsen
 
       {isExpanded ? (
         <div className="site-consent-page__item-body">
-          <ConsentCopy content={item.content} />
+          <ConsentCopy content={item.content} notice={item.notice} />
           <label className="site-consent-page__item-check">
             <input
               type="checkbox"
