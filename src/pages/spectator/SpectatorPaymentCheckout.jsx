@@ -33,16 +33,33 @@ export function SpectatorPaymentCheckoutPage() {
   }
 
   return (
-    <div className="wrapper">
-      <div className="box_section">
-        <h1>참관객 입장권</h1><p>15,000원</p>
-        {errorMessage ? <p style={{ color: "#d14343" }}>{errorMessage}</p> : null}
-        <div id="payment-method" style={{ display: "flex", flexWrap: "wrap" }}>
-          {[["CARD", "카드"], ["TRANSFER", "계좌이체"], ["MOBILE_PHONE", "휴대폰"]].map(([value, label]) => <button key={value} className={`button2 ${paymentMethod === value ? "active" : ""}`} onClick={() => setPaymentMethod(value)}>{label}</button>)}
+    <main className="site-kcp-checkout">
+      <section className="site-kcp-checkout__panel">
+        <p className="site-kicker">SECURE PAYMENT</p>
+        <h1>참관객 입장권</h1>
+        <p className="site-kcp-checkout__amount">15,000원</p>
+        <p className="site-kcp-checkout__description">결제수단을 선택한 뒤 KCP 결제창에서 결제를 완료해 주세요.</p>
+        {errorMessage ? <p className="site-kcp-checkout__error">{errorMessage}</p> : null}
+
+        <div className="site-kcp-checkout__methods" role="radiogroup" aria-label="결제수단">
+          {[["CARD", "카드", "▣"], ["TRANSFER", "계좌이체", "₩"]].map(([value, label, icon]) => (
+            <button
+              key={value}
+              type="button"
+              className={`site-kcp-checkout__method ${paymentMethod === value ? "is-selected" : ""}`}
+              aria-checked={paymentMethod === value}
+              role="radio"
+              onClick={() => setPaymentMethod(value)}
+            >
+              <span className="site-kcp-checkout__method-icon" aria-hidden="true">{icon}</span>
+              <span>{label}</span>
+            </button>
+          ))}
         </div>
-        <button className="button" disabled={!orderId} onClick={requestPayment}>결제하기</button>
-      </div>
-      <div className="box_section" style={{ padding: 32 }}><button className="button" style={{ marginTop: 0 }} onClick={() => navigate("/apply/spectator/review")}>신청 내용으로 돌아가기</button></div>
-    </div>
+
+        <button className="site-kcp-checkout__submit" type="button" disabled={!orderId} onClick={requestPayment}>결제하기</button>
+        <button className="site-kcp-checkout__back" type="button" onClick={() => navigate("/apply/spectator/review")}>신청 내용으로 돌아가기</button>
+      </section>
+    </main>
   );
 }

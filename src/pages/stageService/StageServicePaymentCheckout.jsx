@@ -44,40 +44,41 @@ export function StageServicePaymentCheckoutPage() {
   }
 
   return (
-    <div className="wrapper">
-      <div className="box_section">
+    <main className="site-kcp-checkout">
+      <section className="site-kcp-checkout__panel">
+        <p className="site-kicker">SECURE PAYMENT</p>
         <h1>{getStageServiceTitle(state.serviceKey, locale)}</h1>
-        <p>{formatStageServiceAmount(state.totalAmount, locale)}</p>
-        {errorMessage ? <p style={{ color: "#d14343" }}>{errorMessage}</p> : null}
-        <div id="payment-method" style={{ display: "flex", flexWrap: "wrap" }}>
+        <p className="site-kcp-checkout__amount">{formatStageServiceAmount(state.totalAmount, locale)}</p>
+        <p className="site-kcp-checkout__description">결제수단을 선택한 뒤 KCP 결제창에서 결제를 완료해 주세요.</p>
+        {errorMessage ? <p className="site-kcp-checkout__error">{errorMessage}</p> : null}
+
+        <div className="site-kcp-checkout__methods" role="radiogroup" aria-label={t("payment.title")}>
           {[
-            ["CARD", t("payment.card")],
-            ["TRANSFER", t("payment.transfer")],
-            ["MOBILE_PHONE", t("payment.mobilePhone")],
-          ].map(([value, label]) => (
+            ["CARD", t("payment.card"), "▣"],
+            ["TRANSFER", t("payment.transfer"), "₩"],
+          ].map(([value, label, icon]) => (
             <button
               key={value}
-              className={`button2 ${selectedPaymentMethod === value ? "active" : ""}`}
+              type="button"
+              className={`site-kcp-checkout__method ${selectedPaymentMethod === value ? "is-selected" : ""}`}
+              aria-checked={selectedPaymentMethod === value}
+              role="radio"
               onClick={() => setSelectedPaymentMethod(value)}
             >
-              {label}
+              <span className="site-kcp-checkout__method-icon" aria-hidden="true">{icon}</span>
+              <span>{label}</span>
             </button>
           ))}
         </div>
-        <button className="button" onClick={() => requestPayment()} disabled={!orderId}>
+
+        <button className="site-kcp-checkout__submit" type="button" onClick={requestPayment} disabled={!orderId}>
           {t("payment.pay")}
         </button>
-      </div>
-      <div className="box_section" style={{ padding: "32px" }}>
-        <button
-          className="button"
-          style={{ marginTop: "0" }}
-          onClick={() => navigate("/apply/stage-services/review")}
-        >
+        <button className="site-kcp-checkout__back" type="button" onClick={() => navigate("/apply/stage-services/review")}>
           {t("payment.backToReview")}
         </button>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }
 

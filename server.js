@@ -630,6 +630,8 @@ function mapClientPaymentMethodToKcp(value) {
   }
 }
 
+const allowedKcpCheckoutPaymentMethods = new Set(["CARD", "TRANSFER"]);
+
 function getRequestPublicOrigin(req) {
   return publicBaseUrl || `${req.protocol}://${req.get("host")}`;
 }
@@ -5653,6 +5655,14 @@ app.post("/kcp/trade/register", async function (req, res) {
       ok: false,
       code: "KCP_PAYMENT_METHOD_UNSUPPORTED",
       message: "KCP LITE PAY에서 아직 지원하지 않는 결제수단입니다.",
+    });
+  }
+
+  if (!allowedKcpCheckoutPaymentMethods.has(requestedPaymentMethod)) {
+    return res.status(400).json({
+      ok: false,
+      code: "KCP_PAYMENT_METHOD_NOT_AVAILABLE",
+      message: "현재 카드와 계좌이체 결제만 이용할 수 있습니다.",
     });
   }
 
