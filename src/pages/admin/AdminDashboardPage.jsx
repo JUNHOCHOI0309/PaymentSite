@@ -83,7 +83,6 @@ function formatCountdown(seconds) {
 
 const ADMIN_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const ADMIN_IDLE_WARNING_MS = 60 * 1000;
-const ADMIN_ACTIVITY_HEARTBEAT_MS = 60 * 1000;
 
 function formatBirthDate(value) {
   if (!value) {
@@ -822,8 +821,6 @@ function AdminUserEditor({ adminUser, form, isSubmitting, isCurrentUser, onChang
 export function AdminDashboardPage() {
   const navigate = useNavigate();
   const [adminUser, setAdminUser] = useState(null);
-  const [sessionExpiresAt, setSessionExpiresAt] = useState(null);
-  const [sessionClock, setSessionClock] = useState(() => Date.now());
   const [applications, setApplications] = useState([]);
   const [applicationSummary, setApplicationSummary] = useState({ totalCount: 0, paidCount: 0 });
   const [stageServices, setStageServices] = useState([]);
@@ -937,11 +934,11 @@ export function AdminDashboardPage() {
   const [isSavingApplication, setIsSavingApplication] = useState(false);
   const [isSavingAdminUser, setIsSavingAdminUser] = useState(false);
   const [isIdleWarningOpen, setIsIdleWarningOpen] = useState(false);
-  const [idleSecondsRemaining, setIdleSecondsRemaining] = useState(60);
+  const [idleSecondsRemaining, setIdleSecondsRemaining] = useState(
+    Math.ceil(ADMIN_IDLE_TIMEOUT_MS / 1000),
+  );
   const [isExtendingAdminSession, setIsExtendingAdminSession] = useState(false);
   const lastAdminActivityAtRef = useRef(Date.now());
-  const lastAdminHeartbeatAtRef = useRef(Date.now());
-  const lastAdminMouseMoveAtRef = useRef(0);
   const isIdleWarningOpenRef = useRef(false);
   const isAutoLogoutRunningRef = useRef(false);
   const resetIdleTimersRef = useRef(null);
@@ -952,33 +949,6 @@ export function AdminDashboardPage() {
   const skipInitialAuditQueryRef = useRef(true);
   const skipInitialRefundRequestQueryRef = useRef(true);
   const skipInitialRefundPaymentQueryRef = useRef(true);
-
-  const sessionRemainingSeconds = useMemo(() => {
-    if (!sessionExpiresAt) {
-      return null;
-    }
-
-    const expiresAtMs = new Date(sessionExpiresAt).getTime();
-
-    if (!Number.isFinite(expiresAtMs)) {
-      return null;
-    }
-
-    return Math.max(0, Math.ceil((expiresAtMs - sessionClock) / 1000));
-  }, [sessionClock, sessionExpiresAt]);
-
-  useEffect(() => {
-    if (!sessionExpiresAt) {
-      return undefined;
-    }
-
-    setSessionClock(Date.now());
-    const intervalId = window.setInterval(() => {
-      setSessionClock(Date.now());
-    }, 1000);
-
-    return () => window.clearInterval(intervalId);
-  }, [sessionExpiresAt]);
 
   const forceAdminLogout = useCallback(async () => {
     if (isAutoLogoutRunningRef.current) {
@@ -1198,7 +1168,7 @@ export function AdminDashboardPage() {
       ]);
 
       setAdminUser(meResponse.adminUser);
-      setSessionExpiresAt(meResponse.session?.expiresAt || null);
+      resetIdleTimersRef.current?.(meResponse.session?.lastSeenAt);
       setApplications(applicationsResponse.applications || []);
       setApplicationSummary(applicationsResponse.summary || {
         totalCount: applicationsResponse.applications?.length || 0,
@@ -1485,7 +1455,7 @@ export function AdminDashboardPage() {
   useEffect(() => {
     let warningTimerId = null;
     let logoutTimerId = null;
-    let warningCountdownIntervalId = null;
+    let countdownIntervalId = null;
 
     const clearIdleTimers = () => {
       if (warningTimerId) {
@@ -1498,9 +1468,9 @@ export function AdminDashboardPage() {
         logoutTimerId = null;
       }
 
-      if (warningCountdownIntervalId) {
-        window.clearInterval(warningCountdownIntervalId);
-        warningCountdownIntervalId = null;
+      if (countdownIntervalId) {
+        window.clearInterval(countdownIntervalId);
+        countdownIntervalId = null;
       }
     };
 
@@ -1532,10 +1502,6 @@ export function AdminDashboardPage() {
       isIdleWarningOpenRef.current = true;
       setIsIdleWarningOpen(true);
       updateWarningCountdown();
-
-      if (!warningCountdownIntervalId) {
-        warningCountdownIntervalId = window.setInterval(updateWarningCountdown, 250);
-      }
     };
 
     const scheduleIdleTimers = () => {
@@ -1549,6 +1515,9 @@ export function AdminDashboardPage() {
         return;
       }
 
+      updateWarningCountdown();
+      countdownIntervalId = window.setInterval(updateWarningCountdown, 1000);
+
       if (elapsedMs >= ADMIN_IDLE_TIMEOUT_MS - ADMIN_IDLE_WARNING_MS) {
         openIdleWarning();
       } else {
@@ -1561,85 +1530,31 @@ export function AdminDashboardPage() {
       logoutTimerId = window.setTimeout(runAutoLogout, remainingMs);
     };
 
-    const sendActivityHeartbeat = async () => {
-      if (Date.now() - lastAdminHeartbeatAtRef.current < ADMIN_ACTIVITY_HEARTBEAT_MS) {
-        return;
-      }
-
-      lastAdminHeartbeatAtRef.current = Date.now();
-
-      try {
-        const heartbeatResponse = await keepAliveAdminSession();
-        setSessionExpiresAt(heartbeatResponse.session?.expiresAt || null);
-      } catch (_error) {
-        runAutoLogout();
-      }
-    };
-
-    const recordActivity = () => {
-      if (isIdleWarningOpenRef.current || isAutoLogoutRunningRef.current) {
-        return;
-      }
-
-      lastAdminActivityAtRef.current = Date.now();
-      scheduleIdleTimers();
-      sendActivityHeartbeat();
-    };
-
-    const recordMouseActivity = () => {
-      const now = Date.now();
-
-      if (now - lastAdminMouseMoveAtRef.current < 5000) {
-        return;
-      }
-
-      lastAdminMouseMoveAtRef.current = now;
-      recordActivity();
-    };
-
     const handleVisibilityChange = () => {
       if (document.visibilityState !== "visible") {
         return;
       }
 
-      if (isIdleWarningOpenRef.current) {
-        updateWarningCountdown();
-        return;
-      }
-
-      const elapsedMs = Date.now() - lastAdminActivityAtRef.current;
-
-      if (elapsedMs >= ADMIN_IDLE_TIMEOUT_MS) {
-        runAutoLogout();
-      } else if (elapsedMs >= ADMIN_IDLE_TIMEOUT_MS - ADMIN_IDLE_WARNING_MS) {
-        openIdleWarning();
-      } else {
-        scheduleIdleTimers();
-      }
+      updateWarningCountdown();
     };
 
-    resetIdleTimersRef.current = () => {
+    resetIdleTimersRef.current = (lastSeenAt) => {
+      const lastSeenAtMs = new Date(lastSeenAt).getTime();
+
       isIdleWarningOpenRef.current = false;
       setIsIdleWarningOpen(false);
-      lastAdminActivityAtRef.current = Date.now();
-      lastAdminHeartbeatAtRef.current = Date.now();
+      lastAdminActivityAtRef.current = Number.isFinite(lastSeenAtMs)
+        ? lastSeenAtMs
+        : Date.now();
       scheduleIdleTimers();
     };
 
-    ["pointerdown", "keydown", "touchstart", "scroll"].forEach((eventName) => {
-      window.addEventListener(eventName, recordActivity, { passive: true });
-    });
-    window.addEventListener("mousemove", recordMouseActivity, { passive: true });
     document.addEventListener("visibilitychange", handleVisibilityChange);
     scheduleIdleTimers();
 
     return () => {
       clearIdleTimers();
       resetIdleTimersRef.current = null;
-      ["pointerdown", "keydown", "touchstart", "scroll"].forEach((eventName) => {
-        window.removeEventListener(eventName, recordActivity);
-      });
-      window.removeEventListener("mousemove", recordMouseActivity);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [forceAdminLogout]);
@@ -1751,12 +1666,21 @@ export function AdminDashboardPage() {
 
     try {
       const keepAliveResponse = await keepAliveAdminSession();
-      setSessionExpiresAt(keepAliveResponse.session?.expiresAt || null);
-      resetIdleTimersRef.current?.();
+      resetIdleTimersRef.current?.(keepAliveResponse.session?.lastSeenAt);
     } catch (_error) {
       await forceAdminLogout();
     } finally {
       setIsExtendingAdminSession(false);
+    }
+  }
+
+  async function handleSectionChange(sectionId) {
+    try {
+      const keepAliveResponse = await keepAliveAdminSession();
+      resetIdleTimersRef.current?.(keepAliveResponse.session?.lastSeenAt);
+      setActiveSection(sectionId);
+    } catch (_error) {
+      await forceAdminLogout();
     }
   }
 
@@ -1921,11 +1845,9 @@ export function AdminDashboardPage() {
           </p>
         </div>
         <div className="site-admin-page__header-actions">
-          {sessionRemainingSeconds != null ? (
-            <span className="site-admin-session-countdown" aria-live="polite">
-              세션 종료까지 <strong>{formatCountdown(sessionRemainingSeconds)}</strong>
-            </span>
-          ) : null}
+          <span className="site-admin-session-countdown" aria-live="polite">
+            자동 로그아웃까지 <strong>{formatCountdown(idleSecondsRemaining)}</strong>
+          </span>
           <Button variant="ghost" onClick={handleLogout}>
             로그아웃
           </Button>
@@ -1952,7 +1874,7 @@ export function AdminDashboardPage() {
               activeSection === section.id ? "site-admin-panel-nav__button--active" : ""
             }`.trim()}
             key={section.id}
-            onClick={() => setActiveSection(section.id)}
+            onClick={() => handleSectionChange(section.id)}
             role="tab"
             type="button"
           >
@@ -1975,7 +1897,7 @@ export function AdminDashboardPage() {
                   </div>
                   <button
                     className="site-admin-overview-card__action"
-                    onClick={() => setActiveSection("applications")}
+                    onClick={() => handleSectionChange("applications")}
                     type="button"
                   >
                     전체 보기
@@ -2004,7 +1926,7 @@ export function AdminDashboardPage() {
                   </div>
                   <button
                     className="site-admin-overview-card__action"
-                    onClick={() => setActiveSection("stageServices")}
+                    onClick={() => handleSectionChange("stageServices")}
                     type="button"
                   >
                     전체 보기
@@ -2033,7 +1955,7 @@ export function AdminDashboardPage() {
                   </div>
                   <button
                     className="site-admin-overview-card__action"
-                    onClick={() => setActiveSection("refunds")}
+                    onClick={() => handleSectionChange("refunds")}
                     type="button"
                   >
                     전체 보기
@@ -2062,7 +1984,7 @@ export function AdminDashboardPage() {
                   </div>
                   <button
                     className="site-admin-overview-card__action"
-                    onClick={() => setActiveSection("audit")}
+                    onClick={() => handleSectionChange("audit")}
                     type="button"
                   >
                     전체 보기
@@ -3075,7 +2997,7 @@ export function AdminDashboardPage() {
           <section aria-labelledby="admin-idle-warning-title" aria-modal="true" className="site-admin-idle-warning__card" role="alertdialog">
             <p className="site-kicker">Session timeout</p>
             <h2 id="admin-idle-warning-title">로그아웃 예정</h2>
-            <p>1분 동안 동작이 없어 자동 로그아웃됩니다. 계속 관리자 페이지를 사용하시겠습니까?</p>
+            <p>1분 후 자동 로그아웃됩니다. 계속 사용하려면 로그인 연장을 선택해 주세요.</p>
             <strong className="site-admin-idle-warning__timer">{formatCountdown(idleSecondsRemaining)}</strong>
             <div className="site-admin-idle-warning__actions">
               <button

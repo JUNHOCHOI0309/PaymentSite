@@ -1795,21 +1795,13 @@ async function resolveAdminSession(req) {
     };
   }
 
-  await pool.query(
-    `
-      UPDATE admin_sessions
-      SET last_seen_at = NOW()
-      WHERE id = $1
-    `,
-    [row.session_id]
-  );
-
   return {
     status: "active",
     sessionId: row.session_id,
     adminUserId: row.admin_user_id,
     adminUser: normalizeAdminUser(row),
     expiresAt,
+    lastSeenAt,
   };
 }
 
@@ -7139,6 +7131,7 @@ app.get("/admin/me", requireAdminAuth, async function (req, res) {
     adminUser: req.adminUser,
     session: {
       expiresAt: req.adminSession.expiresAt,
+      lastSeenAt: req.adminSession.lastSeenAt,
     },
   });
 });
@@ -7148,10 +7141,22 @@ app.post("/admin/keep-alive", requireAdminAuth, async function (req, res) {
     return res.status(403).json({ ok: false, message: "Untrusted admin origin" });
   }
 
+  const touchResult = await pool.query(
+    `
+      UPDATE admin_sessions
+      SET last_seen_at = NOW()
+      WHERE id = $1
+      RETURNING last_seen_at
+    `,
+    [req.adminSession.sessionId]
+  );
+  const lastSeenAt = touchResult.rows[0]?.last_seen_at || new Date();
+
   return res.status(200).json({
     ok: true,
     session: {
       expiresAt: req.adminSession.expiresAt,
+      lastSeenAt,
     },
   });
 });
