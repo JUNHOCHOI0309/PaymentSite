@@ -288,9 +288,7 @@ export function HomePage() {
   const { locale, t } = useLanguage();
   const [activeGroup, setActiveGroup] = useState("man");
   const [activeItemKey, setActiveItemKey] = useState(null);
-  const [isParticipantBenefitsOpen, setIsParticipantBenefitsOpen] = useState(null);
-  const [isParticipantBenefitsImageLoaded, setIsParticipantBenefitsImageLoaded] = useState(false);
-  const [isDeferredHeroSlidesEnabled, setIsDeferredHeroSlidesEnabled] = useState(false);
+  const [isParticipantBenefitsOpen, setIsParticipantBenefitsOpen] = useState(false);
   const [isSocialMenuOpen, setIsSocialMenuOpen] = useState(false);
   const homeUpRef = useRef(null);
   const homeIntroRef = useRef(null);
@@ -326,21 +324,6 @@ export function HomePage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isParticipantBenefitsOpen]);
 
-  const isPrimaryHomeMediaReady = isParticipantBenefitsOpen === false || isParticipantBenefitsImageLoaded;
-
-  useEffect(() => {
-    if (!isPrimaryHomeMediaReady) {
-      setIsDeferredHeroSlidesEnabled(false);
-      return undefined;
-    }
-
-    const timerId = window.setTimeout(() => {
-      setIsDeferredHeroSlidesEnabled(true);
-    }, 3000);
-
-    return () => window.clearTimeout(timerId);
-  }, [isPrimaryHomeMediaReady]);
-
   useEffect(() => {
     if (!isSocialMenuOpen) {
       return undefined;
@@ -360,13 +343,6 @@ export function HomePage() {
   const activeItems = activeGroupData?.items || [];
   const activeItem = activeItems.find((item) => item.key === activeItemKey) || activeItems[0] || null;
   const activeItemIndex = activeItem ? activeItems.findIndex((item) => item.key === activeItem.key) : -1;
-  const visibleHeroLeftImageKeys = isPrimaryHomeMediaReady
-    ? (isDeferredHeroSlidesEnabled ? homeHeroLeftImageKeys : homeHeroLeftImageKeys.slice(0, 1))
-    : [];
-  const visibleHeroRightImageKeys = isPrimaryHomeMediaReady
-    ? (isDeferredHeroSlidesEnabled ? homeHeroRightImageKeys : homeHeroRightImageKeys.slice(0, 1))
-    : [];
-
   useEffect(() => {
     if (!activeGroupData) {
       return;
@@ -420,8 +396,6 @@ export function HomePage() {
             alt={locale === "ko" ? "참가자 혜택 안내" : "Participant benefits"}
             decoding="async"
             fetchPriority="high"
-            onError={() => setIsParticipantBenefitsImageLoaded(true)}
-            onLoad={() => setIsParticipantBenefitsImageLoaded(true)}
           />
           <div className="site-home-benefits-modal__actions">
             <button type="button" onClick={() => closeParticipantBenefits({ hideForToday: true })}>
@@ -440,29 +414,23 @@ export function HomePage() {
         </h1>
         <div className="site-home-hero__stage">
           <div className="site-home-hero__stream site-home-hero__stream--left" aria-hidden="true">
-            {visibleHeroLeftImageKeys.map((key, index) => (
+            {homeHeroLeftImageKeys.map((key, index) => (
               <img
                 className="site-home-hero__slide"
                 key={key}
                 src={getHomeImageUrl(key)}
                 alt=""
-                decoding="async"
-                fetchPriority={index === 0 ? "high" : "low"}
                 style={{ "--site-home-hero-delay": `${index * 5}s` }}
               />
             ))}
           </div>
 
           <div className="site-home-hero__center">
-            {isPrimaryHomeMediaReady ? (
-              <img
-                className="site-home-hero__logo"
-                src={getHomeImageUrl("home/muscle_mania.png")}
-                alt="Musclemania"
-                decoding="async"
-                fetchPriority="high"
-              />
-            ) : null}
+            <img
+              className="site-home-hero__logo"
+              src={getHomeImageUrl("home/muscle_mania.png")}
+              alt="Musclemania"
+            />
             <div className="site-home-hero__details">
               <dl>
                 <div>
@@ -478,14 +446,12 @@ export function HomePage() {
           </div>
 
           <div className="site-home-hero__stream site-home-hero__stream--right" aria-hidden="true">
-            {visibleHeroRightImageKeys.map((key, index) => (
+            {homeHeroRightImageKeys.map((key, index) => (
               <img
                 className="site-home-hero__slide"
                 key={key}
                 src={getHomeImageUrl(key)}
                 alt=""
-                decoding="async"
-                fetchPriority={index === 0 ? "high" : "low"}
                 style={{ "--site-home-hero-delay": `${index * 5 + 0.65}s` }}
               />
             ))}
