@@ -8,6 +8,7 @@ import { applicationConsentItems } from "../data/applicationConsentContent";
 import { applicationConsentItemsEn } from "../data/applicationConsentContent.en";
 import { applicationFlowSteps } from "../lib/applicationFlowAccess";
 import { buildApplyDetailPath } from "../lib/applicationFlowRoutes";
+import { updateApplicationConsents } from "../lib/applicationApi";
 
 function renderInlineMarkup(text) {
   const segments = text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
@@ -244,6 +245,8 @@ export function ApplyConsentPage() {
   const [expandedKeys, setExpandedKeys] = useState(() =>
     consentItems.filter((item) => item.required).map((item) => item.key),
   );
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isSavingConsents, setIsSavingConsents] = useState(false);
 
   const requiredItems = useMemo(
     () => consentItems.filter((item) => item.required),
@@ -296,16 +299,31 @@ export function ApplyConsentPage() {
     });
   }
 
-  function handleProceed() {
-    if (!requiredChecked) {
+  async function handleProceed() {
+    if (!requiredChecked || !state.draftId) {
       return;
     }
 
-    dispatch({
-      type: "SET_FLOW_STEP",
-      value: applicationFlowSteps.REVIEW,
-    });
-    navigate("/apply/review");
+    setErrorMessage("");
+    setIsSavingConsents(true);
+
+    try {
+      await updateApplicationConsents(state.draftId, {
+        consents: {
+          ...state.consents,
+          version: "v1",
+        },
+      });
+      dispatch({
+        type: "SET_FLOW_STEP",
+        value: applicationFlowSteps.REVIEW,
+      });
+      navigate("/apply/review");
+    } catch (error) {
+      setErrorMessage(error.message || "동의 사항을 저장하지 못했습니다.");
+    } finally {
+      setIsSavingConsents(false);
+    }
   }
 
   return (
@@ -358,10 +376,11 @@ export function ApplyConsentPage() {
             >
               {t("consent.previous")}
             </Button>
-            <Button onClick={handleProceed} disabled={!requiredChecked}>
-              {t("consent.next")}
+            <Button onClick={handleProceed} disabled={!requiredChecked || isSavingConsents}>
+              {isSavingConsents ? (locale === "ko" ? "저장 중..." : "Saving...") : t("consent.next")}
             </Button>
           </div>
+          {errorMessage ? <p className="site-form-error">{errorMessage}</p> : null}
         </div>
       </section>
     </PageShell>

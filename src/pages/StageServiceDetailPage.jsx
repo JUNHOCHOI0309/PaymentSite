@@ -87,13 +87,13 @@ export function StageServiceDetailPage() {
     : state.linkedApplication.applicationNumber
       ? [state.linkedApplication]
       : [];
-  const selectedHairDisciplines = isHairMakeupService
-    ? selectedLinkedApplications.map((application) => application.discipline)
+  const selectedHairApplications = isHairMakeupService
+    ? selectedLinkedApplications
     : [];
   const hairOptionChoices = getHairOptionChoices(locale).filter((option) =>
-    selectedHairDisciplines.every((discipline) => isHairMakeupOptionAllowed(discipline, option)),
+    selectedHairApplications.every((application) => isHairMakeupOptionAllowed(application, option)),
   );
-  const maxHairRetouchCount = Math.max(0, selectedHairDisciplines.length - 1);
+  const maxHairRetouchCount = Math.max(0, selectedHairApplications.length - 1);
   const stagePhotoPackage =
     serviceKey === "stage-photo"
       ? getStagePhotoPackage(selectedLinkedApplications.length)
@@ -104,7 +104,12 @@ export function StageServiceDetailPage() {
     .filter((option) => option.count <= maxHairRetouchCount);
   const hairBodyMakeupOption = hairAddOnChoices.find((option) => option.value === "BODY_MAKEUP");
   const hairPieceOption = hairAddOnChoices.find((option) => option.value === "HAIR_PIECE");
-  const videoAdditionalChoices = getStageVideoAdditionalDisciplineChoices(locale);
+  const videoAdditionalChoices = getStageVideoAdditionalDisciplineChoices(
+    locale,
+    eligibleApplications.filter(
+      (application) => application.applicationNumber !== state.linkedApplication.applicationNumber,
+    ),
+  );
   const totalAmount = useMemo(
     () =>
       calculateStageServiceTotalAmount({
@@ -210,6 +215,17 @@ export function StageServiceDetailPage() {
       dispatch({ type: "SET_FORM_FIELD", field: "hairRetouchCount", value: "0" });
     }
   }, [dispatch, maxHairRetouchCount, state.formData.hairRetouchCount]);
+
+  useEffect(() => {
+    if (
+      state.formData.videoAdditionalDiscipline
+      && !videoAdditionalChoices.some(
+        (choice) => choice.value === state.formData.videoAdditionalDiscipline,
+      )
+    ) {
+      dispatch({ type: "SET_FORM_FIELD", field: "videoAdditionalDiscipline", value: "" });
+    }
+  }, [dispatch, state.formData.videoAdditionalDiscipline, videoAdditionalChoices]);
 
   useEffect(() => {
     const allowedHairOptionValues = new Set(hairOptionChoices.map((option) => option.value));
@@ -367,7 +383,7 @@ export function StageServiceDetailPage() {
       if (isHairMakeupService) {
         const selectedGenders = new Set(
           nextSelection
-            .map((selectedApplication) => getHairMakeupDisciplineGender(selectedApplication.discipline))
+            .map((selectedApplication) => getHairMakeupDisciplineGender(selectedApplication))
             .filter((gender) => gender !== "all"),
         );
 
@@ -388,6 +404,8 @@ export function StageServiceDetailPage() {
       value: {
         applicationNumber: application.applicationNumber,
         discipline: application.discipline,
+        participantGender: application.participantGender,
+        weightClass: application.weightClass,
       },
     });
     setFieldErrors((current) => ({ ...current, linkedApplication: "" }));

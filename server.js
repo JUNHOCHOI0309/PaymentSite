@@ -282,7 +282,55 @@ function getStagePhotoPackage(disciplineCount) {
   ) || null;
 }
 
-function getStageServiceHairMakeupDisciplineGender(discipline) {
+function getStageServiceDisciplineFromApplication(application = {}) {
+  const source = typeof application === "string" ? { discipline: application } : application;
+  const canonicalDiscipline = getCanonicalApplicationDisciplineTitle({
+    imageKey: source.image_key || source.imageKey,
+    discipline: source.discipline,
+  });
+  const directDiscipline = normalizeStageServiceDiscipline(canonicalDiscipline);
+
+  if (directDiscipline) {
+    return directDiscipline;
+  }
+
+  const participantGender = normalizeText(
+    source.participant_gender || source.participantGender,
+  ).toLowerCase();
+  const weightClass = normalizeText(source.weight_class || source.weightClass);
+  const inferredGender = participantGender === "male" || participantGender === "female"
+    ? participantGender
+    : weightClass.includes("남자")
+      ? "male"
+      : weightClass.includes("여자")
+        ? "female"
+        : "";
+
+  switch (canonicalDiscipline) {
+    case "Bodybuilding":
+      return "보디빌딩";
+    case "Classic Physique":
+      return "클래식";
+    case "Physique":
+      return "피지크";
+    case "Ms.Bikini":
+      return "미즈비키니";
+    case "Figure":
+      return "피규어";
+    case "Model":
+      return inferredGender === "male" ? "남성 모델" : inferredGender === "female" ? "여성 모델" : null;
+    case "Fitness":
+      return inferredGender === "male" ? "남성 피트니스" : inferredGender === "female" ? "여성 피트니스" : null;
+    case "Denim":
+      return inferredGender === "male" ? "남성 데님" : inferredGender === "female" ? "여성 데님" : null;
+    default:
+      return null;
+  }
+}
+
+function getStageServiceHairMakeupDisciplineGender(application) {
+  const discipline = getStageServiceDisciplineFromApplication(application);
+
   if (stageServiceMaleHairMakeupDisciplines.has(discipline)) {
     return "male";
   }
@@ -294,14 +342,14 @@ function getStageServiceHairMakeupDisciplineGender(discipline) {
   return "all";
 }
 
-function isStageServiceHairOptionAllowed(participantDiscipline, hairOption) {
-  const participantGender = getStageServiceHairMakeupDisciplineGender(participantDiscipline);
+function isStageServiceHairOptionAllowed(application, hairOption) {
+  const participantGender = getStageServiceHairMakeupDisciplineGender(application);
 
   return participantGender === "all" || hairOption?.gender === participantGender;
 }
 
-function isStageServiceHairAdditionalDisciplineAllowed(participantDiscipline, additionalDiscipline) {
-  const participantGender = getStageServiceHairMakeupDisciplineGender(participantDiscipline);
+function isStageServiceHairAdditionalDisciplineAllowed(application, additionalDiscipline) {
+  const participantGender = getStageServiceHairMakeupDisciplineGender(application);
   const additionalGender = getStageServiceHairMakeupDisciplineGender(additionalDiscipline);
 
   return (
@@ -3428,6 +3476,8 @@ function parseStageServiceLinkedApplications(value, fallbackApplication = {}) {
       .map((application) => ({
         applicationNumber: normalizeText(application?.applicationNumber),
         discipline: getCanonicalApplicationDisciplineTitle({ discipline: application?.discipline }),
+        participantGender: normalizeText(application?.participantGender),
+        weightClass: normalizeText(application?.weightClass),
       }))
       .filter((application) => application.applicationNumber)
     : [];
@@ -3442,15 +3492,24 @@ function parseStageServiceLinkedApplications(value, fallbackApplication = {}) {
     ? [{
       applicationNumber,
       discipline: getCanonicalApplicationDisciplineTitle({ discipline: fallbackApplication.discipline }),
+      participantGender: normalizeText(fallbackApplication.participantGender),
+      weightClass: normalizeText(fallbackApplication.weightClass),
     }]
     : [];
 }
 
 function serializeStageServiceLinkedApplications(applications) {
   return JSON.stringify(
-    parseStageServiceLinkedApplications(applications).map(({ applicationNumber, discipline }) => ({
+    parseStageServiceLinkedApplications(applications).map(({
       applicationNumber,
       discipline,
+      participantGender,
+      weightClass,
+    }) => ({
+      applicationNumber,
+      discipline,
+      participantGender,
+      weightClass,
     })),
   );
 }
@@ -3857,10 +3916,6 @@ async function findEligibleCompletedApplicationsForStageService({
 }) {
   const normalizedApplicationNumbers = normalizeStageServiceLinkedApplicationNumbers(applicationNumbers);
 
-  if (!normalizedApplicationNumbers.length) {
-    return [];
-  }
-
   const result = await client.query(
     `
       SELECT
@@ -3868,20 +3923,34 @@ async function findEligibleCompletedApplicationsForStageService({
         application_number,
         discipline,
         image_key,
-        division
+        division,
+        participant_gender,
+        weight_class
       FROM applications
       WHERE name = $1
         AND phone = $2
         AND LOWER(email) = $3
         AND payment_status = 'DONE'
         AND admin_deleted_at IS NULL
-        AND application_number = ANY($4::text[])
-      ORDER BY array_position($4::text[], application_number)
+        AND (
+          cardinality($4::text[]) = 0
+          OR application_number = ANY($4::text[])
+        )
+      ORDER BY
+        CASE
+          WHEN cardinality($4::text[]) = 0 THEN 0
+          ELSE array_position($4::text[], application_number)
+        END,
+        submitted_at DESC NULLS LAST,
+        updated_at DESC
     `,
     [name, phone, email, normalizedApplicationNumbers],
   );
 
-  if (result.rowCount !== normalizedApplicationNumbers.length) {
+  if (
+    normalizedApplicationNumbers.length
+    && result.rowCount !== normalizedApplicationNumbers.length
+  ) {
     return [];
   }
 
@@ -3902,7 +3971,7 @@ function validateHairMakeupLinkedApplications(payload, linkedApplications) {
   const selectedHairOption = hairOptionMap.get(payload.hairOption);
   const selectedGenders = new Set(
     linkedApplications
-      .map((application) => getStageServiceHairMakeupDisciplineGender(application.discipline))
+      .map((application) => getStageServiceHairMakeupDisciplineGender(application))
       .filter((gender) => gender !== "all"),
   );
 
@@ -3934,6 +4003,8 @@ function validateHairMakeupLinkedApplications(payload, linkedApplications) {
   payload.linkedApplications = linkedApplications.map((application) => ({
     applicationNumber: application.application_number,
     discipline: application.discipline,
+    participantGender: application.participant_gender,
+    weightClass: application.weight_class,
   }));
   payload.linkedApplicationNumber = payload.linkedApplications[0].applicationNumber;
   payload.hairParticipantDiscipline = payload.linkedApplications[0].discipline;
@@ -3943,6 +4014,44 @@ function validateHairMakeupLinkedApplications(payload, linkedApplications) {
     .join(", ") || null;
 
   return { ok: true };
+}
+
+async function validateStageVideoAdditionalDiscipline({ client, payload, linkedApplications }) {
+  if (payload.serviceType !== "stage-video" || !payload.videoAdditionalDiscipline) {
+    return { ok: true };
+  }
+
+  const additionalOption = getStageVideoAdditionalOptionMeta(
+    payload.videoAdditionalDiscipline,
+    payload.videoType,
+  );
+
+  if (!additionalOption) {
+    return { ok: false, message: "추가 영상 종목 정보를 확인해 주세요." };
+  }
+
+  const linkedApplicationNumbers = new Set(
+    linkedApplications.map((application) => application.application_number),
+  );
+  const eligibleApplications = await findEligibleCompletedApplicationsForStageService({
+    client,
+    name: payload.name,
+    phone: payload.phone,
+    email: payload.email,
+    applicationNumbers: [],
+  });
+  const hasEligibleAdditionalDiscipline = eligibleApplications.some(
+    (application) =>
+      !linkedApplicationNumbers.has(application.application_number)
+      && getStageServiceDisciplineFromApplication(application) === additionalOption.discipline,
+  );
+
+  return hasEligibleAdditionalDiscipline
+    ? { ok: true }
+    : {
+      ok: false,
+      message: "추가 영상 종목은 결제 완료된 다른 대회 신청 종목에서 선택해 주세요.",
+    };
 }
 
 function mapAdminSpectatorRefundRequestRow(row) {
@@ -5185,7 +5294,7 @@ app.post("/kcp/test/spectators/draft", async function (req, res) {
         INSERT INTO spectator_consents (
           draft_id, privacy_consent, refund_consent, marketing_consent,
           photo_video_consent, consent_version, consented_at
-        ) VALUES ($1, TRUE, TRUE, FALSE, FALSE, 'kcp-test-spectator-v1', NOW())
+        ) VALUES ($1, TRUE, TRUE, TRUE, TRUE, 'kcp-test-spectator-v1', NOW())
       `,
       [draftId]
     );
@@ -5257,7 +5366,16 @@ app.post("/kcp/test/spectators/orders", async function (req, res) {
     }
 
     const consentResult = await client.query(
-      `SELECT id FROM spectator_consents WHERE draft_id = $1 AND privacy_consent = TRUE AND refund_consent = TRUE LIMIT 1`,
+      `
+        SELECT id
+        FROM spectator_consents
+        WHERE draft_id = $1
+          AND privacy_consent = TRUE
+          AND refund_consent = TRUE
+          AND marketing_consent = TRUE
+          AND photo_video_consent = TRUE
+        LIMIT 1
+      `,
       [draftId]
     );
     if (!consentResult.rowCount) {
@@ -6585,13 +6703,13 @@ app.post("/kcp/return", async function (req, res) {
       return redirectFailure("ORDER_NOT_READY", "결제 가능한 주문 상태가 아닙니다.");
     }
 
-    if (context === "spectator" && isPaymentOrderExpired(order.created_at)) {
+    if (!isKcpTestContext(context) && isPaymentOrderExpired(order.created_at)) {
       await client.query(
         `UPDATE orders SET status = 'CANCELED', updated_at = NOW() WHERE order_id = $1 AND status = 'READY'`,
         [order.order_id]
       );
       await client.query(
-        `UPDATE spectator_drafts SET order_id = NULL, status = 'DRAFT', updated_at = NOW() WHERE draft_id = $1 AND order_id = $2`,
+        `UPDATE ${draftBindingTable} SET order_id = NULL, status = 'DRAFT', updated_at = NOW() WHERE draft_id = $1 AND order_id = $2`,
         [trustedDraftId, order.order_id]
       );
       await client.query("COMMIT");
@@ -10156,6 +10274,112 @@ app.patch("/applications/draft/:draftId", async function (req, res) {
   }
 });
 
+app.patch("/applications/draft/:draftId/consents", async function (req, res) {
+  const { draftId } = req.params;
+
+  if (
+    !requireRequestDraftAccess(req, res, {
+      draftId,
+      draftType: "application",
+      cookieName: applicationDraftCookieName,
+    })
+  ) {
+    return;
+  }
+
+  const consents = req.body.consents || {};
+
+  if (consents.privacy !== true || consents.terms !== true || consents.refund !== true) {
+    return res.status(400).json({
+      ok: false,
+      code: "REQUIRED_CONSENTS_MISSING",
+      message: "개인정보 수집, 참가 유의사항, 환불 규정 필수 동의가 필요합니다.",
+    });
+  }
+
+  const consentVersion = normalizeText(consents.version) || "v1";
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const draftResult = await client.query(
+      `
+        SELECT status
+        FROM application_drafts
+        WHERE draft_id = $1
+        FOR UPDATE
+      `,
+      [draftId]
+    );
+
+    if (draftResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ ok: false, message: "Draft not found" });
+    }
+
+    if (draftResult.rows[0].status === "COMPLETED") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        code: "DRAFT_ALREADY_COMPLETED",
+        message: "이미 결제 완료된 신청의 동의 내용은 변경할 수 없습니다.",
+      });
+    }
+
+    await client.query(
+      `
+        DELETE FROM application_consents
+        WHERE draft_id = $1
+          AND application_id IS NULL
+      `,
+      [draftId]
+    );
+
+    const consentResult = await client.query(
+      `
+        INSERT INTO application_consents (
+          draft_id,
+          privacy_consent,
+          terms_consent,
+          refund_consent,
+          marketing_consent,
+          photo_video_consent,
+          consent_version,
+          consented_at
+        )
+        VALUES ($1, TRUE, TRUE, TRUE, $2, $3, $4, NOW())
+        RETURNING *
+      `,
+      [draftId, consents.marketing === true, consents.photoVideo === true, consentVersion]
+    );
+
+    await client.query(
+      `
+        UPDATE application_drafts
+        SET updated_at = NOW()
+        WHERE draft_id = $1
+      `,
+      [draftId]
+    );
+    await client.query("COMMIT");
+
+    return res.status(200).json({
+      ok: true,
+      consents: mapConsentRow(consentResult.rows[0]),
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("Failed to update application consents:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "동의 사항을 저장하지 못했습니다.",
+    });
+  } finally {
+    client.release();
+  }
+});
+
 // Draft Data 확인
 app.get("/applications/draft/:draftId", async function (req, res) {
   try {
@@ -10289,7 +10513,7 @@ app.post("/stage-services/eligible-applications", async function (req, res) {
   try {
     const result = await pool.query(
       `
-        SELECT application_number, discipline, image_key, division, submitted_at
+        SELECT application_number, discipline, image_key, division, participant_gender, weight_class, submitted_at
         FROM applications
         WHERE name = $1
           AND phone = $2
@@ -10311,6 +10535,8 @@ app.post("/stage-services/eligible-applications", async function (req, res) {
         }),
         imageKey: application.image_key,
         division: application.division,
+        participantGender: application.participant_gender,
+        weightClass: application.weight_class,
         submittedAt: application.submitted_at,
       })),
     });
@@ -10366,6 +10592,8 @@ app.post("/stage-services/draft", async function (req, res) {
     payload.linkedApplications = linkedApplications.map((application) => ({
       applicationNumber: application.application_number,
       discipline: application.discipline,
+      participantGender: application.participant_gender,
+      weightClass: application.weight_class,
     }));
     payload.linkedApplicationNumber = payload.linkedApplications[0].applicationNumber;
 
@@ -10374,6 +10602,17 @@ app.post("/stage-services/draft", async function (req, res) {
     if (!hairApplicationValidation.ok) {
       await client.query("ROLLBACK");
       return res.status(400).json({ ok: false, message: hairApplicationValidation.message });
+    }
+
+    const videoApplicationValidation = await validateStageVideoAdditionalDiscipline({
+      client,
+      payload,
+      linkedApplications,
+    });
+
+    if (!videoApplicationValidation.ok) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ ok: false, message: videoApplicationValidation.message });
     }
 
     const linkedApplication = linkedApplications[0];
@@ -10596,6 +10835,8 @@ app.patch("/stage-services/draft/:draftId", async function (req, res) {
     payload.linkedApplications = linkedApplications.map((application) => ({
       applicationNumber: application.application_number,
       discipline: application.discipline,
+      participantGender: application.participant_gender,
+      weightClass: application.weight_class,
     }));
     payload.linkedApplicationNumber = payload.linkedApplications[0].applicationNumber;
 
@@ -10604,6 +10845,17 @@ app.patch("/stage-services/draft/:draftId", async function (req, res) {
     if (!hairApplicationValidation.ok) {
       await client.query("ROLLBACK");
       return res.status(400).json({ ok: false, message: hairApplicationValidation.message });
+    }
+
+    const videoApplicationValidation = await validateStageVideoAdditionalDiscipline({
+      client,
+      payload,
+      linkedApplications,
+    });
+
+    if (!videoApplicationValidation.ok) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ ok: false, message: videoApplicationValidation.message });
     }
 
     const linkedApplication = linkedApplications[0];
@@ -10839,6 +11091,10 @@ app.post("/stage-services/orders", async function (req, res) {
           email,
           linked_application_number,
           linked_applications,
+          video_type,
+          video_additional_discipline,
+          hair_option,
+          hair_optional_option,
           total_amount
         FROM stage_service_drafts
         WHERE draft_id = $1
@@ -10890,10 +11146,90 @@ app.post("/stage-services/orders", async function (req, res) {
       }
     }
 
-    const linkedApplications = parseStageServiceLinkedApplications(draft.linked_applications, {
+    const draftLinkedApplications = parseStageServiceLinkedApplications(draft.linked_applications, {
       applicationNumber: draft.linked_application_number,
     });
-    const linkedApplicationNumbers = linkedApplications.map((application) => application.applicationNumber);
+    const linkedApplicationNumbers = draftLinkedApplications.map((application) => application.applicationNumber);
+    const linkedApplications = await findEligibleCompletedApplicationsForStageService({
+      client,
+      name: draft.name,
+      phone: draft.phone,
+      email: draft.email,
+      applicationNumbers: linkedApplicationNumbers,
+    });
+
+    if (linkedApplications.length !== linkedApplicationNumbers.length) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({
+        ok: false,
+        code: "LINKED_APPLICATION_NOT_ELIGIBLE",
+        message: "연결한 대회 신청 내역이 취소되었거나 환불되어 무대 서비스를 결제할 수 없습니다.",
+      });
+    }
+
+    const currentDraftValidation = validateStageServiceDraftPayload({
+      serviceType: draft.service_type,
+      paymentMethod: "payment",
+      name: draft.name,
+      phone: draft.phone,
+      email: draft.email,
+      linkedApplicationNumbers,
+      videoType: draft.video_type,
+      videoAdditionalDiscipline: draft.video_additional_discipline,
+      hairOption: draft.hair_option,
+      hairOptionalOption: draft.hair_optional_option,
+    });
+
+    if (!currentDraftValidation.ok) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        code: "STAGE_SERVICE_DRAFT_REVALIDATION_FAILED",
+        message: "무대 서비스 신청 정보 또는 가격이 변경되었습니다. 신청 정보를 다시 확인해 주세요.",
+      });
+    }
+
+    const currentPayload = currentDraftValidation.payload;
+    const hairApplicationValidation = validateHairMakeupLinkedApplications(
+      currentPayload,
+      linkedApplications,
+    );
+
+    if (!hairApplicationValidation.ok) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        code: "LINKED_HAIR_OPTION_NOT_ELIGIBLE",
+        message: hairApplicationValidation.message,
+      });
+    }
+
+    const videoApplicationValidation = await validateStageVideoAdditionalDiscipline({
+      client,
+      payload: currentPayload,
+      linkedApplications,
+    });
+
+    if (!videoApplicationValidation.ok) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        code: "LINKED_VIDEO_DISCIPLINE_NOT_ELIGIBLE",
+        message: videoApplicationValidation.message,
+      });
+    }
+
+    if (Number(draft.total_amount) !== Number(currentPayload.totalAmount)) {
+      await client.query(
+        `
+          UPDATE stage_service_drafts
+          SET total_amount = $2, updated_at = NOW()
+          WHERE draft_id = $1
+        `,
+        [draft.draft_id, currentPayload.totalAmount],
+      );
+      draft.total_amount = currentPayload.totalAmount;
+    }
 
     for (const applicationNumber of [...linkedApplicationNumbers].sort()) {
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
@@ -12834,8 +13170,13 @@ app.patch("/spectators/draft/:draftId/consents", async function (req, res) {
   const draftId = normalizeText(req.params.draftId);
   if (!requireRequestDraftAccess(req, res, { draftId, draftType: "spectator", cookieName: spectatorDraftCookieName })) return;
   const consents = req.body.consents || {};
-  if (consents.privacy !== true || consents.refund !== true) {
-    return res.status(400).json({ ok: false, code: "REQUIRED_CONSENTS_MISSING", message: "개인정보 수집 및 환불 규정 필수 동의가 필요합니다." });
+  if (
+    consents.privacy !== true
+    || consents.refund !== true
+    || consents.marketing !== true
+    || consents.photoVideo !== true
+  ) {
+    return res.status(400).json({ ok: false, code: "REQUIRED_CONSENTS_MISSING", message: "참관객 결제에 필요한 필수 동의 사항을 모두 확인해 주세요." });
   }
 
   const client = await pool.connect();
@@ -12853,7 +13194,7 @@ app.patch("/spectators/draft/:draftId/consents", async function (req, res) {
     await client.query(`DELETE FROM spectator_consents WHERE draft_id = $1 AND spectator_order_id IS NULL`, [draftId]);
     await client.query(
       `INSERT INTO spectator_consents (draft_id, privacy_consent, refund_consent, marketing_consent, photo_video_consent, consent_version, consented_at) VALUES ($1, TRUE, TRUE, $2, $3, $4, NOW())`,
-      [draftId, consents.marketing === true, consents.photoVideo === true, normalizeText(consents.version) || "spectator-v1"]
+      [draftId, true, true, normalizeText(consents.version) || "spectator-v1"]
     );
     await client.query(`UPDATE spectator_drafts SET status = 'CONSENTED', updated_at = NOW() WHERE draft_id = $1`, [draftId]);
     await client.query("COMMIT");
@@ -12896,7 +13237,7 @@ app.post("/spectators/orders", async function (req, res) {
       return res.status(404).json({ ok: false, message: "참관객 신청 초안을 찾을 수 없습니다." });
     }
     const draft = draftResult.rows[0];
-    const consentResult = await client.query(`SELECT id FROM spectator_consents WHERE draft_id = $1 AND privacy_consent = TRUE AND refund_consent = TRUE LIMIT 1`, [draftId]);
+    const consentResult = await client.query(`SELECT id FROM spectator_consents WHERE draft_id = $1 AND privacy_consent = TRUE AND refund_consent = TRUE AND marketing_consent = TRUE AND photo_video_consent = TRUE LIMIT 1`, [draftId]);
     if (!consentResult.rowCount) {
       await client.query("ROLLBACK");
       return res.status(409).json({ ok: false, code: "REQUIRED_CONSENTS_MISSING", message: "필수 동의 사항을 확인해 주세요." });

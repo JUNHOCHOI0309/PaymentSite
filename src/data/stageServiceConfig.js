@@ -144,6 +144,54 @@ export function getHairOptionalChoices({ hairOptionValue, hasAdditionalDisciplin
   }));
 }
 
+export function getStageServiceDisciplineFromApplication(application = {}) {
+  const source = typeof application === "string" ? { discipline: application } : application;
+  const discipline = String(source?.discipline || "").trim();
+
+  if (stageServiceDisciplineOptions.includes(discipline)) {
+    return discipline;
+  }
+
+  const participantGender = String(source?.participantGender || "").trim().toLowerCase();
+  const weightClass = String(source?.weightClass || "").trim();
+  const inferredGender = participantGender === "male" || participantGender === "female"
+    ? participantGender
+    : weightClass.includes("남자")
+      ? "male"
+      : weightClass.includes("여자")
+        ? "female"
+        : "";
+
+  switch (discipline.toLowerCase()) {
+    case "bodybuilding":
+    case "body building":
+      return "보디빌딩";
+    case "classic":
+    case "classic physique":
+      return "클래식";
+    case "physique":
+      return "피지크";
+    case "ms.bikini":
+    case "ms. bikini":
+    case "ms. bikini korea":
+      return "미즈비키니";
+    case "figure":
+    case "figure korea":
+      return "피규어";
+    case "model":
+    case "model korea":
+      return inferredGender === "male" ? "남성 모델" : inferredGender === "female" ? "여성 모델" : null;
+    case "fitness":
+    case "fitness korea":
+      return inferredGender === "male" ? "남성 피트니스" : inferredGender === "female" ? "여성 피트니스" : null;
+    case "denim":
+    case "danim korea":
+      return inferredGender === "male" ? "남성 데님" : inferredGender === "female" ? "여성 데님" : null;
+    default:
+      return null;
+  }
+}
+
 export function getHairAddOnChoices(locale = "ko") {
   return (getStageServiceByKey("hair-makeup")?.addOnOptions || []).map((option) => ({
     ...option,
@@ -264,9 +312,17 @@ export function getStageVideoAdditionalDisciplineMeta(value, fallbackVideoTypeVa
   return null;
 }
 
-export function getStageVideoAdditionalDisciplineChoices(locale = "ko") {
+export function getStageVideoAdditionalDisciplineChoices(locale = "ko", eligibleApplications = null) {
+  const eligibleDisciplines = Array.isArray(eligibleApplications)
+    ? [...new Set(
+      eligibleApplications
+        .map((application) => getStageServiceDisciplineFromApplication(application))
+        .filter(Boolean),
+    )]
+    : stageServiceDisciplineOptions;
+
   return getVideoTypeOptions(locale).flatMap((videoType) =>
-    stageServiceDisciplineOptions.map((discipline) => ({
+    eligibleDisciplines.map((discipline) => ({
       value: buildStageVideoAdditionalDisciplineValue(videoType.value, discipline),
       label: `${videoType.label}: ${getStageServiceDisciplineLabel(discipline, locale)} (${formatStageServiceAmount(videoType.price, locale)})`,
       price: Number(videoType.price || 0),

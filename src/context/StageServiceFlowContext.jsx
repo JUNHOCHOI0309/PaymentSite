@@ -29,6 +29,8 @@ const initialState = {
   linkedApplication: {
     applicationNumber: "",
     discipline: "",
+    participantGender: "",
+    weightClass: "",
   },
   linkedApplications: [],
   totalAmount: 0,
@@ -79,6 +81,8 @@ function normalizeLinkedApplications(applications, fallbackApplication = null) {
       .map((application) => ({
         applicationNumber: String(application?.applicationNumber || "").trim(),
         discipline: String(application?.discipline || "").trim(),
+        participantGender: String(application?.participantGender || "").trim(),
+        weightClass: String(application?.weightClass || "").trim(),
       }))
       .filter((application) => application.applicationNumber)
     : [];
@@ -90,7 +94,12 @@ function normalizeLinkedApplications(applications, fallbackApplication = null) {
   const fallbackApplicationNumber = String(fallbackApplication?.applicationNumber || "").trim();
 
   return fallbackApplicationNumber
-    ? [{ applicationNumber: fallbackApplicationNumber, discipline: String(fallbackApplication?.discipline || "").trim() }]
+    ? [{
+      applicationNumber: fallbackApplicationNumber,
+      discipline: String(fallbackApplication?.discipline || "").trim(),
+      participantGender: String(fallbackApplication?.participantGender || "").trim(),
+      weightClass: String(fallbackApplication?.weightClass || "").trim(),
+    }]
     : [];
 }
 
@@ -122,6 +131,8 @@ function stageServiceFlowReducer(state, action) {
         const linkedApplication = {
           applicationNumber: String(action.value?.applicationNumber || "").trim(),
           discipline: String(action.value?.discipline || "").trim(),
+          participantGender: String(action.value?.participantGender || "").trim(),
+          weightClass: String(action.value?.weightClass || "").trim(),
         };
 
         return {

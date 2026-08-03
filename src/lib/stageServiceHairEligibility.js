@@ -1,15 +1,18 @@
 import stageServiceConfig from "../data/stageServiceConfig.json";
+import { getStageServiceDisciplineFromApplication } from "../data/stageServiceConfig";
 
 const disciplineGroups = stageServiceConfig.hairMakeupDisciplineGroups || {};
 const maleDisciplines = new Set(disciplineGroups.male || []);
 const femaleDisciplines = new Set(disciplineGroups.female || []);
 
-export function getHairMakeupDisciplineGender(discipline) {
-  if (maleDisciplines.has(discipline)) {
+export function getHairMakeupDisciplineGender(application) {
+  const discipline = getStageServiceDisciplineFromApplication(application);
+
+  if (maleDisciplines.has(discipline || "")) {
     return "male";
   }
 
-  if (femaleDisciplines.has(discipline)) {
+  if (femaleDisciplines.has(discipline || "")) {
     return "female";
   }
 

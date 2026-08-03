@@ -69,6 +69,18 @@ export async function updateDraft(draftId, payload) {
   return readJson(response);
 }
 
+export async function updateApplicationConsents(draftId, payload) {
+  const response = await apiFetch(`/api/applications/draft/${encodeURIComponent(draftId)}/consents`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
 export async function getDraft(draftId) {
   const response = await apiFetch(`/api/applications/draft/${draftId}`);
   return readJson(response);
