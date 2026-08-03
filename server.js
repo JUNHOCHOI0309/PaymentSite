@@ -4060,8 +4060,15 @@ function validateDraftPayload(body) {
     discipline: normalizeText(body.selection?.discipline),
     imageKey: normalizeText(body.selection?.imageKey),
   });
-  const requestedParticipantGender = normalizeText(
-    body.selection?.participantGender
+  const disciplineDefinition = applicationDisciplineDefinitionByImageKey.get(
+    selection.imageKey
+  );
+  const divisionAllowsImage =
+    selection.division === "TEST" ||
+    (selection.division === "man" && /\/(man|common)_/.test(selection.imageKey || "")) ||
+    (selection.division === "woman" && /\/(woman|common)_/.test(selection.imageKey || ""));
+  const requestedParticipantGender = (
+    normalizeText(body.selection?.participantGender) || ""
   ).toLowerCase();
 
   const consents = {
@@ -4091,6 +4098,17 @@ function validateDraftPayload(body) {
     };
   }
 
+  if (
+    !disciplineDefinition ||
+    !divisionAllowsImage ||
+    selection.discipline !== disciplineDefinition.title
+  ) {
+    return {
+      ok: false,
+      message: "Invalid application selection",
+    };
+  }
+
   const participantGender = /\/man_/.test(selection.imageKey)
     ? "male"
     : /\/woman_/.test(selection.imageKey)
@@ -4113,25 +4131,6 @@ function validateDraftPayload(body) {
     return {
       ok: false,
       message: "Invalid applicant contact fields",
-    };
-  }
-
-  const disciplineDefinition = applicationDisciplineDefinitionByImageKey.get(
-    selection.imageKey
-  );
-  const divisionAllowsImage =
-    selection.division === "TEST" ||
-    (selection.division === "man" && /\/(man|common)_/.test(selection.imageKey || "")) ||
-    (selection.division === "woman" && /\/(woman|common)_/.test(selection.imageKey || ""));
-
-  if (
-    !disciplineDefinition ||
-    !divisionAllowsImage ||
-    selection.discipline !== disciplineDefinition.title
-  ) {
-    return {
-      ok: false,
-      message: "Invalid application selection",
     };
   }
 
