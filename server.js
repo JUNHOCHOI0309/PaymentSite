@@ -6792,6 +6792,25 @@ app.get("/health/db", async function (req, res) {
 });
 
 
+function getPublicAssetContentType(objectKey, r2ContentType) {
+  if (r2ContentType && r2ContentType !== "application/octet-stream") {
+    return r2ContentType;
+  }
+
+  const extension = path.extname(objectKey || "").toLowerCase();
+  const contentTypesByExtension = {
+    ".avif": "image/avif",
+    ".gif": "image/gif",
+    ".ico": "image/x-icon",
+    ".jpeg": "image/jpeg",
+    ".jpg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+  };
+
+  return contentTypesByExtension[extension] || "application/octet-stream";
+}
+
 //서버 시작
 app.get("/home/gallery-images", async function (req, res) {
   try {
@@ -6812,7 +6831,7 @@ app.get("/home/gallery-images", async function (req, res) {
 
     const media = (result.Contents || [])
       .filter((item) => item.Key && !item.Key.endsWith("/"))
-      .filter((item) => /\.(png|jpe?g|webp|gif|mp4|webm|mov)$/i.test(item.Key))
+      .filter((item) => /\.(png|jpe?g|webp|avif|gif|mp4|webm|mov)$/i.test(item.Key))
       .map((item) => ({
         key: item.Key,
         type: /\.(mp4|webm|mov)$/i.test(item.Key) ? "video" : "image",
@@ -6864,8 +6883,8 @@ app.get("/home/gallery-image", async function (req, res) {
       })
     );
 
-    res.setHeader("Content-Type", objectResponse.ContentType || "application/octet-stream");
-    res.setHeader("Cache-Control", "public, max-age=300");
+    res.setHeader("Content-Type", getPublicAssetContentType(objectKey, objectResponse.ContentType));
+    res.setHeader("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
 
     objectResponse.Body.pipe(res);
   } catch (error) {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import facebookLogo from "../assets/facebook-logo-primary.png";
 import instagramLogo from "../assets/instagram-glyph-gradient.png";
 import floatingPlusIcon from "../assets/floating-plus-icon.png";
@@ -256,14 +256,50 @@ function getLocalDateKey() {
   return `${year}-${month}-${day}`;
 }
 
+function useNearViewport(ref) {
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const element = ref.current;
+
+    if (!element || typeof window.IntersectionObserver !== "function") {
+      setIsVisible(true);
+      return undefined;
+    }
+
+    const observer = new window.IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "480px 0px" },
+    );
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref]);
+
+  return isVisible;
+}
+
 export function HomePage() {
   const { locale, t } = useLanguage();
   const [activeGroup, setActiveGroup] = useState("man");
   const [activeItemKey, setActiveItemKey] = useState(null);
-  const [isParticipantBenefitsOpen, setIsParticipantBenefitsOpen] = useState(false);
+  const [isParticipantBenefitsOpen, setIsParticipantBenefitsOpen] = useState(null);
+  const [isParticipantBenefitsImageLoaded, setIsParticipantBenefitsImageLoaded] = useState(false);
+  const [isDeferredHeroSlidesEnabled, setIsDeferredHeroSlidesEnabled] = useState(false);
   const [isSocialMenuOpen, setIsSocialMenuOpen] = useState(false);
+  const homeUpRef = useRef(null);
+  const homeIntroRef = useRef(null);
+  const homeSponsorsRef = useRef(null);
 
   const competitionGroups = useMemo(() => getCompetitionGroups(locale), [locale]);
+  const isHomeUpVisible = useNearViewport(homeUpRef);
+  const isHomeIntroVisible = useNearViewport(homeIntroRef);
+  const isHomeSponsorsVisible = useNearViewport(homeSponsorsRef);
 
   useEffect(() => {
     try {
@@ -290,6 +326,21 @@ export function HomePage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isParticipantBenefitsOpen]);
 
+  const isPrimaryHomeMediaReady = isParticipantBenefitsOpen === false || isParticipantBenefitsImageLoaded;
+
+  useEffect(() => {
+    if (!isPrimaryHomeMediaReady) {
+      setIsDeferredHeroSlidesEnabled(false);
+      return undefined;
+    }
+
+    const timerId = window.setTimeout(() => {
+      setIsDeferredHeroSlidesEnabled(true);
+    }, 3000);
+
+    return () => window.clearTimeout(timerId);
+  }, [isPrimaryHomeMediaReady]);
+
   useEffect(() => {
     if (!isSocialMenuOpen) {
       return undefined;
@@ -309,6 +360,12 @@ export function HomePage() {
   const activeItems = activeGroupData?.items || [];
   const activeItem = activeItems.find((item) => item.key === activeItemKey) || activeItems[0] || null;
   const activeItemIndex = activeItem ? activeItems.findIndex((item) => item.key === activeItem.key) : -1;
+  const visibleHeroLeftImageKeys = isPrimaryHomeMediaReady
+    ? (isDeferredHeroSlidesEnabled ? homeHeroLeftImageKeys : homeHeroLeftImageKeys.slice(0, 1))
+    : [];
+  const visibleHeroRightImageKeys = isPrimaryHomeMediaReady
+    ? (isDeferredHeroSlidesEnabled ? homeHeroRightImageKeys : homeHeroRightImageKeys.slice(0, 1))
+    : [];
 
   useEffect(() => {
     if (!activeGroupData) {
@@ -361,6 +418,10 @@ export function HomePage() {
             className="site-home-benefits-modal__image"
             src={getHomeImageUrl("home/participant_benefits.png")}
             alt={locale === "ko" ? "참가자 혜택 안내" : "Participant benefits"}
+            decoding="async"
+            fetchPriority="high"
+            onError={() => setIsParticipantBenefitsImageLoaded(true)}
+            onLoad={() => setIsParticipantBenefitsImageLoaded(true)}
           />
           <div className="site-home-benefits-modal__actions">
             <button type="button" onClick={() => closeParticipantBenefits({ hideForToday: true })}>
@@ -379,23 +440,29 @@ export function HomePage() {
         </h1>
         <div className="site-home-hero__stage">
           <div className="site-home-hero__stream site-home-hero__stream--left" aria-hidden="true">
-            {homeHeroLeftImageKeys.map((key, index) => (
+            {visibleHeroLeftImageKeys.map((key, index) => (
               <img
                 className="site-home-hero__slide"
                 key={key}
                 src={getHomeImageUrl(key)}
                 alt=""
+                decoding="async"
+                fetchPriority={index === 0 ? "high" : "low"}
                 style={{ "--site-home-hero-delay": `${index * 5}s` }}
               />
             ))}
           </div>
 
           <div className="site-home-hero__center">
-            <img
-              className="site-home-hero__logo"
-              src={getHomeImageUrl("home/muscle_mania.png")}
-              alt="Musclemania"
-            />
+            {isPrimaryHomeMediaReady ? (
+              <img
+                className="site-home-hero__logo"
+                src={getHomeImageUrl("home/muscle_mania.png")}
+                alt="Musclemania"
+                decoding="async"
+                fetchPriority="high"
+              />
+            ) : null}
             <div className="site-home-hero__details">
               <dl>
                 <div>
@@ -411,12 +478,14 @@ export function HomePage() {
           </div>
 
           <div className="site-home-hero__stream site-home-hero__stream--right" aria-hidden="true">
-            {homeHeroRightImageKeys.map((key, index) => (
+            {visibleHeroRightImageKeys.map((key, index) => (
               <img
                 className="site-home-hero__slide"
                 key={key}
                 src={getHomeImageUrl(key)}
                 alt=""
+                decoding="async"
+                fetchPriority={index === 0 ? "high" : "low"}
                 style={{ "--site-home-hero-delay": `${index * 5 + 0.65}s` }}
               />
             ))}
@@ -424,23 +493,30 @@ export function HomePage() {
         </div>
       </section>
 
-      <section className="site-home-up" aria-label={t("home.topGalleryAria")}>
+      <section className="site-home-up" aria-label={t("home.topGalleryAria")} ref={homeUpRef}>
         <div className="site-home-up__viewport">
           <div className="site-home-up__track">
-            {[...homeUpImageKeys, ...homeUpImageKeys].map((key, index) => (
+            {isHomeUpVisible ? [...homeUpImageKeys, ...homeUpImageKeys].map((key, index) => (
               <img
                 key={`${key}-${index}`}
                 className="site-home-up__image"
                 src={getHomeImageUrl(key)}
                 alt=""
                 aria-hidden="true"
+                decoding="async"
+                loading="lazy"
               />
-            ))}
+            )) : null}
           </div>
         </div>
       </section>
 
-      <section className="site-home-intro" id="competition-intro" aria-label={t("home.introAria")}>
+      <section
+        className="site-home-intro"
+        id="competition-intro"
+        aria-label={t("home.introAria")}
+        ref={homeIntroRef}
+      >
         <div className="site-home-intro__grid">
           {Object.entries(competitionGroups).map(([groupKey, group]) => (
             <button
@@ -451,7 +527,11 @@ export function HomePage() {
               type="button"
               aria-label={group.title}
               aria-pressed={activeGroup === groupKey}
-              style={{ backgroundImage: `url("${getHomeImageUrl(group.mainImage)}")` }}
+              style={
+                isHomeIntroVisible
+                  ? { backgroundImage: `url("${getHomeImageUrl(group.mainImage)}")` }
+                  : undefined
+              }
               onClick={() => selectGroup(groupKey)}
             />
           ))}
@@ -488,13 +568,19 @@ export function HomePage() {
               <div
                 className="site-home-showcase__backdrop"
                 aria-hidden="true"
-                style={{ backgroundImage: `url("${getHomeImageUrl(activeItem.key)}")` }}
+                style={
+                  isHomeIntroVisible
+                    ? { backgroundImage: `url("${getHomeImageUrl(activeItem.key)}")` }
+                    : undefined
+                }
               />
               <div className="site-home-showcase__scrim" aria-hidden="true" />
               <img
                 className="site-home-showcase__image"
                 src={getHomeImageUrl(activeItem.key)}
                 alt={activeItem.title}
+                decoding="async"
+                loading="lazy"
               />
               <div className="site-home-showcase__copy">
                 <span className="site-home-showcase__group">{activeGroupData.title}</span>
@@ -515,10 +601,10 @@ export function HomePage() {
         )}
       </section>
 
-      <section className="site-home-sponsors" aria-label="Sponsor logos">
+      <section className="site-home-sponsors" aria-label="Sponsor logos" ref={homeSponsorsRef}>
         <div className="site-home-sponsors__viewport">
           <div className="site-home-sponsors__track">
-            {[0, 1].map((groupIndex) => (
+            {isHomeSponsorsVisible ? [0, 1].map((groupIndex) => (
               <div className="site-home-sponsors__group" key={groupIndex} aria-hidden={groupIndex === 1}>
                 {sponsorLogos.map((logo) => {
                   const image = (
@@ -526,6 +612,8 @@ export function HomePage() {
                       className="site-home-sponsors__logo"
                       src={getHomeImageUrl(logo.key)}
                       alt=""
+                      decoding="async"
+                      loading="lazy"
                     />
                   );
 
@@ -548,7 +636,7 @@ export function HomePage() {
                   );
                 })}
               </div>
-            ))}
+            )) : null}
           </div>
         </div>
       </section>
