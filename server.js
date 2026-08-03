@@ -606,7 +606,8 @@ function normalizeKcpPaymentContext(value) {
     normalized === "stageService" ||
     normalized === "spectator" ||
     normalized === "kcpTest" ||
-    normalized === "stageServiceTest"
+    normalized === "stageServiceTest" ||
+    normalized === "spectatorTest"
   ) {
     return normalized;
   }
@@ -615,7 +616,7 @@ function normalizeKcpPaymentContext(value) {
 }
 
 function getKcpDraftBindingTable(context) {
-  if (context === "spectator") {
+  if (context === "spectator" || context === "spectatorTest") {
     return "spectator_drafts";
   }
   return context === "stageService" || context === "stageServiceTest"
@@ -633,6 +634,8 @@ function getKcpSuccessPath(context) {
       return "/kcp-test/success";
     case "stageServiceTest":
       return "/kcp-test/stage-services/success";
+    case "spectatorTest":
+      return "/kcp-test/spectators/success";
     default:
       return "/payment/success";
   }
@@ -648,6 +651,8 @@ function getKcpFailPath(context) {
       return "/kcp-test/fail";
     case "stageServiceTest":
       return "/kcp-test/stage-services/fail";
+    case "spectatorTest":
+      return "/kcp-test/spectators/fail";
     default:
       return "/fail";
   }
@@ -656,10 +661,15 @@ function getKcpFailPath(context) {
 const kcpTestOrderNames = {
   kcpTest: "KCP 100원 테스트 결제",
   stageServiceTest: "KCP 100원 무대 서비스 테스트 결제",
+  spectatorTest: "KCP 100원 참관객 입장권 테스트 결제",
 };
 
 function isKcpTestContext(context) {
-  return context === "kcpTest" || context === "stageServiceTest";
+  return (
+    context === "kcpTest" ||
+    context === "stageServiceTest" ||
+    context === "spectatorTest"
+  );
 }
 
 function isMatchingKcpTestOrder(order, context) {
@@ -3105,6 +3115,7 @@ async function findLookupOwnedSpectator({ name, email, spectatorOrderNumber }) {
       WHERE spectator_orders.spectator_order_number = $1
         AND spectator_orders.name = $2
         AND LOWER(spectator_orders.email) = $3
+        AND spectator_orders.is_test = FALSE
       LIMIT 1
     `,
     [spectatorOrderNumber, name, email]
@@ -3147,6 +3158,7 @@ function mapSpectatorDraftRow(row) {
     quantity: row.quantity,
     unitAmount: row.unit_amount,
     totalAmount: row.total_amount,
+    isTest: row.is_test === true,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -3165,6 +3177,7 @@ function mapSpectatorOrderRow(row, { maskPersonalInfo = true } = {}) {
     quantity: row.quantity,
     unitAmount: row.unit_amount,
     totalAmount: row.total_amount,
+    isTest: row.is_test === true,
     purchasedAt: row.purchased_at,
     updatedAt: row.updated_at,
   };
@@ -3179,6 +3192,7 @@ async function findCompletedDuplicateSpectator({ queryable = pool, name, phone, 
         AND phone = $2
         AND LOWER(email) = $3
         AND payment_status = 'DONE'
+        AND is_test = FALSE
       LIMIT 1
     `,
     [name, phone, email]
@@ -3190,11 +3204,12 @@ async function getReservedSpectatorTicketCount(queryable = pool) {
   const result = await queryable.query(
     `
       SELECT
-        (SELECT COUNT(*)::int FROM spectator_orders WHERE payment_status = 'DONE') +
+        (SELECT COUNT(*)::int FROM spectator_orders WHERE payment_status = 'DONE' AND is_test = FALSE) +
         (SELECT COUNT(*)::int
          FROM spectator_drafts
          JOIN orders ON orders.order_id = spectator_drafts.order_id
          WHERE spectator_drafts.status = 'ORDERED'
+           AND spectator_drafts.is_test = FALSE
            AND orders.status = 'READY'
            AND orders.created_at >= NOW() - ($1::text || ' minutes')::interval)
         AS reserved_count
@@ -5018,6 +5033,355 @@ app.post("/kcp/test/stage-services/orders/:orderId/cancel", async function (req,
   }
 });
 
+app.post("/kcp/test/spectators/draft", async function (req, res) {
+  if (!hasTrustedWriteOrigin(req)) {
+    return res.status(403).json({
+      ok: false,
+      code: "UNTRUSTED_REQUEST_ORIGIN",
+      message: "허용되지 않은 요청 출처입니다.",
+    });
+  }
+
+  if (!kcpTestPaymentEnabled || !isKcpTestPaymentAuthorized(req)) {
+    return res.status(kcpTestPaymentEnabled ? 403 : 404).json({
+      ok: false,
+      code: kcpTestPaymentEnabled ? "KCP_TEST_PAYMENT_FORBIDDEN" : "KCP_TEST_PAYMENT_DISABLED",
+      message: kcpTestPaymentEnabled ? "Invalid KCP test payment token" : "KCP test payment is disabled",
+    });
+  }
+
+  const validation = validateSpectatorApplicantPayload(req.body);
+  if (!validation.ok) {
+    return res.status(400).json(validation);
+  }
+
+  const { payload } = validation;
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const draftId = generateSpectatorDraftId();
+    const draftResult = await client.query(
+      `
+        INSERT INTO spectator_drafts (
+          draft_id, status, name, phone, email, quantity, unit_amount, total_amount,
+          email_verified_at, is_test, created_at, updated_at
+        ) VALUES ($1, 'CONSENTED', $2, $3, $4, 1, 100, 100, NOW(), TRUE, NOW(), NOW())
+        RETURNING *
+      `,
+      [draftId, payload.name, payload.phone, payload.email]
+    );
+
+    await client.query(
+      `
+        INSERT INTO spectator_consents (
+          draft_id, privacy_consent, refund_consent, marketing_consent,
+          photo_video_consent, consent_version, consented_at
+        ) VALUES ($1, TRUE, TRUE, FALSE, FALSE, 'kcp-test-spectator-v1', NOW())
+      `,
+      [draftId]
+    );
+
+    await client.query("COMMIT");
+    issueDraftAccessCookie(res, {
+      draftId,
+      draftType: "spectator",
+      cookieName: spectatorDraftCookieName,
+    });
+    return res.status(201).json({ ok: true, draft: mapSpectatorDraftRow(draftResult.rows[0]) });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error("Failed to create KCP test spectator draft:", error);
+    return res.status(500).json({ ok: false, message: "Failed to create KCP test spectator draft" });
+  } finally {
+    client.release();
+  }
+});
+
+app.post("/kcp/test/spectators/orders", async function (req, res) {
+  if (!hasTrustedWriteOrigin(req)) {
+    return res.status(403).json({
+      ok: false,
+      code: "UNTRUSTED_REQUEST_ORIGIN",
+      message: "허용되지 않은 요청 출처입니다.",
+    });
+  }
+
+  if (!kcpTestPaymentEnabled || !isKcpTestPaymentAuthorized(req)) {
+    return res.status(kcpTestPaymentEnabled ? 403 : 404).json({
+      ok: false,
+      code: kcpTestPaymentEnabled ? "KCP_TEST_PAYMENT_FORBIDDEN" : "KCP_TEST_PAYMENT_DISABLED",
+      message: kcpTestPaymentEnabled ? "Invalid KCP test payment token" : "KCP test payment is disabled",
+    });
+  }
+
+  const draftId = normalizeText(req.body.draftId);
+  if (!draftId) {
+    return res.status(400).json({ ok: false, message: "Missing draftId" });
+  }
+
+  if (!requireRequestDraftAccess(req, res, {
+    draftId,
+    draftType: "spectator",
+    cookieName: spectatorDraftCookieName,
+  })) {
+    return;
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const draftResult = await client.query(
+      `SELECT * FROM spectator_drafts WHERE draft_id = $1 AND is_test = TRUE FOR UPDATE`,
+      [draftId]
+    );
+
+    if (!draftResult.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ ok: false, message: "KCP test spectator draft not found" });
+    }
+
+    const draft = draftResult.rows[0];
+    if (Number(draft.unit_amount) !== 100 || Number(draft.total_amount) !== 100) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ ok: false, code: "KCP_TEST_ORDER_MISMATCH", message: "KCP 테스트 참관객 금액이 올바르지 않습니다." });
+    }
+
+    const consentResult = await client.query(
+      `SELECT id FROM spectator_consents WHERE draft_id = $1 AND privacy_consent = TRUE AND refund_consent = TRUE LIMIT 1`,
+      [draftId]
+    );
+    if (!consentResult.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ ok: false, code: "REQUIRED_CONSENTS_MISSING", message: "필수 동의 사항을 확인해 주세요." });
+    }
+
+    if (draft.order_id) {
+      const existingOrderResult = await client.query(
+        `SELECT order_id, order_name, amount, customer_name, customer_email, payment_provider, status, created_at FROM orders WHERE order_id = $1 LIMIT 1`,
+        [draft.order_id]
+      );
+
+      if (existingOrderResult.rowCount > 0) {
+        const order = existingOrderResult.rows[0];
+        if (!isMatchingKcpTestOrder(order, "spectatorTest")) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({ ok: false, code: "KCP_TEST_ORDER_MISMATCH", message: "KCP 테스트 참관객 주문이 아닙니다." });
+        }
+
+        if (order.status !== "CANCELED") {
+          const resultAccessToken = createPaymentResultAccessToken({
+            orderId: order.order_id,
+            secret: paymentResultTokenSecret,
+            ttlSeconds: paymentResultAccessTtlHours * 60 * 60,
+          });
+          await client.query("COMMIT");
+          res.setHeader("Set-Cookie", createPaymentResultAccessCookie(resultAccessToken));
+          return res.status(200).json({
+            ok: true,
+            order: {
+              orderId: order.order_id,
+              orderName: order.order_name,
+              amount: order.amount,
+              customerName: order.customer_name,
+              customerEmail: order.customer_email,
+              paymentProvider: order.payment_provider,
+              status: order.status,
+              createdAt: order.created_at,
+            },
+          });
+        }
+      }
+
+      await client.query(
+        `UPDATE spectator_drafts SET order_id = NULL, status = 'CONSENTED', updated_at = NOW() WHERE draft_id = $1`,
+        [draftId]
+      );
+    }
+
+    const providerResolution = resolvePaymentProvider({
+      requestedProvider: paymentProviders.KCP,
+      amount: 100,
+    });
+    if (!providerResolution.ok) {
+      await client.query("ROLLBACK");
+      return res.status(providerResolution.status).json({ ok: false, message: providerResolution.message });
+    }
+
+    const orderId = generateOrderId();
+    const resultAccessToken = createPaymentResultAccessToken({
+      orderId,
+      secret: paymentResultTokenSecret,
+      ttlSeconds: paymentResultAccessTtlHours * 60 * 60,
+    });
+    const orderResult = await client.query(
+      `
+        INSERT INTO orders (order_id, order_name, amount, customer_name, customer_email, payment_provider, status)
+        VALUES ($1, $2, 100, $3, $4, $5, 'READY')
+        RETURNING order_id, order_name, amount, customer_name, customer_email, payment_provider, status, created_at
+      `,
+      [orderId, kcpTestOrderNames.spectatorTest, draft.name, draft.email, providerResolution.provider]
+    );
+    await client.query(
+      `UPDATE spectator_drafts SET order_id = $2, status = 'ORDERED', updated_at = NOW() WHERE draft_id = $1`,
+      [draftId, orderId]
+    );
+    await client.query("COMMIT");
+
+    const order = orderResult.rows[0];
+    res.setHeader("Set-Cookie", createPaymentResultAccessCookie(resultAccessToken));
+    return res.status(201).json({
+      ok: true,
+      order: {
+        orderId: order.order_id,
+        orderName: order.order_name,
+        amount: order.amount,
+        customerName: order.customer_name,
+        customerEmail: order.customer_email,
+        paymentProvider: order.payment_provider,
+        status: order.status,
+        createdAt: order.created_at,
+      },
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error("Failed to create KCP test spectator order:", error);
+    return res.status(500).json({ ok: false, message: "Failed to create KCP test spectator order" });
+  } finally {
+    client.release();
+  }
+});
+
+app.post("/kcp/test/spectators/orders/:orderId/cancel", async function (req, res) {
+  if (!hasTrustedWriteOrigin(req)) {
+    return res.status(403).json({
+      ok: false,
+      code: "UNTRUSTED_REQUEST_ORIGIN",
+      message: "허용되지 않은 요청 출처입니다.",
+    });
+  }
+
+  if (!kcpTestPaymentEnabled || !isKcpTestPaymentAuthorized(req)) {
+    return res.status(kcpTestPaymentEnabled ? 403 : 404).json({
+      ok: false,
+      code: kcpTestPaymentEnabled ? "KCP_TEST_PAYMENT_FORBIDDEN" : "KCP_TEST_PAYMENT_DISABLED",
+      message: kcpTestPaymentEnabled ? "Invalid KCP test payment token" : "KCP test payment is disabled",
+    });
+  }
+
+  const orderId = normalizeText(req.params.orderId);
+  if (!orderId) {
+    return res.status(400).json({ ok: false, message: "Missing orderId" });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    const result = await client.query(
+      `
+        SELECT
+          orders.order_id,
+          orders.order_name,
+          orders.amount,
+          orders.status AS order_status,
+          orders.payment_provider AS order_payment_provider,
+          payments.payment_key,
+          payments.status AS payment_status,
+          payments.payment_provider AS payment_provider
+        FROM orders
+        JOIN payments ON payments.order_id = orders.order_id
+        WHERE orders.order_id = $1
+        ORDER BY payments.updated_at DESC
+        LIMIT 1
+        FOR UPDATE OF orders, payments
+      `,
+      [orderId]
+    );
+
+    if (!result.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ ok: false, code: "KCP_TEST_PAYMENT_NOT_FOUND", message: "KCP 테스트 결제 정보를 찾을 수 없습니다." });
+    }
+
+    const payment = result.rows[0];
+    if (
+      !isMatchingKcpTestOrder(payment, "spectatorTest") ||
+      payment.order_payment_provider !== paymentProviders.KCP ||
+      payment.payment_provider !== paymentProviders.KCP
+    ) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ ok: false, code: "KCP_TEST_ORDER_MISMATCH", message: "KCP 테스트 참관객 주문이 아닙니다." });
+    }
+
+    if (payment.order_status === "CANCELED" || payment.payment_status === "CANCELED") {
+      await client.query("COMMIT");
+      return res.status(200).json({
+        ok: true,
+        duplicated: true,
+        orderId: payment.order_id,
+        paymentKey: payment.payment_key,
+        paymentStatus: "CANCELED",
+      });
+    }
+
+    if (payment.order_status !== "PAID" || payment.payment_status !== "DONE") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ ok: false, code: "KCP_TEST_PAYMENT_NOT_CANCELABLE", message: "현재 상태에서는 테스트 결제를 취소할 수 없습니다." });
+    }
+
+    const cancellation = await requestKcpCancellation({
+      paymentKey: payment.payment_key,
+      cancelAmount: 100,
+      remainingAmount: 100,
+      originalAmount: 100,
+      reason: "KCP 100원 참관객 입장권 테스트 결제 취소",
+    });
+
+    if (!cancellation.ok) {
+      await client.query("ROLLBACK");
+      return res.status(cancellation.httpStatus >= 400 ? cancellation.httpStatus : 502).json({
+        ok: false,
+        code: cancellation.errorCode,
+        message: cancellation.errorMessage,
+        kcp: cancellation.result.kcp,
+      });
+    }
+
+    await client.query(
+      `
+        UPDATE payments
+        SET status = 'CANCELED',
+            raw_response_json = jsonb_build_object('approval', raw_response_json, 'cancellations', jsonb_build_array($2::jsonb)),
+            updated_at = NOW()
+        WHERE order_id = $1 AND payment_provider = 'kcp'
+      `,
+      [payment.order_id, JSON.stringify(cancellation.result)]
+    );
+    await client.query(`UPDATE orders SET status = 'CANCELED', updated_at = NOW() WHERE order_id = $1`, [payment.order_id]);
+    await client.query(
+      `UPDATE spectator_orders SET payment_status = 'CANCELED', admission_status = 'CANCELED', updated_at = NOW() WHERE order_id = $1 AND is_test = TRUE`,
+      [payment.order_id]
+    );
+    await client.query("COMMIT");
+
+    return res.status(200).json({
+      ok: true,
+      orderId: payment.order_id,
+      paymentKey: payment.payment_key,
+      paymentStatus: "CANCELED",
+      cancellation: cancellation.result,
+    });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    console.error("Failed to cancel KCP test spectator payment:", error);
+    return res.status(error.statusCode || 500).json({ ok: false, message: error.message || "Failed to cancel KCP test spectator payment" });
+  } finally {
+    client.release();
+  }
+});
+
 app.post("/kcp/trade/register", async function (req, res) {
   if (!hasTrustedWriteOrigin(req)) {
     return res.status(403).json({
@@ -5853,20 +6217,22 @@ async function finalizePaidSpectatorOrder({ draftId, orderId }) {
       draft,
       order,
       payment,
-      expectedAmount: spectatorTicketAmount,
+      expectedAmount: draft.is_test ? 100 : spectatorTicketAmount,
     });
     if (!bindingValidation.ok) {
       throw Object.assign(new Error(bindingValidation.message), { code: bindingValidation.code });
     }
 
-    const duplicate = await findCompletedDuplicateSpectator({ queryable: client, ...draft });
-    if (duplicate) {
-      throw Object.assign(new Error("동일한 정보로 결제 완료된 참관객 입장권이 있습니다."), { code: "DUPLICATE_SPECTATOR_TICKET" });
-    }
+    if (!draft.is_test) {
+      const duplicate = await findCompletedDuplicateSpectator({ queryable: client, ...draft });
+      if (duplicate) {
+        throw Object.assign(new Error("동일한 정보로 결제 완료된 참관객 입장권이 있습니다."), { code: "DUPLICATE_SPECTATOR_TICKET" });
+      }
 
-    const capacityResult = await client.query(`SELECT COUNT(*)::int AS count FROM spectator_orders WHERE payment_status = 'DONE'`);
-    if (Number(capacityResult.rows[0]?.count || 0) >= spectatorTicketCapacity) {
-      throw Object.assign(new Error("참관객 입장권이 매진되었습니다."), { code: "SPECTATOR_SOLD_OUT" });
+      const capacityResult = await client.query(`SELECT COUNT(*)::int AS count FROM spectator_orders WHERE payment_status = 'DONE' AND is_test = FALSE`);
+      if (Number(capacityResult.rows[0]?.count || 0) >= spectatorTicketCapacity) {
+        throw Object.assign(new Error("참관객 입장권이 매진되었습니다."), { code: "SPECTATOR_SOLD_OUT" });
+      }
     }
 
     const spectatorOrderResult = await client.query(
@@ -5874,8 +6240,8 @@ async function finalizePaidSpectatorOrder({ draftId, orderId }) {
         INSERT INTO spectator_orders (
           spectator_order_number, draft_id, order_id, payment_key, payment_status,
           admission_status, name, phone, email, quantity, unit_amount, total_amount,
-          purchased_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, 'READY', $6, $7, $8, 1, $9, $9, NOW(), NOW())
+          is_test, purchased_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, 'READY', $6, $7, $8, 1, $9, $9, $10, NOW(), NOW())
         RETURNING *
       `,
       [
@@ -5887,7 +6253,8 @@ async function finalizePaidSpectatorOrder({ draftId, orderId }) {
         draft.name,
         draft.phone,
         draft.email,
-        spectatorTicketAmount,
+        draft.total_amount,
+        draft.is_test,
       ]
     );
     await client.query(`UPDATE spectator_drafts SET status = 'COMPLETED', updated_at = NOW() WHERE draft_id = $1`, [draftId]);
@@ -7476,8 +7843,8 @@ app.get("/admin/spectators", requireAdminAuth, async function (req, res) {
       `
         SELECT
           COUNT(*)::int AS total_count,
-          COUNT(*) FILTER (WHERE payment_status = 'DONE')::int AS paid_count,
-          COALESCE(SUM(quantity) FILTER (WHERE payment_status = 'DONE'), 0)::int AS sold_count
+          COUNT(*) FILTER (WHERE payment_status = 'DONE' AND is_test = FALSE)::int AS paid_count,
+          COALESCE(SUM(quantity) FILTER (WHERE payment_status = 'DONE' AND is_test = FALSE), 0)::int AS sold_count
         FROM spectator_orders
         WHERE ${whereClause}
       `,
@@ -11596,6 +11963,7 @@ app.post("/applications/lookup", async function (req, res) {
         ) AS latest_payment ON TRUE
         WHERE spectator_orders.name = $1
           AND LOWER(spectator_orders.email) = $2
+          AND spectator_orders.is_test = FALSE
         ORDER BY spectator_orders.purchased_at DESC NULLS LAST, spectator_orders.updated_at DESC
         LIMIT 10
       `,
@@ -12364,7 +12732,7 @@ app.post("/spectators/orders", async function (req, res) {
       return res.status(409).json({ ok: false, code: "DUPLICATE_SPECTATOR_TICKET", message: "동일한 정보로 결제 완료된 참관객 입장권이 있습니다." });
     }
     const activeResult = await client.query(
-      `SELECT d.draft_id FROM spectator_drafts d JOIN orders o ON o.order_id = d.order_id WHERE d.name = $1 AND d.phone = $2 AND LOWER(d.email) = $3 AND d.draft_id <> $4 AND (o.status = 'PAID' OR (o.status = 'READY' AND o.created_at >= NOW() - ($5::text || ' minutes')::interval)) LIMIT 1`,
+      `SELECT d.draft_id FROM spectator_drafts d JOIN orders o ON o.order_id = d.order_id WHERE d.name = $1 AND d.phone = $2 AND LOWER(d.email) = $3 AND d.draft_id <> $4 AND d.is_test = FALSE AND (o.status = 'PAID' OR (o.status = 'READY' AND o.created_at >= NOW() - ($5::text || ' minutes')::interval)) LIMIT 1`,
       [draft.name, draft.phone, draft.email, draftId, String(paymentOrderTtlMinutes)]
     );
     if (activeResult.rowCount) {
@@ -12703,7 +13071,7 @@ app.post("/applications/lookup-verification/send", async function (req, res) {
           UNION ALL
           SELECT spectator_order_number AS reference_number
           FROM spectator_orders
-          WHERE name = $1 AND LOWER(email) = $2
+          WHERE name = $1 AND LOWER(email) = $2 AND is_test = FALSE
         ) AS lookup_targets
         LIMIT 1
       `,

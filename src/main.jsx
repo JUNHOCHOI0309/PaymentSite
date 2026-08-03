@@ -35,6 +35,11 @@ import {
   KcpTestStageServiceSuccessPage,
 } from "./pages/KcpTestStageServicePage";
 import {
+  KcpTestSpectatorFailPage,
+  KcpTestSpectatorPage,
+  KcpTestSpectatorSuccessPage,
+} from "./pages/KcpTestSpectatorPage";
+import {
   HallOfFamePage,
   OrganizationCommitteePage,
   OrganizationPage,
@@ -252,6 +257,18 @@ const router = createBrowserRouter([
       {
         path: "kcp-test/stage-services/fail",
         element: <KcpTestStageServiceFailPage />,
+      },
+      {
+        path: "kcp-test/spectators",
+        element: <KcpTestSpectatorPage />,
+      },
+      {
+        path: "kcp-test/spectators/success",
+        element: <KcpTestSpectatorSuccessPage />,
+      },
+      {
+        path: "kcp-test/spectators/fail",
+        element: <KcpTestSpectatorFailPage />,
       },
       {
         path: "payment",

@@ -471,6 +471,12 @@ export function KcpTestPaymentPage() {
         <Link className="button kcp-test-button kcp-test-link" to="/kcp-test/stage-services">
           무대 서비스 100원 테스트
         </Link>
+        <Link
+          className="button kcp-test-button kcp-test-link"
+          to={`/kcp-test/spectators${token ? `?token=${encodeURIComponent(token)}` : ""}`}
+        >
+          참관객 입장권 100원 테스트
+        </Link>
       </section>
     </main>
   );

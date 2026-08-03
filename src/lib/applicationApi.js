@@ -174,6 +174,45 @@ export async function cancelKcpTestStageServiceOrder(orderId, payload) {
   return readJson(response);
 }
 
+export async function createKcpTestSpectatorDraft(payload) {
+  const response = await apiFetch("/api/kcp/test/spectators/draft", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
+export async function createKcpTestSpectatorOrder(payload) {
+  const response = await apiFetch("/api/kcp/test/spectators/orders", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
+export async function cancelKcpTestSpectatorOrder(orderId, payload) {
+  const response = await apiFetch(
+    `/api/kcp/test/spectators/orders/${encodeURIComponent(orderId)}/cancel`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  return readJson(response);
+}
+
 export async function prepareKcpPayment(payload) {
   const response = await apiFetch("/api/kcp/trade/register", {
     method: "POST",
