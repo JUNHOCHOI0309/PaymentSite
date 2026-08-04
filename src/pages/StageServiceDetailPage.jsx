@@ -672,7 +672,7 @@ export function StageServiceDetailPage() {
                         className={`site-input ${fieldErrors.hairOption ? "site-input--error" : ""}`.trim()}
                         value={state.formData.hairOption}
                         onChange={setFormField("hairOption")}
-                        disabled={!selectedHairDisciplines.length}
+                        disabled={!selectedHairApplications.length}
                       >
                         <option value="">{t("stageService.hairOptionPlaceholder")}</option>
                         {hairOptionChoices.map((option) => (
@@ -706,7 +706,7 @@ export function StageServiceDetailPage() {
                       <span className="site-field__hint">
                         {locale === "ko"
                           ? maxHairRetouchCount
-                            ? `선택한 ${selectedHairDisciplines.length}개 종목 사이에 필요한 리터치 횟수를 선택해 주세요.`
+                            ? `선택한 ${selectedHairApplications.length}개 종목 사이에 필요한 리터치 횟수를 선택해 주세요.`
                             : "리터치는 신청한 종목을 2개 이상 선택한 경우에 신청할 수 있습니다."
                           : maxHairRetouchCount
                             ? "Select the number of retouch sessions needed between your selected disciplines."
