@@ -186,6 +186,14 @@ const router = createBrowserRouter([
           </ApplicationFlowRouteGuard>
         ),
       },
+      ...(import.meta.env.DEV
+        ? [
+            {
+              path: "preview/apply/complete",
+              element: <ApplyCompletePage preview />,
+            },
+          ]
+        : []),
       {
         path: "competition-intro",
         element: <CompetitionIntroPage />,

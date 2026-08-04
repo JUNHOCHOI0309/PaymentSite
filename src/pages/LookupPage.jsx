@@ -10,6 +10,7 @@ import {
   getSpectatorRefundQuote,
   getStageServiceSummary,
   lookupApplication,
+  lookupApplicationByNumber,
   sendLookupVerificationCode,
   verifyLookupVerificationCode,
 } from "../lib/applicationApi";
@@ -110,12 +111,15 @@ export function LookupPage() {
     name: "",
     email: "",
     verificationCode: "",
+    applicationNumber: "",
   });
+  const [lookupMode, setLookupMode] = useState("identity");
   const [emailLocalPart, setEmailLocalPart] = useState("");
   const [emailDomainSelection, setEmailDomainSelection] = useState("");
   const [emailCustomDomain, setEmailCustomDomain] = useState("");
   const [results, setResults] = useState([]);
   const [spectatorResults, setSpectatorResults] = useState([]);
+  const [numberLookupResult, setNumberLookupResult] = useState(null);
   const [actionErrorMessage, setActionErrorMessage] = useState("");
   const [verificationMessage, setVerificationMessage] = useState("");
   const [verificationToken, setVerificationToken] = useState("");
@@ -186,6 +190,7 @@ export function LookupPage() {
     setActionErrorMessage("");
     setResults([]);
     setSpectatorResults([]);
+    setNumberLookupResult(null);
 
     if (field === "name" || field === "email") {
       setVerificationToken("");
@@ -228,6 +233,7 @@ export function LookupPage() {
     setActionErrorMessage("");
     setResults([]);
     setSpectatorResults([]);
+    setNumberLookupResult(null);
     resetLookupVerification();
   }
 
@@ -385,6 +391,7 @@ export function LookupPage() {
     setIsSubmitting(true);
     setActionErrorMessage("");
     setVerificationMessage("");
+    setNumberLookupResult(null);
 
     try {
       const json = await lookupApplication({
@@ -481,6 +488,40 @@ export function LookupPage() {
     }
   }
 
+  function handleLookupModeChange(mode) {
+    setLookupMode(mode);
+    setActionErrorMessage("");
+    setVerificationMessage("");
+    setResults([]);
+    setSpectatorResults([]);
+    setNumberLookupResult(null);
+  }
+
+  async function handleNumberLookup() {
+    const applicationNumber = form.applicationNumber.trim().toUpperCase();
+
+    if (!applicationNumber) {
+      setActionErrorMessage(locale === "ko" ? "신청번호를 입력해 주세요." : "Enter your application number.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setActionErrorMessage("");
+    setVerificationMessage("");
+    setResults([]);
+    setSpectatorResults([]);
+
+    try {
+      const json = await lookupApplicationByNumber({ applicationNumber });
+      setNumberLookupResult(json.record || null);
+    } catch (error) {
+      setNumberLookupResult(null);
+      setActionErrorMessage(error.message || (locale === "ko" ? "신청 내역을 조회하지 못했습니다." : "Unable to look up the application."));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   async function handleRecentLookup() {
     const session = getStoredLookupSession();
 
@@ -550,9 +591,38 @@ export function LookupPage() {
           <div className="site-review-card__header">
             <p className="site-kicker">{t("common.kickerLookup")}</p>
             <h1>{t("lookup.title")}</h1>
-            <p>{t("lookup.description")}</p>
+            <p>
+              {lookupMode === "number"
+                ? (locale === "ko" ? "완료 화면에 표시된 신청번호로 결제 및 신청 상태를 확인할 수 있습니다." : "Use the application number shown on the completion page to check payment and application status.")
+                : t("lookup.description")}
+            </p>
           </div>
 
+          <div className="site-lookup-mode-grid" role="tablist" aria-label={locale === "ko" ? "신청 조회 방식" : "Lookup method"}>
+            <button
+              className={`site-lookup-mode-card ${lookupMode === "identity" ? "site-lookup-mode-card--active" : ""}`}
+              type="button"
+              role="tab"
+              aria-selected={lookupMode === "identity"}
+              onClick={() => handleLookupModeChange("identity")}
+            >
+              <strong>{locale === "ko" ? "이름 + 이메일로 조회" : "Name + email"}</strong>
+              <span>{locale === "ko" ? "이메일 인증 후 전체 신청 내역을 확인합니다." : "Verify your email to view all applications."}</span>
+            </button>
+            <button
+              className={`site-lookup-mode-card ${lookupMode === "number" ? "site-lookup-mode-card--active" : ""}`}
+              type="button"
+              role="tab"
+              aria-selected={lookupMode === "number"}
+              onClick={() => handleLookupModeChange("number")}
+            >
+              <strong>{locale === "ko" ? "신청번호로 조회" : "Application number"}</strong>
+              <span>{locale === "ko" ? "완료 화면의 신청번호로 결제 정보를 확인합니다." : "Use the number shown on the completion page."}</span>
+            </button>
+          </div>
+
+          {lookupMode === "identity" ? (
+            <>
           {recentLookupSession && !verificationToken ? (
             <section className="site-lookup-recent-session" aria-label={locale === "ko" ? "최근 인증 조회" : "Recent verified lookup"}>
               <p>
@@ -698,17 +768,64 @@ export function LookupPage() {
               </Button>
             </div>
           </div>
+            </>
+          ) : (
+            <section className="site-lookup-number-form" aria-label={locale === "ko" ? "신청번호 조회" : "Application number lookup"}>
+              <Input
+                label={locale === "ko" ? "신청번호" : "Application number"}
+                value={form.applicationNumber}
+                onChange={setField("applicationNumber")}
+                placeholder="APPL-2026-XXXXXXXX"
+                autoCapitalize="characters"
+              />
+              <p className="site-field__hint">
+                {locale === "ko"
+                  ? "대회 신청(APPL), 무대 서비스(SS), 참관객 신청(SPCT) 완료 화면에 표시된 신청번호를 입력해 주세요. 환불은 본인 확인을 위해 이름·이메일 인증 조회에서 진행합니다."
+                  : "Enter the APPL, SS, or SPCT number shown on the completion page. Refunds require name and email verification."}
+              </p>
+              <div className="site-lookup-actions">
+                <Button onClick={handleNumberLookup} disabled={isSubmitting}>
+                  {isSubmitting ? (locale === "ko" ? "조회 중" : "Looking up") : (locale === "ko" ? "신청번호로 조회" : "Look up by number")}
+                </Button>
+              </div>
+            </section>
+          )}
 
           <NoticeBox title={t("lookup.noticeTitle")}>
-            <ul className="site-list">
-              <li>{t("lookup.notice1")}</li>
-              <li>{t("lookup.notice2")}</li>
-              <li>{t("lookup.notice3")}</li>
-            </ul>
+            {lookupMode === "number" ? (
+              <ul className="site-list">
+                <li>{locale === "ko" ? "신청번호는 완료 화면에서 확인할 수 있으며, 타인에게 공유하지 않는 것이 좋습니다." : "Your application number is shown on the completion page and should not be shared."}</li>
+                <li>{locale === "ko" ? "신청번호 조회에서는 결제 및 신청 상태만 확인할 수 있습니다." : "Application number lookup shows payment and application status only."}</li>
+                <li>{locale === "ko" ? "환불 신청은 본인 확인을 위해 이름과 이메일 인증 조회에서 진행해 주세요." : "Use name and email verification to request a refund."}</li>
+              </ul>
+            ) : (
+              <ul className="site-list">
+                <li>{t("lookup.notice1")}</li>
+                <li>{t("lookup.notice2")}</li>
+                <li>{t("lookup.notice3")}</li>
+              </ul>
+            )}
             <Link className="site-notice__link" to="/apply/guide">
               {t("common.viewApplyGuide")}
             </Link>
           </NoticeBox>
+
+          {numberLookupResult ? (
+            <div className="site-result-card site-number-lookup-result">
+              <h3>{locale === "ko" ? "신청번호 조회 결과" : "Application number result"}</h3>
+              <div className="site-lookup-result">
+                <div className="site-review-row"><span>{locale === "ko" ? "신청 구분" : "Application type"}</span><strong>{numberLookupResult.type === "application" ? (locale === "ko" ? "대회 신청" : "Competition application") : numberLookupResult.type === "stageService" ? (locale === "ko" ? "무대 서비스" : "Stage service") : (locale === "ko" ? "참관객 신청" : "Spectator application")}</strong></div>
+                <div className="site-review-row"><span>{locale === "ko" ? "신청번호" : "Application number"}</span><strong>{numberLookupResult.applicationNumber || numberLookupResult.serviceOrderNumber || numberLookupResult.spectatorOrderNumber}</strong></div>
+                {numberLookupResult.type === "application" ? <><div className="site-review-row"><span>{locale === "ko" ? "신청 종목" : "Discipline"}</span><strong>{numberLookupResult.discipline || "-"}</strong></div><div className="site-review-row"><span>{locale === "ko" ? "체급" : "Weight class"}</span><strong>{numberLookupResult.weightClass || "-"}</strong></div></> : null}
+                {numberLookupResult.type === "stageService" ? <><div className="site-review-row"><span>{locale === "ko" ? "서비스" : "Service"}</span><strong>{stageServiceTitles[numberLookupResult.serviceType] || numberLookupResult.serviceType}</strong></div><div className="site-review-row"><span>{locale === "ko" ? "연결 종목" : "Linked disciplines"}</span><strong>{numberLookupResult.linkedDisciplines?.join(", ") || "-"}</strong></div></> : null}
+                {numberLookupResult.type === "spectator" ? <><div className="site-review-row"><span>{locale === "ko" ? "입장권" : "Ticket"}</span><strong>{numberLookupResult.quantity || 1}{locale === "ko" ? "매" : " ticket"}</strong></div><div className="site-review-row"><span>{locale === "ko" ? "입장 상태" : "Admission status"}</span><strong>{numberLookupResult.admissionStatus || "-"}</strong></div></> : null}
+                <div className="site-review-row"><span>{t("lookup.paymentStatus")}</span><strong>{numberLookupResult.paymentStatus || "-"}</strong></div>
+                <div className="site-review-row"><span>{locale === "ko" ? "결제 금액" : "Payment amount"}</span><strong>{formatAmount(numberLookupResult.paymentAmount ?? numberLookupResult.totalAmount, locale)}</strong></div>
+                <div className="site-review-row"><span>{locale === "ko" ? "결제 완료 시점" : "Payment completed at"}</span><strong>{formatPaymentCompletedAt(numberLookupResult.paymentCompletedAt || numberLookupResult.purchasedAt, locale)}</strong></div>
+              </div>
+              <p className="site-field__hint">{locale === "ko" ? "신청번호 조회는 결제·신청 정보 확인용입니다. 환불 신청은 이름과 이메일 인증 조회 후 진행해 주세요." : "Application number lookup is read-only. Use name and email verification to request a refund."}</p>
+            </div>
+          ) : null}
 
           {results.length > 0 || spectatorResults.length > 0 ? (
             <div className="site-result-card">

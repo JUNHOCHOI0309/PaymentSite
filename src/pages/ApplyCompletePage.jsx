@@ -5,7 +5,16 @@ import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
 import { getApplicationByNumber, getApplicationByOrder } from "../lib/applicationApi";
 
-export function ApplyCompletePage() {
+const previewApplication = {
+  applicationNumber: "APPL-2026-PREVIEW01",
+  name: "홍길동",
+  phone: "010-1234-5678",
+  email: "preview@mmkorea.com",
+  submittedAt: "2026-08-04 12:00",
+  paymentStatus: "DONE",
+};
+
+export function ApplyCompletePage({ preview = false }) {
   const [searchParams] = useSearchParams();
   const { t } = useLanguage();
   const [application, setApplication] = useState(null);
@@ -30,6 +39,12 @@ export function ApplyCompletePage() {
 
   useEffect(() => {
     async function fetchApplication() {
+      if (preview) {
+        setApplication(previewApplication);
+        setErrorMessage("");
+        return;
+      }
+
       const applicationNumber = searchParams.get("applicationNumber");
       const orderId = searchParams.get("orderId");
 
@@ -49,7 +64,7 @@ export function ApplyCompletePage() {
     }
 
     fetchApplication();
-  }, [searchParams, t]);
+  }, [preview, searchParams, t]);
 
   return (
     <PageShell>
@@ -73,7 +88,6 @@ export function ApplyCompletePage() {
           <p className="site-field__hint">
             {t("complete.hint")}
           </p>
-
           <div className="site-inline-actions">
             <Link to="/">
               <Button variant="ghost">{t("complete.home")}</Button>

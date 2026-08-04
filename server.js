@@ -100,6 +100,10 @@ const lookupVerificationVerifyRateLimit = Math.max(
   1,
   Number(process.env.LOOKUP_VERIFICATION_VERIFY_RATE_LIMIT || 30)
 );
+const lookupNumberRateLimit = Math.max(
+  1,
+  Number(process.env.LOOKUP_NUMBER_RATE_LIMIT || 30)
+);
 
 const maxUploadBytes = 10 * 1024 * 1024;
 const maxDocumentUploadFiles = 5;
@@ -12497,6 +12501,180 @@ app.post("/applications/lookup", async function (req, res) {
     return res.status(500).json({
       ok: false,
       message: "Failed to lookup application",
+    });
+  }
+});
+
+app.post("/applications/lookup/by-number", async function (req, res) {
+  try {
+    if (!hasTrustedWriteOrigin(req)) {
+      return res.status(403).json({
+        ok: false,
+        message: "Untrusted request origin",
+      });
+    }
+
+    const rateLimitResult = consumeLookupVerificationRateLimit({
+      action: "number-lookup",
+      ipAddress: getRequestIp(req),
+      limit: lookupNumberRateLimit,
+    });
+
+    if (!rateLimitResult.ok) {
+      res.setHeader("Retry-After", String(rateLimitResult.retryAfterSeconds));
+      return res.status(429).json({
+        ok: false,
+        message: "신청번호 조회 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+      });
+    }
+
+    const applicationNumber = normalizeText(req.body.applicationNumber).toUpperCase();
+
+    if (!/^(APPL|SS|SPCT)-\d{4}-[A-Z0-9-]{6,64}$/.test(applicationNumber)) {
+      return res.status(400).json({
+        ok: false,
+        message: "유효한 신청번호를 입력해 주세요.",
+      });
+    }
+
+    if (applicationNumber.startsWith("APPL-")) {
+      const result = await pool.query(
+        `
+          SELECT
+            applications.application_number,
+            applications.status,
+            applications.payment_status,
+            applications.division,
+            applications.discipline,
+            applications.image_key,
+            applications.weight_class,
+            applications.submitted_at,
+            orders.amount AS payment_amount,
+            latest_payment.approved_at,
+            latest_payment.created_at AS payment_created_at
+          FROM applications
+          LEFT JOIN orders ON orders.order_id = applications.order_id
+          LEFT JOIN LATERAL (
+            SELECT approved_at, created_at
+            FROM payments
+            WHERE payments.order_id = applications.order_id
+            ORDER BY approved_at DESC NULLS LAST, created_at DESC
+            LIMIT 1
+          ) AS latest_payment ON TRUE
+          WHERE applications.application_number = $1
+            AND applications.admin_deleted_at IS NULL
+          LIMIT 1
+        `,
+        [applicationNumber]
+      );
+      const row = result.rows[0];
+
+      if (!row) {
+        return res.status(404).json({ ok: false, message: "신청 내역을 찾을 수 없습니다." });
+      }
+
+      return res.status(200).json({
+        ok: true,
+        record: {
+          type: "application",
+          applicationNumber: row.application_number,
+          status: row.status,
+          paymentStatus: row.payment_status,
+          division: row.division,
+          discipline: getCanonicalApplicationDisciplineTitle({
+            imageKey: row.image_key,
+            discipline: row.discipline,
+          }),
+          weightClass: row.weight_class,
+          paymentAmount: Number(row.payment_amount || 0),
+          paymentCompletedAt: row.approved_at || row.payment_created_at || null,
+          submittedAt: row.submitted_at,
+        },
+      });
+    }
+
+    if (applicationNumber.startsWith("SS-")) {
+      const result = await pool.query(
+        `
+          SELECT
+            service_order_number,
+            service_type,
+            linked_discipline,
+            linked_applications,
+            total_amount,
+            payment_status,
+            service_status,
+            purchased_at
+          FROM stage_service_orders
+          WHERE service_order_number = $1
+          LIMIT 1
+        `,
+        [applicationNumber]
+      );
+      const row = result.rows[0];
+
+      if (!row) {
+        return res.status(404).json({ ok: false, message: "신청 내역을 찾을 수 없습니다." });
+      }
+
+      const linkedApplications = parseStageServiceLinkedApplications(row.linked_applications, {
+        discipline: row.linked_discipline,
+      });
+
+      return res.status(200).json({
+        ok: true,
+        record: {
+          type: "stageService",
+          serviceOrderNumber: row.service_order_number,
+          serviceType: row.service_type,
+          linkedDisciplines: linkedApplications.map((item) => item.discipline).filter(Boolean),
+          totalAmount: Number(row.total_amount || 0),
+          paymentStatus: row.payment_status,
+          serviceStatus: row.service_status,
+          purchasedAt: row.purchased_at,
+        },
+      });
+    }
+
+    const result = await pool.query(
+      `
+        SELECT
+          spectator_order_number,
+          quantity,
+          total_amount,
+          payment_status,
+          admission_status,
+          purchased_at
+        FROM spectator_orders
+        WHERE spectator_order_number = $1
+          AND is_test = FALSE
+        LIMIT 1
+      `,
+      [applicationNumber]
+    );
+    const row = result.rows[0];
+
+    if (!row) {
+      return res.status(404).json({ ok: false, message: "신청 내역을 찾을 수 없습니다." });
+    }
+
+    return res.status(200).json({
+      ok: true,
+      record: {
+        type: "spectator",
+        spectatorOrderNumber: row.spectator_order_number,
+        quantity: row.quantity,
+        totalAmount: Number(row.total_amount || 0),
+        paymentStatus: row.payment_status,
+        admissionStatus: row.admission_status,
+        purchasedAt: row.purchased_at,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to lookup application by number:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Failed to lookup application by number",
     });
   }
 });

@@ -57,6 +57,11 @@ export function StageServiceCompletePage() {
           </div>
 
           <p className="site-field__hint">{t("stageService.completeHint")}</p>
+          <p className="site-field__hint">
+            {locale === "ko"
+              ? "서비스 주문번호는 신청 조회에 사용할 수 있으니 캡처하거나 별도로 보관해 주세요."
+              : "Keep your service order number to look up this purchase later."}
+          </p>
 
           <div className="site-inline-actions">
             <Link to="/">

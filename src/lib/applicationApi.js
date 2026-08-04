@@ -261,6 +261,18 @@ export async function lookupApplication(payload) {
   return readJson(response);
 }
 
+export async function lookupApplicationByNumber(payload) {
+  const response = await apiFetch("/api/applications/lookup/by-number", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
 export async function sendLookupVerificationCode(payload) {
   const response = await apiFetch("/api/applications/lookup-verification/send", {
     method: "POST",
