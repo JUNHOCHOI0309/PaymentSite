@@ -13,6 +13,7 @@ import {
 } from "../lib/applicationApi";
 
 const lookupSessionStorageKey = "mmkorea-lookup-session";
+const lookupPhoneSessionStorageKey = "mmkorea-lookup-phone-session";
 
 const stageServiceTitles = {
   "stage-photo": "무대 사진 촬영",
@@ -32,10 +33,26 @@ function formatAmount(value) {
   }).format(Number(value));
 }
 
-function getLookupSession() {
+function getLookupSession(accessMethod) {
   try {
-    const value = window.sessionStorage.getItem(lookupSessionStorageKey);
-    return value ? JSON.parse(value) : null;
+    const storageKey = accessMethod === "phone" ? lookupPhoneSessionStorageKey : lookupSessionStorageKey;
+    const value = window.sessionStorage.getItem(storageKey);
+    const session = value ? JSON.parse(value) : null;
+    const expiresAt = new Date(session?.expiresAt || "");
+    const hasIdentity = accessMethod === "phone" ? Boolean(session?.phone) : Boolean(session?.email);
+
+    if (
+      !session?.name ||
+      !hasIdentity ||
+      !session?.verificationToken ||
+      Number.isNaN(expiresAt.getTime()) ||
+      expiresAt.getTime() <= Date.now()
+    ) {
+      window.sessionStorage.removeItem(storageKey);
+      return null;
+    }
+
+    return session;
   } catch {
     return null;
   }
@@ -49,7 +66,8 @@ export function RefundRequestPage() {
   const isStageService = refundType === "stage-service";
   const isApplication = refundType === "application";
   const isSpectator = refundType === "spectator";
-  const [lookupSession] = useState(getLookupSession);
+  const accessMethod = searchParams.get("access") === "phone" ? "phone" : "email";
+  const [lookupSession] = useState(() => getLookupSession(accessMethod));
   const [quote, setQuote] = useState(null);
   const [target, setTarget] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -86,8 +104,8 @@ export function RefundRequestPage() {
         return;
       }
 
-      if (!lookupSession?.name || !lookupSession?.email || !lookupSession?.verificationToken) {
-        setErrorMessage("신청 조회 인증이 필요합니다. 신청 조회에서 인증 후 다시 시도해 주세요.");
+      if (!lookupSession?.name || !(accessMethod === "phone" ? lookupSession?.phone : lookupSession?.email) || !lookupSession?.verificationToken) {
+        setErrorMessage(`${accessMethod === "phone" ? "휴대전화 SMS" : "이메일"} 인증이 필요합니다. 신청 조회에서 인증 후 다시 시도해 주세요.`);
         setIsLoading(false);
         return;
       }
@@ -98,8 +116,8 @@ export function RefundRequestPage() {
       try {
         const payload = {
           name: lookupSession.name,
-          email: lookupSession.email,
           verificationToken: lookupSession.verificationToken,
+          ...(accessMethod === "phone" ? { phone: lookupSession.phone } : { email: lookupSession.email }),
           ...(isStageService
             ? { serviceOrderNumber: targetId }
             : isSpectator
@@ -122,7 +140,7 @@ export function RefundRequestPage() {
     }
 
     loadRefundQuote();
-  }, [isApplication, isSpectator, isStageService, lookupSession, targetId]);
+  }, [accessMethod, isApplication, isSpectator, isStageService, lookupSession, targetId]);
 
   async function handleRefund() {
     if (!quote?.canAutoRefund || !isAcknowledged || isSubmitting || !lookupSession) {
@@ -135,8 +153,8 @@ export function RefundRequestPage() {
     try {
       const payload = {
         name: lookupSession.name,
-        email: lookupSession.email,
         verificationToken: lookupSession.verificationToken,
+        ...(accessMethod === "phone" ? { phone: lookupSession.phone } : { email: lookupSession.email }),
         requestReason: "사용자 요청 자동 환불",
         ...(isStageService
           ? { serviceOrderNumber: targetId }
@@ -150,7 +168,7 @@ export function RefundRequestPage() {
           ? await requestSpectatorRefund(payload)
           : await requestApplicationRefund(payload);
 
-      window.sessionStorage.removeItem(lookupSessionStorageKey);
+      window.sessionStorage.removeItem(accessMethod === "phone" ? lookupPhoneSessionStorageKey : lookupSessionStorageKey);
       navigate("/refund/complete", {
         replace: true,
         state: {

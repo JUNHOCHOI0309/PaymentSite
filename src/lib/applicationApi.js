@@ -273,6 +273,18 @@ export async function lookupApplicationByNumber(payload) {
   return readJson(response);
 }
 
+export async function lookupApplicationByPhone(payload) {
+  const response = await apiFetch("/api/applications/lookup/by-phone", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
 export async function sendLookupVerificationCode(payload) {
   const response = await apiFetch("/api/applications/lookup-verification/send", {
     method: "POST",
@@ -287,6 +299,30 @@ export async function sendLookupVerificationCode(payload) {
 
 export async function verifyLookupVerificationCode(payload) {
   const response = await apiFetch("/api/applications/lookup-verification/verify", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
+export async function sendLookupPhoneVerificationCode(payload) {
+  const response = await apiFetch("/api/applications/lookup-phone-verification/send", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
+export async function verifyLookupPhoneVerificationCode(payload) {
+  const response = await apiFetch("/api/applications/lookup-phone-verification/verify", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -752,6 +788,57 @@ export async function getAdminAuditLogs(params = {}) {
   const response = await adminApiFetch(
     `/api/admin/audit-logs${query.size ? `?${query.toString()}` : ""}`,
   );
+  return readJson(response);
+}
+
+export async function getAdminSmsCampaigns() {
+  const response = await adminApiFetch("/api/admin/sms/campaigns");
+  return readJson(response);
+}
+
+export async function getAdminSmsMarketingOptOuts() {
+  const response = await adminApiFetch("/api/admin/sms/marketing-opt-outs");
+  return readJson(response);
+}
+
+export async function previewAdminSmsCampaign(payload) {
+  const response = await adminApiFetch("/api/admin/sms/campaigns/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return readJson(response);
+}
+
+export async function createAdminSmsCampaign(payload) {
+  const response = await adminApiFetch("/api/admin/sms/campaigns", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return readJson(response);
+}
+
+export async function retryAdminSmsCampaign(campaignId) {
+  const response = await adminApiFetch(`/api/admin/sms/campaigns/${encodeURIComponent(campaignId)}/retry`, {
+    method: "POST",
+  });
+  return readJson(response);
+}
+
+export async function createAdminSmsMarketingOptOut(payload) {
+  const response = await adminApiFetch("/api/admin/sms/marketing-opt-outs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return readJson(response);
+}
+
+export async function deleteAdminSmsMarketingOptOut(phone) {
+  const response = await adminApiFetch(`/api/admin/sms/marketing-opt-outs/${encodeURIComponent(phone)}`, {
+    method: "DELETE",
+  });
   return readJson(response);
 }
 

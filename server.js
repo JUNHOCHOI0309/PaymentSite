@@ -96,6 +96,10 @@ const lookupVerificationSendRateLimit = Math.max(
   1,
   Number(process.env.LOOKUP_VERIFICATION_SEND_RATE_LIMIT || 10)
 );
+const lookupPhoneVerificationSendRateLimit = Math.max(
+  1,
+  Number(process.env.LOOKUP_PHONE_VERIFICATION_SEND_RATE_LIMIT || 3)
+);
 const lookupVerificationVerifyRateLimit = Math.max(
   1,
   Number(process.env.LOOKUP_VERIFICATION_VERIFY_RATE_LIMIT || 30)
@@ -169,6 +173,19 @@ const lookupVerificationSessionTtlMinutes = Math.max(
 const lookupVerificationMaxAttempts = Math.max(
   1,
   Number(process.env.LOOKUP_VERIFICATION_MAX_ATTEMPTS || 5)
+);
+const solapiApiKey = normalizeText(process.env.SOLAPI_API_KEY);
+const solapiApiSecret = normalizeText(process.env.SOLAPI_API_SECRET);
+const solapiSenderNumber = String(process.env.SOLAPI_SENDER_NUMBER || "").replace(/\D/g, "");
+const solapiBrandName = normalizeText(process.env.SOLAPI_BRAND_NAME) || "MMKorea";
+const solapiMarketingOptOutText = normalizeText(process.env.SOLAPI_MARKETING_OPT_OUT_TEXT);
+const smsCampaignMaxRecipients = Math.max(
+  1,
+  Number(process.env.SMS_CAMPAIGN_MAX_RECIPIENTS || 5000)
+);
+const smsCampaignBatchSize = Math.min(
+  100,
+  Math.max(1, Number(process.env.SMS_CAMPAIGN_BATCH_SIZE || 100))
 );
 const smtpHost = normalizeText(process.env.SMTP_HOST);
 const smtpPort = Number(process.env.SMTP_PORT || 587);
@@ -2266,6 +2283,13 @@ function hashLookupVerificationCode(code) {
     .digest("hex");
 }
 
+function hashLookupPhoneVerificationCode(code) {
+  return crypto
+    .createHmac("sha256", paymentResultTokenSecret)
+    .update(`lookup-phone-verification:${String(code)}`)
+    .digest("hex");
+}
+
 function escapeHtml(value) {
   return String(value || "").replace(/[&<>"']/g, (character) => {
     const entities = {
@@ -2327,6 +2351,7 @@ function getEmailTransporter() {
 }
 
 let lookupVerificationStoreReadyPromise = null;
+let lookupPhoneVerificationStoreReadyPromise = null;
 
 async function ensureLookupVerificationStoreReady() {
   if (!lookupVerificationStoreReadyPromise) {
@@ -2349,9 +2374,37 @@ async function ensureLookupVerificationStoreReady() {
   return lookupVerificationStoreReadyPromise;
 }
 
+async function ensureLookupPhoneVerificationStoreReady() {
+  if (!lookupPhoneVerificationStoreReadyPromise) {
+    lookupPhoneVerificationStoreReadyPromise = (async function () {
+      const tableResult = await pool.query(
+        "SELECT to_regclass('public.application_lookup_phone_verifications') AS table_name"
+      );
+
+      if (!tableResult.rows[0]?.table_name) {
+        throw new Error(
+          "Lookup phone verification database schema is not ready. Apply the phone lookup verification migration."
+        );
+      }
+    })().catch((error) => {
+      lookupPhoneVerificationStoreReadyPromise = null;
+      throw error;
+    });
+  }
+
+  return lookupPhoneVerificationStoreReadyPromise;
+}
+
 async function purgeExpiredLookupVerifications() {
   await pool.query(`
     DELETE FROM application_lookup_email_verifications
+    WHERE created_at < NOW() - INTERVAL '3 days'
+  `);
+}
+
+async function purgeExpiredLookupPhoneVerifications() {
+  await pool.query(`
+    DELETE FROM application_lookup_phone_verifications
     WHERE created_at < NOW() - INTERVAL '3 days'
   `);
 }
@@ -2369,6 +2422,24 @@ async function hasVerifiedLookupSession({ name, email, verificationToken }) {
       LIMIT 1
     `,
     [name, email, verificationToken, String(lookupVerificationSessionTtlMinutes)]
+  );
+
+  return verificationResult.rowCount > 0;
+}
+
+async function hasVerifiedLookupPhoneSession({ name, phone, verificationToken }) {
+  const verificationResult = await pool.query(
+    `
+      SELECT id
+      FROM application_lookup_phone_verifications
+      WHERE name = $1
+        AND phone = $2
+        AND verification_token = $3
+        AND status = 'VERIFIED'
+        AND verified_at >= NOW() - ($4::text || ' minutes')::interval
+      LIMIT 1
+    `,
+    [name, phone, verificationToken, String(lookupVerificationSessionTtlMinutes)]
   );
 
   return verificationResult.rowCount > 0;
@@ -2507,7 +2578,113 @@ async function consumeVerifiedLookupSession(client, { name, email, verificationT
   return verificationResult.rowCount > 0;
 }
 
-async function findLookupOwnedApplication({ name, email, applicationNumber }) {
+async function consumeVerifiedLookupPhoneSession(client, { name, phone, verificationToken }) {
+  const verificationResult = await client.query(
+    `
+      UPDATE application_lookup_phone_verifications
+      SET
+        status = 'CONSUMED',
+        updated_at = NOW()
+      WHERE id = (
+        SELECT id
+        FROM application_lookup_phone_verifications
+        WHERE name = $1
+          AND phone = $2
+          AND verification_token = $3
+          AND status = 'VERIFIED'
+          AND verified_at >= NOW() - ($4::text || ' minutes')::interval
+        ORDER BY verified_at DESC
+        LIMIT 1
+        FOR UPDATE
+      )
+      RETURNING id
+    `,
+    [name, phone, verificationToken, String(lookupVerificationSessionTtlMinutes)]
+  );
+
+  return verificationResult.rowCount > 0;
+}
+
+async function resolveLookupVerificationAccess({ name, email, phone, verificationToken }) {
+  const normalizedName = normalizeText(name);
+  const normalizedEmail = normalizeEmail(email);
+  const normalizedPhone = normalizeText(formatPhoneNumber(phone));
+  const normalizedVerificationToken = normalizeText(verificationToken);
+
+  if (!normalizedName || !normalizedVerificationToken || Boolean(normalizedEmail) === Boolean(normalizedPhone)) {
+    return {
+      ok: false,
+      statusCode: 400,
+      message: "이름과 이메일 또는 휴대전화 SMS 인증 정보를 정확히 입력해 주세요.",
+    };
+  }
+
+  if (normalizedEmail) {
+    if (!hasValidEmail(normalizedEmail)) {
+      return { ok: false, statusCode: 400, message: "유효한 이메일 주소를 입력해 주세요." };
+    }
+
+    const verified = await hasVerifiedLookupSession({
+      name: normalizedName,
+      email: normalizedEmail,
+      verificationToken: normalizedVerificationToken,
+    });
+
+    return verified
+      ? {
+          ok: true,
+          method: "email",
+          name: normalizedName,
+          email: normalizedEmail,
+          phone: "",
+          verificationToken: normalizedVerificationToken,
+        }
+      : {
+          ok: false,
+          statusCode: 403,
+          message: "이메일 인증이 만료되었거나 유효하지 않습니다. 다시 인증해 주세요.",
+        };
+  }
+
+  if (normalizedPhone.replace(/\D/g, "").length !== 11) {
+    return { ok: false, statusCode: 400, message: "유효한 휴대전화 번호를 입력해 주세요." };
+  }
+
+  await ensureLookupPhoneVerificationStoreReady();
+  await purgeExpiredLookupPhoneVerifications();
+
+  const verified = await hasVerifiedLookupPhoneSession({
+    name: normalizedName,
+    phone: normalizedPhone,
+    verificationToken: normalizedVerificationToken,
+  });
+
+  return verified
+    ? {
+        ok: true,
+        method: "phone",
+        name: normalizedName,
+        email: "",
+        phone: normalizedPhone,
+        verificationToken: normalizedVerificationToken,
+      }
+    : {
+        ok: false,
+        statusCode: 403,
+        message: "SMS 인증이 만료되었거나 유효하지 않습니다. 다시 인증해 주세요.",
+      };
+}
+
+async function consumeVerifiedLookupAccess(client, access) {
+  if (access.method === "phone") {
+    return consumeVerifiedLookupPhoneSession(client, access);
+  }
+
+  return consumeVerifiedLookupSession(client, access);
+}
+
+async function findLookupOwnedApplication({ name, email, phone, applicationNumber }) {
+  const isPhoneLookup = Boolean(phone);
   const result = await pool.query(
     `
       SELECT
@@ -2554,11 +2731,11 @@ async function findLookupOwnedApplication({ name, email, applicationNumber }) {
       ) AS latest_payment ON TRUE
       WHERE applications.application_number = $1
         AND applications.name = $2
-        AND LOWER(applications.email) = $3
+        AND ${isPhoneLookup ? "applications.phone = $3" : "LOWER(applications.email) = $3"}
         AND applications.admin_deleted_at IS NULL
       LIMIT 1
     `,
-    [applicationNumber, name, email]
+    [applicationNumber, name, isPhoneLookup ? phone : email]
   );
 
   return result.rows[0] || null;
@@ -2733,7 +2910,8 @@ async function findCompletedDuplicateApplication({ client = pool, name, phone, e
   return result.rows[0] || null;
 }
 
-async function findLookupOwnedStageService({ name, email, serviceOrderNumber }) {
+async function findLookupOwnedStageService({ name, email, phone, serviceOrderNumber }) {
+  const isPhoneLookup = Boolean(phone);
   const result = await pool.query(
     `
       SELECT
@@ -2769,10 +2947,10 @@ async function findLookupOwnedStageService({ name, email, serviceOrderNumber }) 
       ) AS latest_payment ON TRUE
       WHERE stage_service_orders.service_order_number = $1
         AND stage_service_orders.name = $2
-        AND LOWER(stage_service_orders.email) = $3
+        AND ${isPhoneLookup ? "stage_service_orders.phone = $3" : "LOWER(stage_service_orders.email) = $3"}
       LIMIT 1
     `,
-    [serviceOrderNumber, name, email]
+    [serviceOrderNumber, name, isPhoneLookup ? phone : email]
   );
 
   return result.rows[0] || null;
@@ -2850,6 +3028,406 @@ async function sendLookupVerificationEmail({ email, name, code }) {
   return {
     deliveryMethod: "email",
   };
+}
+
+function createSolapiAuthorizationHeader() {
+  const date = new Date().toISOString();
+  const salt = crypto.randomBytes(16).toString("hex");
+  const signature = crypto
+    .createHmac("sha256", solapiApiSecret)
+    .update(`${date}${salt}`)
+    .digest("hex");
+
+  return `HMAC-SHA256 apiKey=${solapiApiKey}, date=${date}, salt=${salt}, signature=${signature}`;
+}
+
+let smsMessagingStoreReadyPromise = null;
+const activeSmsCampaignDispatches = new Set();
+
+async function ensureSmsMessagingStoresReady() {
+  if (!smsMessagingStoreReadyPromise) {
+    smsMessagingStoreReadyPromise = (async function () {
+      const result = await pool.query(`
+        SELECT
+          to_regclass('public.sms_campaigns') AS campaigns_table,
+          to_regclass('public.sms_message_logs') AS messages_table,
+          to_regclass('public.sms_marketing_opt_outs') AS opt_outs_table
+      `);
+      const stores = result.rows[0] || {};
+
+      if (!stores.campaigns_table || !stores.messages_table || !stores.opt_outs_table) {
+        throw new Error("SMS messaging database schema is not ready. Apply the SMS messaging migration.");
+      }
+    })().catch((error) => {
+      smsMessagingStoreReadyPromise = null;
+      throw error;
+    });
+  }
+
+  return smsMessagingStoreReadyPromise;
+}
+
+function assertSolapiConfigured() {
+  if (!solapiApiKey || !solapiApiSecret || !solapiSenderNumber) {
+    throw new Error("SOLAPI is not configured");
+  }
+}
+
+async function sendSolapiMessages(messages) {
+  assertSolapiConfigured();
+
+  const normalizedMessages = Array.isArray(messages)
+    ? messages
+        .map((message) => ({
+          to: String(message?.to || "").replace(/\D/g, ""),
+          text: normalizeText(message?.text),
+        }))
+        .filter((message) => message.to.length === 11 && message.text)
+    : [];
+
+  if (!normalizedMessages.length) {
+    throw new Error("No valid SMS recipients");
+  }
+
+  const response = await fetch("https://api.solapi.com/messages/v4/send-many/detail", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: createSolapiAuthorizationHeader(),
+    },
+    body: JSON.stringify({
+      messages: normalizedMessages.map((message) => ({
+          to: message.to,
+          from: solapiSenderNumber,
+          type: "LMS",
+          text: message.text,
+        })),
+    }),
+  });
+  const responseBody = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    console.error("SOLAPI message send failed:", {
+      status: response.status,
+      errorCode: responseBody?.errorCode || null,
+    });
+    throw new Error("SOLAPI message delivery failed");
+  }
+
+  return responseBody;
+}
+
+async function sendLookupPhoneVerificationMessage({ phone, code }) {
+  await sendSolapiMessages([
+    {
+      to: phone,
+      text: `[${solapiBrandName}] 신청 조회 인증번호는 ${code}입니다. ${lookupVerificationCodeTtlMinutes}분 내에 입력해 주세요.`,
+    },
+  ]);
+}
+
+function formatSmsAmount(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? `${amount.toLocaleString("ko-KR")}원` : "-";
+}
+
+function createRefundCompletedSmsText({ name, targetTitle, refundAmount }) {
+  return [
+    `[${solapiBrandName}] ${name}님`,
+    `${targetTitle} 환불이 완료되었습니다.`,
+    `환불 금액: ${formatSmsAmount(refundAmount)}`,
+    "실제 환불 반영 시점은 결제수단 처리 상황에 따라 다를 수 있습니다.",
+  ].join("\n");
+}
+
+function normalizeSmsCampaignKind(value) {
+  const normalized = normalizeText(value).toUpperCase();
+  return normalized === "MARKETING" ? "MARKETING" : normalized === "NOTICE" ? "NOTICE" : "";
+}
+
+function normalizeSmsCampaignAudience(value) {
+  const normalized = normalizeText(value).toUpperCase();
+  return ["ALL_PAID", "APPLICATIONS", "STAGE_SERVICES", "SPECTATORS", "MARKETING_CONSENTED"].includes(normalized)
+    ? normalized
+    : "";
+}
+
+function normalizeSmsCampaignContent(value) {
+  const content = String(value || "").replace(/\r\n?/g, "\n").trim();
+  return content.slice(0, 1000);
+}
+
+function buildSmsCampaignMessage({ kind, content }) {
+  if (kind === "MARKETING") {
+    if (!solapiMarketingOptOutText) {
+      throw new Error("마케팅 문자 발송용 수신 거부 안내가 설정되지 않았습니다.");
+    }
+
+    return `(광고) ${solapiBrandName}\n${content}\n무료 수신거부: ${solapiMarketingOptOutText}`;
+  }
+
+  return `[${solapiBrandName}] ${content}`;
+}
+
+async function getSmsCampaignRecipients({ kind, audience }) {
+  const audienceClauses = {
+    ALL_PAID: `
+      SELECT applications.name, applications.phone, 'APPLICATION'::text AS recipient_source, applications.application_number AS recipient_source_id, 1 AS source_priority
+      FROM applications
+      WHERE applications.payment_status = 'DONE'
+        AND applications.admin_deleted_at IS NULL
+        AND COALESCE(applications.division, '') <> 'TEST'
+      UNION ALL
+      SELECT stage_service_orders.name, stage_service_orders.phone, 'STAGE_SERVICE'::text AS recipient_source, stage_service_orders.service_order_number AS recipient_source_id, 2 AS source_priority
+      FROM stage_service_orders
+      WHERE stage_service_orders.payment_status = 'DONE'
+      UNION ALL
+      SELECT spectator_orders.name, spectator_orders.phone, 'SPECTATOR'::text AS recipient_source, spectator_orders.spectator_order_number AS recipient_source_id, 3 AS source_priority
+      FROM spectator_orders
+      WHERE spectator_orders.payment_status = 'DONE'
+        AND spectator_orders.is_test = FALSE
+    `,
+    APPLICATIONS: `
+      SELECT applications.name, applications.phone, 'APPLICATION'::text AS recipient_source, applications.application_number AS recipient_source_id, 1 AS source_priority
+      FROM applications
+      WHERE applications.payment_status = 'DONE'
+        AND applications.admin_deleted_at IS NULL
+        AND COALESCE(applications.division, '') <> 'TEST'
+    `,
+    STAGE_SERVICES: `
+      SELECT stage_service_orders.name, stage_service_orders.phone, 'STAGE_SERVICE'::text AS recipient_source, stage_service_orders.service_order_number AS recipient_source_id, 1 AS source_priority
+      FROM stage_service_orders
+      WHERE stage_service_orders.payment_status = 'DONE'
+    `,
+    SPECTATORS: `
+      SELECT spectator_orders.name, spectator_orders.phone, 'SPECTATOR'::text AS recipient_source, spectator_orders.spectator_order_number AS recipient_source_id, 1 AS source_priority
+      FROM spectator_orders
+      WHERE spectator_orders.payment_status = 'DONE'
+        AND spectator_orders.is_test = FALSE
+    `,
+    MARKETING_CONSENTED: `
+      SELECT applications.name, applications.phone, 'APPLICATION'::text AS recipient_source, applications.application_number AS recipient_source_id, 1 AS source_priority
+      FROM applications
+      WHERE applications.payment_status = 'DONE'
+        AND applications.admin_deleted_at IS NULL
+        AND COALESCE(applications.division, '') <> 'TEST'
+        AND EXISTS (
+          SELECT 1
+          FROM application_consents
+          WHERE (application_consents.application_id = applications.id OR application_consents.draft_id = applications.draft_id)
+            AND application_consents.marketing_consent = TRUE
+        )
+      UNION ALL
+      SELECT spectator_orders.name, spectator_orders.phone, 'SPECTATOR'::text AS recipient_source, spectator_orders.spectator_order_number AS recipient_source_id, 2 AS source_priority
+      FROM spectator_orders
+      WHERE spectator_orders.payment_status = 'DONE'
+        AND spectator_orders.is_test = FALSE
+        AND EXISTS (
+          SELECT 1
+          FROM spectator_consents
+          WHERE (spectator_consents.spectator_order_id = spectator_orders.id OR spectator_consents.draft_id = spectator_orders.draft_id)
+            AND spectator_consents.marketing_consent = TRUE
+        )
+    `,
+  };
+  const sourceSql = audienceClauses[audience];
+
+  if (!sourceSql || (kind === "MARKETING" && audience !== "MARKETING_CONSENTED")) {
+    throw new Error("문자 발송 대상 설정이 올바르지 않습니다.");
+  }
+
+  const result = await pool.query(
+    `
+      WITH candidates AS (
+        ${sourceSql}
+      ), normalized_candidates AS (
+        SELECT
+          name,
+          regexp_replace(phone, '\\D', '', 'g') AS phone,
+          recipient_source,
+          recipient_source_id,
+          source_priority
+        FROM candidates
+      ), deduplicated AS (
+        SELECT DISTINCT ON (phone)
+          name,
+          phone,
+          recipient_source,
+          recipient_source_id,
+          source_priority
+        FROM normalized_candidates
+        WHERE phone ~ '^01[0-9]{9}$'
+          ${kind === "MARKETING" ? "AND NOT EXISTS (SELECT 1 FROM sms_marketing_opt_outs WHERE sms_marketing_opt_outs.phone = normalized_candidates.phone)" : ""}
+        ORDER BY phone, source_priority, recipient_source_id DESC
+      )
+      SELECT name, phone, recipient_source, recipient_source_id
+      FROM deduplicated
+      ORDER BY recipient_source, recipient_source_id DESC
+      LIMIT $1
+    `,
+    [smsCampaignMaxRecipients + 1]
+  );
+
+  if (result.rowCount > smsCampaignMaxRecipients) {
+    throw new Error(`한 번에 최대 ${smsCampaignMaxRecipients.toLocaleString("ko-KR")}명까지 발송할 수 있습니다.`);
+  }
+
+  return result.rows;
+}
+
+async function updateSmsCampaignSummary(campaignId) {
+  const result = await pool.query(
+    `
+      SELECT
+        COUNT(*)::int AS recipient_count,
+        COUNT(*) FILTER (WHERE status = 'SENT')::int AS sent_count,
+        COUNT(*) FILTER (WHERE status = 'FAILED')::int AS failed_count
+      FROM sms_message_logs
+      WHERE campaign_id = $1
+    `,
+    [campaignId]
+  );
+  const summary = result.rows[0] || {};
+  const recipientCount = Number(summary.recipient_count || 0);
+  const sentCount = Number(summary.sent_count || 0);
+  const failedCount = Number(summary.failed_count || 0);
+  const status = failedCount > 0 ? (sentCount > 0 ? "PARTIAL" : "FAILED") : "COMPLETED";
+
+  await pool.query(
+    `
+      UPDATE sms_campaigns
+      SET status = $2, recipient_count = $3, sent_count = $4, failed_count = $5, completed_at = NOW(), updated_at = NOW()
+      WHERE id = $1
+    `,
+    [campaignId, status, recipientCount, sentCount, failedCount]
+  );
+}
+
+async function dispatchSmsCampaign(campaignId) {
+  const normalizedCampaignId = Number(campaignId);
+  if (!Number.isInteger(normalizedCampaignId) || activeSmsCampaignDispatches.has(normalizedCampaignId)) {
+    return;
+  }
+
+  activeSmsCampaignDispatches.add(normalizedCampaignId);
+
+  try {
+    await ensureSmsMessagingStoresReady();
+    assertSolapiConfigured();
+    const campaignResult = await pool.query(
+      `
+        UPDATE sms_campaigns
+        SET status = 'PROCESSING', started_at = COALESCE(started_at, NOW()), updated_at = NOW()
+        WHERE id = $1
+          AND status IN ('QUEUED', 'FAILED', 'PARTIAL')
+        RETURNING id
+      `,
+      [normalizedCampaignId]
+    );
+
+    if (!campaignResult.rowCount) {
+      return;
+    }
+
+    const messageResult = await pool.query(
+      `
+        SELECT id, recipient_phone, message_body
+        FROM sms_message_logs
+        WHERE campaign_id = $1
+          AND status IN ('QUEUED', 'FAILED')
+        ORDER BY id
+      `,
+      [normalizedCampaignId]
+    );
+
+    for (let index = 0; index < messageResult.rows.length; index += smsCampaignBatchSize) {
+      const batch = messageResult.rows.slice(index, index + smsCampaignBatchSize);
+      const messageIds = batch.map((message) => message.id);
+      await pool.query(
+        `UPDATE sms_message_logs SET status = 'PROCESSING', updated_at = NOW() WHERE id = ANY($1::bigint[])`,
+        [messageIds]
+      );
+
+      try {
+        const providerResponse = await sendSolapiMessages(
+          batch.map((message) => ({ to: message.recipient_phone, text: message.message_body }))
+        );
+        await pool.query(
+          `
+            UPDATE sms_message_logs
+            SET status = 'SENT', provider_response_json = $2::jsonb, sent_at = NOW(), updated_at = NOW()
+            WHERE id = ANY($1::bigint[])
+          `,
+          [messageIds, JSON.stringify(providerResponse)]
+        );
+      } catch (error) {
+        await pool.query(
+          `
+            UPDATE sms_message_logs
+            SET status = 'FAILED', error_message = $2, updated_at = NOW()
+            WHERE id = ANY($1::bigint[])
+          `,
+          [messageIds, normalizeText(error.message) || "SOLAPI message delivery failed"]
+        );
+      }
+    }
+
+    await updateSmsCampaignSummary(normalizedCampaignId);
+  } catch (error) {
+    console.error("Failed to dispatch SMS campaign:", {
+      campaignId: normalizedCampaignId,
+      message: error.message,
+    });
+    await pool
+      .query(
+        `UPDATE sms_campaigns SET status = 'FAILED', failure_message = $2, completed_at = NOW(), updated_at = NOW() WHERE id = $1`,
+        [normalizedCampaignId, normalizeText(error.message) || "SMS campaign dispatch failed"]
+      )
+      .catch(() => undefined);
+  } finally {
+    activeSmsCampaignDispatches.delete(normalizedCampaignId);
+  }
+}
+
+async function sendRefundCompletedSms({ eventKey, name, phone, targetTitle, refundAmount }) {
+  try {
+    await ensureSmsMessagingStoresReady();
+    const messageText = createRefundCompletedSmsText({ name, targetTitle, refundAmount });
+    const insertResult = await pool.query(
+      `
+        INSERT INTO sms_message_logs (
+          message_kind, event_key, recipient_name, recipient_phone, recipient_source,
+          recipient_source_id, message_body, status
+        ) VALUES ('TRANSACTIONAL', $1, $2, $3, 'REFUND', $4, $5, 'QUEUED')
+        ON CONFLICT (event_key) DO NOTHING
+        RETURNING id
+      `,
+      [eventKey, name, phone, eventKey, messageText]
+    );
+
+    if (!insertResult.rowCount) {
+      return;
+    }
+
+    try {
+      const providerResponse = await sendSolapiMessages([{ to: phone, text: messageText }]);
+      await pool.query(
+        `UPDATE sms_message_logs SET status = 'SENT', provider_response_json = $2::jsonb, sent_at = NOW(), updated_at = NOW() WHERE id = $1`,
+        [insertResult.rows[0].id, JSON.stringify(providerResponse)]
+      );
+    } catch (error) {
+      await pool.query(
+        `UPDATE sms_message_logs SET status = 'FAILED', error_message = $2, updated_at = NOW() WHERE id = $1`,
+        [insertResult.rows[0].id, normalizeText(error.message) || "SOLAPI message delivery failed"]
+      );
+    }
+  } catch (error) {
+    // A notification failure must not roll back a completed payment cancellation.
+    console.error("Failed to send refund completion SMS:", {
+      eventKey,
+      message: error.message,
+    });
+  }
 }
 
 async function sendApplicationEmailVerificationEmail({ email, name, code }) {
@@ -3151,7 +3729,8 @@ function generateStageServiceOrderNumber() {
   return `SS-${new Date().getFullYear()}-${crypto.randomBytes(6).toString("hex").toUpperCase()}`;
 }
 
-async function findLookupOwnedSpectator({ name, email, spectatorOrderNumber }) {
+async function findLookupOwnedSpectator({ name, email, phone, spectatorOrderNumber }) {
+  const isPhoneLookup = Boolean(phone);
   const result = await pool.query(
     `
       SELECT
@@ -3175,11 +3754,11 @@ async function findLookupOwnedSpectator({ name, email, spectatorOrderNumber }) {
       ) AS latest_payment ON TRUE
       WHERE spectator_orders.spectator_order_number = $1
         AND spectator_orders.name = $2
-        AND LOWER(spectator_orders.email) = $3
+        AND ${isPhoneLookup ? "spectator_orders.phone = $3" : "LOWER(spectator_orders.email) = $3"}
         AND spectator_orders.is_test = FALSE
       LIMIT 1
     `,
-    [spectatorOrderNumber, name, email]
+    [spectatorOrderNumber, name, isPhoneLookup ? phone : email]
   );
   return result.rows[0] || null;
 }
@@ -3627,6 +4206,74 @@ function mapStageServiceOrderRow(row) {
     serviceStatus: row.service_status,
     purchasedAt: row.purchased_at,
     updatedAt: row.updated_at,
+  };
+}
+
+async function getStageServiceSummaryForLookupApplication({
+  name,
+  phone,
+  email,
+  applicationNumber,
+}) {
+  const summaryResult = await pool.query(
+    `
+      SELECT
+        service_order_number,
+        order_id,
+        payment_key,
+        service_type,
+        name,
+        phone,
+        email,
+        linked_application_number,
+        linked_discipline,
+        linked_applications,
+        photo_has_additional_discipline,
+        photo_additional_discipline,
+        video_type,
+        video_additional_discipline,
+        hair_participant_discipline,
+        hair_option,
+        hair_additional_discipline,
+        hair_optional_option,
+        total_amount,
+        payment_status,
+        service_status,
+        purchased_at,
+        updated_at
+      FROM stage_service_orders
+      WHERE name = $1
+        AND phone = $2
+        AND (
+          linked_application_number = $3
+          OR EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(COALESCE(linked_applications, '[]'::jsonb)) AS linked_application
+            WHERE linked_application ->> 'applicationNumber' = $3
+          )
+        )
+      ORDER BY purchased_at DESC NULLS LAST, updated_at DESC
+    `,
+    [name, phone, applicationNumber]
+  );
+  const purchasedServiceTypes = new Set(
+    summaryResult.rows
+      .filter((row) => row.payment_status === "DONE")
+      .map((row) => row.service_type)
+  );
+
+  return {
+    hasStagePhoto: purchasedServiceTypes.has("stage-photo"),
+    hasStageVideo: purchasedServiceTypes.has("stage-video"),
+    hasHairMakeup: purchasedServiceTypes.has("hair-makeup"),
+    purchases: summaryResult.rows.map((row) =>
+      mapStageServiceOrderRow({
+        ...row,
+        name,
+        phone,
+        email,
+      })
+    ),
   };
 }
 
@@ -9387,6 +10034,14 @@ app.post("/admin/refunds/:refundRequestId/retry-sync", requireAdminAuth, async f
 
     await client.query("COMMIT");
 
+    void sendRefundCompletedSms({
+      eventKey: `application-refund:${refundRequestId}`,
+      name: applicationResult.rows[0].name,
+      phone: applicationResult.rows[0].phone,
+      targetTitle: applicationResult.rows[0].discipline || "대회 신청",
+      refundAmount: refundRequest.refund_amount,
+    });
+
     return res.status(200).json({
       ok: true,
       refundRequest: mapRefundRequestRow(completedRequestResult.rows[0]),
@@ -9499,7 +10154,7 @@ app.post("/admin/stage-service-refunds/:refundRequestId/retry-sync", requireAdmi
           END,
           updated_at = NOW()
         WHERE service_order_number = $1
-        RETURNING service_order_number
+        RETURNING *
       `,
       [refundRequest.service_order_number, nextPaymentStatus]
     );
@@ -9528,6 +10183,14 @@ app.post("/admin/stage-service-refunds/:refundRequestId/retry-sync", requireAdmi
         serviceOrderNumber: refundRequest.service_order_number,
         nextPaymentStatus,
       },
+    });
+
+    void sendRefundCompletedSms({
+      eventKey: `stage-service-refund:${refundRequestId}`,
+      name: stageServiceResult.rows[0].name,
+      phone: stageServiceResult.rows[0].phone,
+      targetTitle: stageServiceDefinitions[stageServiceResult.rows[0].service_type]?.title || "무대 서비스",
+      refundAmount: refundRequest.refund_amount,
     });
 
     return res.status(200).json({
@@ -9644,7 +10307,7 @@ app.post("/admin/spectator-refunds/:refundRequestId/retry-sync", requireAdminAut
           END,
           updated_at = NOW()
         WHERE spectator_order_number = $1
-        RETURNING spectator_order_number
+        RETURNING *
       `,
       [refundRequest.spectator_order_number, nextPaymentStatus]
     );
@@ -9675,6 +10338,14 @@ app.post("/admin/spectator-refunds/:refundRequestId/retry-sync", requireAdminAut
       },
     });
 
+    void sendRefundCompletedSms({
+      eventKey: `spectator-refund:${refundRequestId}`,
+      name: spectatorResult.rows[0].name,
+      phone: spectatorResult.rows[0].phone,
+      targetTitle: "참관객 입장권",
+      refundAmount: refundRequest.refund_amount,
+    });
+
     return res.status(200).json({
       ok: true,
       refundRequest: mapRefundRequestRow(completedResult.rows[0]),
@@ -9685,6 +10356,302 @@ app.post("/admin/spectator-refunds/:refundRequestId/retry-sync", requireAdminAut
     return res.status(500).json({ ok: false, message: "Failed to retry spectator refund sync" });
   } finally {
     client.release();
+  }
+});
+
+function mapSmsCampaignRow(row) {
+  return {
+    id: Number(row.id),
+    messageKind: row.message_kind,
+    audience: row.audience,
+    content: row.content,
+    messageBody: row.message_body,
+    status: row.status,
+    recipientCount: Number(row.recipient_count || 0),
+    sentCount: Number(row.sent_count || 0),
+    failedCount: Number(row.failed_count || 0),
+    failureMessage: row.failure_message || "",
+    createdByName: row.created_by_name || "",
+    createdAt: row.created_at,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+  };
+}
+
+function mapSmsMarketingOptOutRow(row) {
+  return {
+    phone: formatPhoneNumber(row.phone),
+    reason: row.reason || "",
+    createdByName: row.created_by_name || "",
+    createdAt: row.created_at,
+  };
+}
+
+app.get("/admin/sms/campaigns", requireAdminAuth, requireSuperAdmin, async function (req, res) {
+  try {
+    await ensureSmsMessagingStoresReady();
+    const result = await pool.query(
+      `
+        SELECT
+          sms_campaigns.*,
+          admin_users.display_name AS created_by_name
+        FROM sms_campaigns
+        LEFT JOIN admin_users ON admin_users.id = sms_campaigns.created_by_admin_user_id
+        ORDER BY sms_campaigns.id DESC
+        LIMIT 50
+      `,
+    );
+
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_VIEW_SMS_CAMPAIGNS",
+      targetType: "sms_campaign",
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+      metadata: { count: result.rowCount },
+    });
+
+    return res.status(200).json({ ok: true, campaigns: result.rows.map(mapSmsCampaignRow) });
+  } catch (error) {
+    console.error("Failed to fetch SMS campaigns:", error);
+    return res.status(503).json({ ok: false, message: "문자 발송 저장소를 확인하지 못했습니다." });
+  }
+});
+
+app.get("/admin/sms/marketing-opt-outs", requireAdminAuth, requireSuperAdmin, async function (req, res) {
+  try {
+    await ensureSmsMessagingStoresReady();
+    const result = await pool.query(
+      `
+        SELECT sms_marketing_opt_outs.*, admin_users.display_name AS created_by_name
+        FROM sms_marketing_opt_outs
+        LEFT JOIN admin_users ON admin_users.id = sms_marketing_opt_outs.created_by_admin_user_id
+        ORDER BY sms_marketing_opt_outs.created_at DESC
+        LIMIT 100
+      `,
+    );
+    return res.status(200).json({ ok: true, optOuts: result.rows.map(mapSmsMarketingOptOutRow) });
+  } catch (error) {
+    console.error("Failed to fetch SMS marketing opt-outs:", error);
+    return res.status(503).json({ ok: false, message: "마케팅 수신 거부 목록을 확인하지 못했습니다." });
+  }
+});
+
+app.post("/admin/sms/campaigns/preview", requireAdminAuth, requireSuperAdmin, async function (req, res) {
+  if (!hasTrustedAdminOrigin(req)) {
+    return res.status(403).json({ ok: false, message: "Untrusted admin origin" });
+  }
+
+  try {
+    await ensureSmsMessagingStoresReady();
+    const messageKind = normalizeSmsCampaignKind(req.body?.messageKind);
+    const audience = normalizeSmsCampaignAudience(req.body?.audience);
+    const content = normalizeSmsCampaignContent(req.body?.content);
+
+    if (!messageKind || !audience || !content) {
+      return res.status(400).json({ ok: false, message: "문자 유형, 대상, 내용을 모두 입력해 주세요." });
+    }
+
+    const messageBody = buildSmsCampaignMessage({ kind: messageKind, content });
+    const recipients = await getSmsCampaignRecipients({ kind: messageKind, audience });
+    return res.status(200).json({
+      ok: true,
+      recipientCount: recipients.length,
+      messageBody,
+    });
+  } catch (error) {
+    return res.status(400).json({ ok: false, message: error.message || "문자 발송 대상을 확인하지 못했습니다." });
+  }
+});
+
+app.post("/admin/sms/campaigns", requireAdminAuth, requireSuperAdmin, async function (req, res) {
+  if (!hasTrustedAdminOrigin(req)) {
+    return res.status(403).json({ ok: false, message: "Untrusted admin origin" });
+  }
+
+  let client = null;
+  try {
+    await ensureSmsMessagingStoresReady();
+    assertSolapiConfigured();
+
+    const messageKind = normalizeSmsCampaignKind(req.body?.messageKind);
+    const audience = normalizeSmsCampaignAudience(req.body?.audience);
+    const content = normalizeSmsCampaignContent(req.body?.content);
+
+    if (!messageKind || !audience || !content) {
+      return res.status(400).json({ ok: false, message: "문자 유형, 대상, 내용을 모두 입력해 주세요." });
+    }
+
+    const messageBody = buildSmsCampaignMessage({ kind: messageKind, content });
+    const recipients = await getSmsCampaignRecipients({ kind: messageKind, audience });
+
+    if (!recipients.length) {
+      return res.status(409).json({ ok: false, message: "발송할 대상이 없습니다." });
+    }
+
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const campaignResult = await client.query(
+      `
+        INSERT INTO sms_campaigns (
+          message_kind, audience, content, message_body, status, recipient_count,
+          sent_count, failed_count, created_by_admin_user_id
+        ) VALUES ($1, $2, $3, $4, 'QUEUED', $5, 0, 0, $6)
+        RETURNING *
+      `,
+      [messageKind, audience, content, messageBody, recipients.length, req.adminUser.id],
+    );
+    const campaign = campaignResult.rows[0];
+    const values = [];
+    const placeholders = recipients.map((recipient, index) => {
+      const offset = index * 9;
+      values.push(
+        campaign.id,
+        messageKind,
+        `campaign:${campaign.id}:${recipient.phone}`,
+        recipient.name,
+        recipient.phone,
+        recipient.recipient_source,
+        recipient.recipient_source_id,
+        messageBody,
+        "QUEUED",
+      );
+      return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9})`;
+    });
+    await client.query(
+      `
+        INSERT INTO sms_message_logs (
+          campaign_id, message_kind, event_key, recipient_name, recipient_phone,
+          recipient_source, recipient_source_id, message_body, status
+        ) VALUES ${placeholders.join(", ")}
+        ON CONFLICT (event_key) DO NOTHING
+      `,
+      values,
+    );
+    await client.query("COMMIT");
+    client.release();
+    client = null;
+
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: messageKind === "MARKETING" ? "ADMIN_QUEUE_MARKETING_SMS" : "ADMIN_QUEUE_NOTICE_SMS",
+      targetType: "sms_campaign",
+      targetId: String(campaign.id),
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+      metadata: { audience, recipientCount: recipients.length },
+    });
+
+    void dispatchSmsCampaign(campaign.id);
+    return res.status(202).json({ ok: true, campaign: mapSmsCampaignRow(campaign), recipientCount: recipients.length });
+  } catch (error) {
+    await client?.query("ROLLBACK").catch(() => undefined);
+    console.error("Failed to queue SMS campaign:", error);
+    return res.status(500).json({ ok: false, message: error.message || "문자 발송을 준비하지 못했습니다." });
+  } finally {
+    client?.release();
+  }
+});
+
+app.post("/admin/sms/campaigns/:campaignId/retry", requireAdminAuth, requireSuperAdmin, async function (req, res) {
+  if (!hasTrustedAdminOrigin(req)) {
+    return res.status(403).json({ ok: false, message: "Untrusted admin origin" });
+  }
+
+  const campaignId = Number(req.params.campaignId);
+  if (!Number.isInteger(campaignId) || campaignId <= 0) {
+    return res.status(400).json({ ok: false, message: "Invalid SMS campaign id" });
+  }
+
+  try {
+    await ensureSmsMessagingStoresReady();
+    assertSolapiConfigured();
+    await pool.query(
+      `UPDATE sms_message_logs SET status = 'QUEUED', error_message = NULL, updated_at = NOW() WHERE campaign_id = $1 AND status = 'FAILED'`,
+      [campaignId],
+    );
+    const campaignResult = await pool.query(
+      `UPDATE sms_campaigns SET status = 'QUEUED', failure_message = NULL, completed_at = NULL, updated_at = NOW() WHERE id = $1 RETURNING *`,
+      [campaignId],
+    );
+    if (!campaignResult.rowCount) return res.status(404).json({ ok: false, message: "문자 발송 내역을 찾을 수 없습니다." });
+
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_RETRY_SMS_CAMPAIGN",
+      targetType: "sms_campaign",
+      targetId: String(campaignId),
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+    });
+    void dispatchSmsCampaign(campaignId);
+    return res.status(202).json({ ok: true, campaign: mapSmsCampaignRow(campaignResult.rows[0]) });
+  } catch (error) {
+    console.error("Failed to retry SMS campaign:", error);
+    return res.status(500).json({ ok: false, message: error.message || "문자 재발송을 시작하지 못했습니다." });
+  }
+});
+
+app.post("/admin/sms/marketing-opt-outs", requireAdminAuth, requireSuperAdmin, async function (req, res) {
+  if (!hasTrustedAdminOrigin(req)) {
+    return res.status(403).json({ ok: false, message: "Untrusted admin origin" });
+  }
+
+  const phone = String(req.body?.phone || "").replace(/\D/g, "");
+  const reason = truncateNormalizedText(req.body?.reason, 500);
+  if (!/^01[0-9]{9}$/.test(phone)) {
+    return res.status(400).json({ ok: false, message: "유효한 휴대전화 번호를 입력해 주세요." });
+  }
+
+  try {
+    await ensureSmsMessagingStoresReady();
+    await pool.query(
+      `
+        INSERT INTO sms_marketing_opt_outs (phone, reason, created_by_admin_user_id)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (phone)
+        DO UPDATE SET reason = EXCLUDED.reason, created_by_admin_user_id = EXCLUDED.created_by_admin_user_id, updated_at = NOW()
+      `,
+      [phone, reason || null, req.adminUser.id],
+    );
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_ADD_SMS_MARKETING_OPT_OUT",
+      targetType: "sms_marketing_opt_out",
+      targetId: phone,
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+    });
+    return res.status(201).json({ ok: true });
+  } catch (error) {
+    console.error("Failed to save SMS marketing opt-out:", error);
+    return res.status(500).json({ ok: false, message: "마케팅 수신 거부를 저장하지 못했습니다." });
+  }
+});
+
+app.delete("/admin/sms/marketing-opt-outs/:phone", requireAdminAuth, requireSuperAdmin, async function (req, res) {
+  if (!hasTrustedAdminOrigin(req)) {
+    return res.status(403).json({ ok: false, message: "Untrusted admin origin" });
+  }
+
+  const phone = String(req.params.phone || "").replace(/\D/g, "");
+  if (!/^01[0-9]{9}$/.test(phone)) return res.status(400).json({ ok: false, message: "Invalid phone number" });
+
+  try {
+    await ensureSmsMessagingStoresReady();
+    await pool.query(`DELETE FROM sms_marketing_opt_outs WHERE phone = $1`, [phone]);
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_REMOVE_SMS_MARKETING_OPT_OUT",
+      targetType: "sms_marketing_opt_out",
+      targetId: phone,
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+    });
+    return res.status(200).json({ ok: true });
+  } catch (error) {
+    console.error("Failed to remove SMS marketing opt-out:", error);
+    return res.status(500).json({ ok: false, message: "마케팅 수신 거부를 해제하지 못했습니다." });
   }
 });
 
@@ -11955,27 +12922,20 @@ app.post("/stage-services/summary", async function (req, res) {
 
 app.post("/stage-services/refund/quote", async function (req, res) {
   try {
-    await ensureLookupVerificationStoreReady();
-    await purgeExpiredLookupVerifications();
-
     const name = normalizeText(req.body.name);
     const email = normalizeEmail(req.body.email);
+    const phone = normalizeText(formatPhoneNumber(req.body.phone));
     const verificationToken = normalizeText(req.body.verificationToken);
     const serviceOrderNumber = normalizeText(req.body.serviceOrderNumber);
 
-    if (!name || !email || !verificationToken || !serviceOrderNumber) {
+    if (!name || !verificationToken || !serviceOrderNumber) {
       return res.status(400).json({ ok: false, message: "Missing stage service refund fields" });
     }
 
-    if (!hasValidEmail(email)) {
-      return res.status(400).json({ ok: false, message: "유효한 이메일 주소를 입력해 주세요." });
-    }
+    const access = await resolveLookupVerificationAccess({ name, email, phone, verificationToken });
+    if (!access.ok) return res.status(access.statusCode).json({ ok: false, message: access.message });
 
-    if (!(await hasVerifiedLookupSession({ name, email, verificationToken }))) {
-      return res.status(403).json({ ok: false, message: "이메일 인증이 만료되었거나 유효하지 않습니다. 다시 인증해 주세요." });
-    }
-
-    const serviceOrder = await findLookupOwnedStageService({ name, email, serviceOrderNumber });
+    const serviceOrder = await findLookupOwnedStageService({ ...access, serviceOrderNumber });
     if (!serviceOrder) {
       return res.status(404).json({ ok: false, message: "일치하는 무대 서비스 주문을 찾을 수 없습니다." });
     }
@@ -11991,8 +12951,8 @@ app.post("/stage-services/refund/quote", async function (req, res) {
     refundQuote = applyRepeatRefundReview(
       refundQuote,
       await getRepeatRefundReview({
-        name,
-        email,
+        name: access.name,
+        email: serviceOrder.email,
         scope: refundRepeatReviewScope.APPLICATION_STAGE_SERVICE,
       })
     );
@@ -12032,17 +12992,14 @@ app.post("/stage-services/refund/request", async function (req, res) {
     const serviceOrderNumber = normalizeText(req.body.serviceOrderNumber);
     const requestReason = normalizeText(req.body.requestReason) || "사용자 요청 자동 환불";
 
-    if (!name || !email || !verificationToken || !serviceOrderNumber) {
+    if (!name || !verificationToken || !serviceOrderNumber) {
       return res.status(400).json({ ok: false, message: "Missing stage service refund fields" });
     }
-    if (!hasValidEmail(email)) {
-      return res.status(400).json({ ok: false, message: "유효한 이메일 주소를 입력해 주세요." });
-    }
-    if (!(await hasVerifiedLookupSession({ name, email, verificationToken }))) {
-      return res.status(403).json({ ok: false, message: "이메일 인증이 만료되었거나 유효하지 않습니다. 다시 인증해 주세요." });
-    }
 
-    const serviceOrder = await findLookupOwnedStageService({ name, email, serviceOrderNumber });
+    const access = await resolveLookupVerificationAccess({ name, email, phone, verificationToken });
+    if (!access.ok) return res.status(access.statusCode).json({ ok: false, message: access.message });
+
+    const serviceOrder = await findLookupOwnedStageService({ ...access, serviceOrderNumber });
     if (!serviceOrder) {
       return res.status(404).json({ ok: false, message: "일치하는 무대 서비스 주문을 찾을 수 없습니다." });
     }
@@ -12059,8 +13016,8 @@ app.post("/stage-services/refund/request", async function (req, res) {
     refundQuote = applyRepeatRefundReview(
       refundQuote,
       await getRepeatRefundReview({
-        name,
-        email,
+        name: access.name,
+        email: serviceOrder.email,
         scope: refundRepeatReviewScope.APPLICATION_STAGE_SERVICE,
       })
     );
@@ -12085,9 +13042,9 @@ app.post("/stage-services/refund/request", async function (req, res) {
       await client.query("ROLLBACK");
       return res.status(409).json({ ok: false, code: "REFUND_ALREADY_REQUESTED", message: "이미 환불 요청이 접수되었거나 처리된 무대 서비스입니다.", refundRequest: mapStageServiceRefundRequestRow(activeResult.rows[0]) });
     }
-    if (!(await consumeVerifiedLookupSession(client, { name, email, verificationToken }))) {
+    if (!(await consumeVerifiedLookupAccess(client, access))) {
       await client.query("ROLLBACK");
-      return res.status(403).json({ ok: false, message: "이메일 인증이 이미 사용되었거나 만료되었습니다. 다시 인증해 주세요." });
+      return res.status(403).json({ ok: false, message: `${access.method === "phone" ? "SMS" : "이메일"} 인증이 이미 사용되었거나 만료되었습니다. 다시 인증해 주세요.` });
     }
     const insertResult = await client.query(
       `
@@ -12099,7 +13056,7 @@ app.post("/stage-services/refund/request", async function (req, res) {
         ) VALUES ($1, $2, $3, $4, 'PROCESSING', $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14)
         RETURNING *
       `,
-      [serviceOrderNumber, serviceOrder.order_id, serviceOrder.payment_key, requestReason, refundQuote.refundPercent, refundQuote.refundAmount, originalAmount, refundQuote.policyVersion, refundQuote.matchedRuleId, refundQuote.matchedRuleLabel, JSON.stringify(refundQuote), name, email, generateRefundIdempotencyKey()]
+      [serviceOrderNumber, serviceOrder.order_id, serviceOrder.payment_key, requestReason, refundQuote.refundPercent, refundQuote.refundAmount, originalAmount, refundQuote.policyVersion, refundQuote.matchedRuleId, refundQuote.matchedRuleLabel, JSON.stringify(refundQuote), access.name, serviceOrder.email, generateRefundIdempotencyKey()]
     );
     refundRequestId = insertResult.rows[0].id;
     await client.query("COMMIT");
@@ -12176,6 +13133,14 @@ app.post("/stage-services/refund/request", async function (req, res) {
       [refundRequestId, cancellation.httpStatus, JSON.stringify(cancellation.result)]
     );
     await client.query("COMMIT");
+
+    void sendRefundCompletedSms({
+      eventKey: `stage-service-refund:${refundRequestId}`,
+      name: serviceOrder.name,
+      phone: serviceOrder.phone,
+      targetTitle: stageServiceDefinitions[serviceOrder.service_type]?.title || "무대 서비스",
+      refundAmount: refundQuote.refundAmount,
+    });
 
     return res.status(200).json({ ok: true, refundRequest: mapStageServiceRefundRequestRow(completedResult.rows[0]), refundQuote });
   } catch (error) {
@@ -12505,6 +13470,177 @@ app.post("/applications/lookup", async function (req, res) {
   }
 });
 
+app.post("/applications/lookup/by-phone", async function (req, res) {
+  try {
+    if (!hasTrustedWriteOrigin(req)) {
+      return res.status(403).json({
+        ok: false,
+        message: "Untrusted request origin",
+      });
+    }
+
+    const rateLimitResult = consumeLookupVerificationRateLimit({
+      action: "phone-lookup",
+      ipAddress: getRequestIp(req),
+      limit: lookupNumberRateLimit,
+    });
+
+    if (!rateLimitResult.ok) {
+      res.setHeader("Retry-After", String(rateLimitResult.retryAfterSeconds));
+      return res.status(429).json({
+        ok: false,
+        message: "SMS 인증 조회 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+      });
+    }
+
+    await ensureLookupPhoneVerificationStoreReady();
+    await purgeExpiredLookupPhoneVerifications();
+
+    const name = normalizeText(req.body.name);
+    const phone = normalizeText(formatPhoneNumber(req.body.phone));
+    const verificationToken = normalizeText(req.body.verificationToken);
+
+    if (!name || !phone || !verificationToken) {
+      return res.status(400).json({
+        ok: false,
+        message: "Missing name, phone, or verificationToken",
+      });
+    }
+
+    if (phone.replace(/\D/g, "").length !== 11) {
+      return res.status(400).json({
+        ok: false,
+        message: "유효한 휴대전화 번호를 입력해 주세요.",
+      });
+    }
+
+    const hasVerifiedSession = await hasVerifiedLookupPhoneSession({
+      name,
+      phone,
+      verificationToken,
+    });
+
+    if (!hasVerifiedSession) {
+      return res.status(403).json({
+        ok: false,
+        message: "SMS 인증이 만료되었거나 유효하지 않습니다. 다시 인증해 주세요.",
+      });
+    }
+
+    const applicationResult = await pool.query(
+      `
+        SELECT
+          applications.application_number,
+          applications.draft_id,
+          applications.order_id,
+          applications.payment_key,
+          applications.status,
+          applications.payment_status,
+          applications.name,
+          applications.phone,
+          applications.email,
+          applications.birth_date,
+          applications.organization,
+          applications.instagram_id,
+          applications.introduction,
+          applications.weight_class,
+          applications.participant_gender,
+          applications.division,
+          applications.discipline,
+          applications.image_key,
+          applications.submitted_at,
+          applications.updated_at,
+          orders.amount AS payment_amount,
+          latest_payment.approved_at,
+          latest_payment.created_at AS payment_created_at
+        FROM applications
+        LEFT JOIN orders
+          ON orders.order_id = applications.order_id
+        LEFT JOIN LATERAL (
+          SELECT approved_at, created_at
+          FROM payments
+          WHERE payments.order_id = applications.order_id
+          ORDER BY approved_at DESC NULLS LAST, created_at DESC
+          LIMIT 1
+        ) AS latest_payment
+          ON TRUE
+        WHERE applications.name = $1
+          AND applications.phone = $2
+        ORDER BY applications.submitted_at DESC NULLS LAST, applications.updated_at DESC
+        LIMIT 10
+      `,
+      [name, phone]
+    );
+
+    const spectatorResult = await pool.query(
+      `
+        SELECT
+          spectator_orders.*,
+          orders.amount AS payment_amount,
+          latest_payment.approved_at,
+          latest_payment.created_at AS payment_created_at
+        FROM spectator_orders
+        LEFT JOIN orders ON orders.order_id = spectator_orders.order_id
+        LEFT JOIN LATERAL (
+          SELECT approved_at, created_at
+          FROM payments
+          WHERE payments.order_id = spectator_orders.order_id
+          ORDER BY approved_at DESC NULLS LAST, created_at DESC
+          LIMIT 1
+        ) AS latest_payment ON TRUE
+        WHERE spectator_orders.name = $1
+          AND spectator_orders.phone = $2
+          AND spectator_orders.is_test = FALSE
+        ORDER BY spectator_orders.purchased_at DESC NULLS LAST, spectator_orders.updated_at DESC
+        LIMIT 10
+      `,
+      [name, phone]
+    );
+
+    if (applicationResult.rowCount === 0 && spectatorResult.rowCount === 0) {
+      return res.status(404).json({
+        ok: false,
+        message: "입력한 정보와 일치하는 신청 내역을 찾을 수 없습니다.",
+      });
+    }
+
+    const applications = await Promise.all(
+      applicationResult.rows.map(async (row) => ({
+        ...mapApplicationRow(row),
+        stageServiceSummary: await getStageServiceSummaryForLookupApplication({
+          name,
+          phone,
+          email: row.email,
+          applicationNumber: row.application_number,
+        }),
+      }))
+    );
+
+    return res.status(200).json({
+      ok: true,
+      application: applications[0] || null,
+      applications,
+      spectators: spectatorResult.rows.map((row) => ({
+        ...mapSpectatorOrderRow(row),
+        paymentAmount: Number(row.payment_amount || row.total_amount || 0),
+        paymentCompletedAt: row.approved_at || row.payment_created_at || null,
+      })),
+    });
+  } catch (error) {
+    console.error("Failed to lookup application by phone:", error);
+    const isSchemaError =
+      error?.message?.includes("phone lookup verification migration") ||
+      error?.message?.includes("phone verification database schema");
+
+    return res.status(isSchemaError ? 503 : 500).json({
+      ok: false,
+      message: isSchemaError
+        ? "SMS 인증 조회 기능 준비가 완료되지 않았습니다. 잠시 후 다시 시도해 주세요."
+        : "SMS 인증 신청 조회에 실패했습니다.",
+    });
+  }
+});
+
 app.post("/applications/lookup/by-number", async function (req, res) {
   try {
     if (!hasTrustedWriteOrigin(req)) {
@@ -12681,46 +13817,23 @@ app.post("/applications/lookup/by-number", async function (req, res) {
 
 app.post("/applications/refund/quote", async function (req, res) {
   try {
-    await ensureLookupVerificationStoreReady();
-    await purgeExpiredLookupVerifications();
-
     const name = normalizeText(req.body.name);
     const email = normalizeEmail(req.body.email);
+    const phone = normalizeText(formatPhoneNumber(req.body.phone));
     const verificationToken = normalizeText(req.body.verificationToken);
     const applicationNumber = normalizeText(req.body.applicationNumber);
 
-    if (!name || !email || !verificationToken || !applicationNumber) {
+    if (!name || !verificationToken || !applicationNumber) {
       return res.status(400).json({
         ok: false,
         message: "Missing name, email, verificationToken, or applicationNumber",
       });
     }
 
-    if (!hasValidEmail(email)) {
-      return res.status(400).json({
-        ok: false,
-        message: "유효한 이메일 주소를 입력해 주세요.",
-      });
-    }
+    const access = await resolveLookupVerificationAccess({ name, email, phone, verificationToken });
+    if (!access.ok) return res.status(access.statusCode).json({ ok: false, message: access.message });
 
-    const hasVerifiedSession = await hasVerifiedLookupSession({
-      name,
-      email,
-      verificationToken,
-    });
-
-    if (!hasVerifiedSession) {
-      return res.status(403).json({
-        ok: false,
-        message: "이메일 인증이 만료되었거나 유효하지 않습니다. 다시 인증해 주세요.",
-      });
-    }
-
-    const row = await findLookupOwnedApplication({
-      name,
-      email,
-      applicationNumber,
-    });
+    const row = await findLookupOwnedApplication({ ...access, applicationNumber });
 
     if (!row) {
       return res.status(404).json({
@@ -12740,8 +13853,8 @@ app.post("/applications/refund/quote", async function (req, res) {
     refundQuote = applyRepeatRefundReview(
       refundQuote,
       await getRepeatRefundReview({
-        name,
-        email,
+        name: access.name,
+        email: row.email,
         scope: refundRepeatReviewScope.APPLICATION_STAGE_SERVICE,
       })
     );
@@ -12767,48 +13880,25 @@ app.post("/applications/refund/request", async function (req, res) {
   let providerCancelStatusCode = null;
 
   try {
-    await ensureLookupVerificationStoreReady();
-    await purgeExpiredLookupVerifications();
-
     const name = normalizeText(req.body.name);
     const email = normalizeEmail(req.body.email);
+    const phone = normalizeText(formatPhoneNumber(req.body.phone));
     const verificationToken = normalizeText(req.body.verificationToken);
     const applicationNumber = normalizeText(req.body.applicationNumber);
     const requestReason =
       normalizeText(req.body.requestReason) || "사용자 요청 자동 환불";
 
-    if (!name || !email || !verificationToken || !applicationNumber) {
+    if (!name || !verificationToken || !applicationNumber) {
       return res.status(400).json({
         ok: false,
         message: "Missing name, email, verificationToken, or applicationNumber",
       });
     }
 
-    if (!hasValidEmail(email)) {
-      return res.status(400).json({
-        ok: false,
-        message: "유효한 이메일 주소를 입력해 주세요.",
-      });
-    }
+    const access = await resolveLookupVerificationAccess({ name, email, phone, verificationToken });
+    if (!access.ok) return res.status(access.statusCode).json({ ok: false, message: access.message });
 
-    const hasVerifiedSession = await hasVerifiedLookupSession({
-      name,
-      email,
-      verificationToken,
-    });
-
-    if (!hasVerifiedSession) {
-      return res.status(403).json({
-        ok: false,
-        message: "이메일 인증이 만료되었거나 유효하지 않습니다. 다시 인증해 주세요.",
-      });
-    }
-
-    const application = await findLookupOwnedApplication({
-      name,
-      email,
-      applicationNumber,
-    });
+    const application = await findLookupOwnedApplication({ ...access, applicationNumber });
 
     if (!application) {
       return res.status(404).json({
@@ -12828,8 +13918,8 @@ app.post("/applications/refund/request", async function (req, res) {
     refundQuote = applyRepeatRefundReview(
       refundQuote,
       await getRepeatRefundReview({
-        name,
-        email,
+        name: access.name,
+        email: application.email,
         scope: refundRepeatReviewScope.APPLICATION_STAGE_SERVICE,
       })
     );
@@ -12900,17 +13990,13 @@ app.post("/applications/refund/request", async function (req, res) {
       });
     }
 
-    const verificationConsumed = await consumeVerifiedLookupSession(client, {
-      name,
-      email,
-      verificationToken,
-    });
+    const verificationConsumed = await consumeVerifiedLookupAccess(client, access);
 
     if (!verificationConsumed) {
       await client.query("ROLLBACK");
       return res.status(403).json({
         ok: false,
-        message: "이메일 인증이 이미 사용되었거나 만료되었습니다. 다시 인증해 주세요.",
+        message: `${access.method === "phone" ? "SMS" : "이메일"} 인증이 이미 사용되었거나 만료되었습니다. 다시 인증해 주세요.`,
       });
     }
 
@@ -13117,6 +14203,14 @@ app.post("/applications/refund/request", async function (req, res) {
 
     await client.query("COMMIT");
 
+    void sendRefundCompletedSms({
+      eventKey: `application-refund:${refundRequestId}`,
+      name: application.name,
+      phone: application.phone,
+      targetTitle: application.discipline || "대회 신청",
+      refundAmount: refundQuote.refundAmount,
+    });
+
     return res.status(200).json({
       ok: true,
       application: mapApplicationRow(updatedApplicationResult.rows[0]),
@@ -13194,11 +14288,13 @@ app.post("/spectators/refund/quote", async function (req, res) {
   try {
     const name = normalizeText(req.body.name);
     const email = normalizeEmail(req.body.email);
+    const phone = normalizeText(formatPhoneNumber(req.body.phone));
     const verificationToken = normalizeText(req.body.verificationToken);
     const spectatorOrderNumber = normalizeText(req.body.spectatorOrderNumber);
-    if (!name || !email || !verificationToken || !spectatorOrderNumber) return res.status(400).json({ ok: false, message: "환불 조회 정보가 부족합니다." });
-    if (!(await hasVerifiedLookupSession({ name, email, verificationToken }))) return res.status(403).json({ ok: false, message: "이메일 인증이 만료되었거나 유효하지 않습니다." });
-    const spectatorOrder = await findLookupOwnedSpectator({ name, email, spectatorOrderNumber });
+    if (!name || !verificationToken || !spectatorOrderNumber) return res.status(400).json({ ok: false, message: "환불 조회 정보가 부족합니다." });
+    const access = await resolveLookupVerificationAccess({ name, email, phone, verificationToken });
+    if (!access.ok) return res.status(access.statusCode).json({ ok: false, message: access.message });
+    const spectatorOrder = await findLookupOwnedSpectator({ ...access, spectatorOrderNumber });
     if (!spectatorOrder) return res.status(404).json({ ok: false, message: "참관객 신청을 찾을 수 없습니다." });
     let refundQuote = calculateRefundQuote({
       applicationStatus: spectatorOrder.admission_status,
@@ -13211,8 +14307,8 @@ app.post("/spectators/refund/quote", async function (req, res) {
     refundQuote = applyRepeatRefundReview(
       refundQuote,
       await getRepeatRefundReview({
-        name,
-        email,
+        name: access.name,
+        email: spectatorOrder.email,
         scope: refundRepeatReviewScope.SPECTATOR,
       })
     );
@@ -13231,12 +14327,14 @@ app.post("/spectators/refund/request", async function (req, res) {
   try {
     const name = normalizeText(req.body.name);
     const email = normalizeEmail(req.body.email);
+    const phone = normalizeText(formatPhoneNumber(req.body.phone));
     const verificationToken = normalizeText(req.body.verificationToken);
     const spectatorOrderNumber = normalizeText(req.body.spectatorOrderNumber);
     const requestReason = normalizeText(req.body.requestReason) || "사용자 요청 자동 환불";
-    if (!name || !email || !verificationToken || !spectatorOrderNumber) return res.status(400).json({ ok: false, message: "환불 요청 정보가 부족합니다." });
-    if (!(await hasVerifiedLookupSession({ name, email, verificationToken }))) return res.status(403).json({ ok: false, message: "이메일 인증이 만료되었거나 유효하지 않습니다." });
-    const spectatorOrder = await findLookupOwnedSpectator({ name, email, spectatorOrderNumber });
+    if (!name || !verificationToken || !spectatorOrderNumber) return res.status(400).json({ ok: false, message: "환불 요청 정보가 부족합니다." });
+    const access = await resolveLookupVerificationAccess({ name, email, phone, verificationToken });
+    if (!access.ok) return res.status(access.statusCode).json({ ok: false, message: access.message });
+    const spectatorOrder = await findLookupOwnedSpectator({ ...access, spectatorOrderNumber });
     if (!spectatorOrder) return res.status(404).json({ ok: false, message: "참관객 신청을 찾을 수 없습니다." });
     const originalAmount = Number(spectatorOrder.total_amount || spectatorOrder.order_amount || 0);
     let refundQuote = calculateRefundQuote({
@@ -13250,8 +14348,8 @@ app.post("/spectators/refund/request", async function (req, res) {
     refundQuote = applyRepeatRefundReview(
       refundQuote,
       await getRepeatRefundReview({
-        name,
-        email,
+        name: access.name,
+        email: spectatorOrder.email,
         scope: refundRepeatReviewScope.SPECTATOR,
       })
     );
@@ -13268,13 +14366,13 @@ app.post("/spectators/refund/request", async function (req, res) {
       await client.query("ROLLBACK");
       return res.status(409).json({ ok: false, code: "REFUND_ALREADY_REQUESTED", message: "이미 환불 요청이 접수되었거나 처리되었습니다." });
     }
-    if (!(await consumeVerifiedLookupSession(client, { name, email, verificationToken }))) {
+    if (!(await consumeVerifiedLookupAccess(client, access))) {
       await client.query("ROLLBACK");
-      return res.status(403).json({ ok: false, message: "이메일 인증이 이미 사용되었거나 만료되었습니다." });
+      return res.status(403).json({ ok: false, message: `${access.method === "phone" ? "SMS" : "이메일"} 인증이 이미 사용되었거나 만료되었습니다.` });
     }
     const insertResult = await client.query(
       `INSERT INTO spectator_refund_requests (spectator_order_number, order_id, payment_key, request_reason, request_status, refund_percent, refund_amount, original_amount, policy_version, policy_rule_id, policy_rule_label, policy_snapshot_json, requested_by_name, requested_by_email, provider_idempotency_key) VALUES ($1,$2,$3,$4,'PROCESSING',$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14) RETURNING *`,
-      [spectatorOrderNumber, spectatorOrder.order_id, spectatorOrder.payment_key, requestReason, refundQuote.refundPercent, refundQuote.refundAmount, originalAmount, refundQuote.policyVersion, refundQuote.matchedRuleId, refundQuote.matchedRuleLabel, JSON.stringify(refundQuote), name, email, generateRefundIdempotencyKey()]
+      [spectatorOrderNumber, spectatorOrder.order_id, spectatorOrder.payment_key, requestReason, refundQuote.refundPercent, refundQuote.refundAmount, originalAmount, refundQuote.policyVersion, refundQuote.matchedRuleId, refundQuote.matchedRuleLabel, JSON.stringify(refundQuote), access.name, spectatorOrder.email, generateRefundIdempotencyKey()]
     );
     refundRequestId = insertResult.rows[0].id;
     await client.query("COMMIT");
@@ -13297,6 +14395,13 @@ app.post("/spectators/refund/request", async function (req, res) {
     await client.query(`UPDATE spectator_orders SET payment_status = $2, admission_status = $3, updated_at = NOW() WHERE spectator_order_number = $1`, [spectatorOrderNumber, nextPaymentStatus, nextPaymentStatus === "PARTIAL_CANCELED" ? "PARTIAL_REFUNDED" : "REFUNDED"]);
     await client.query(`UPDATE spectator_refund_requests SET request_status = 'COMPLETED', provider_status_code = $2, provider_response_json = $3::jsonb, processed_at = NOW(), updated_at = NOW() WHERE id = $1`, [refundRequestId, providerCancelStatusCode, JSON.stringify(providerCancelResult)]);
     await client.query("COMMIT");
+    void sendRefundCompletedSms({
+      eventKey: `spectator-refund:${refundRequestId}`,
+      name: spectatorOrder.name,
+      phone: spectatorOrder.phone,
+      targetTitle: "참관객 입장권",
+      refundAmount: refundQuote.refundAmount,
+    });
     return res.status(200).json({ ok: true, refundQuote: { ...refundQuote, canAutoRefund: false, message: "환불 요청이 정상적으로 처리되었습니다." } });
   } catch (error) {
     if (client) await client.query("ROLLBACK").catch(() => undefined);
@@ -14050,6 +15155,350 @@ app.post("/applications/lookup-verification/verify", async function (req, res) {
     return res.status(500).json({
       ok: false,
       message: "인증번호 확인에 실패했습니다.",
+    });
+  } finally {
+    if (client) {
+      client.release();
+    }
+  }
+});
+
+app.post("/applications/lookup-phone-verification/send", async function (req, res) {
+  try {
+    if (!hasTrustedWriteOrigin(req)) {
+      return res.status(403).json({
+        ok: false,
+        message: "Untrusted request origin",
+      });
+    }
+
+    const rateLimitResult = consumeLookupVerificationRateLimit({
+      action: "phone-send",
+      ipAddress: getRequestIp(req),
+      limit: lookupVerificationSendRateLimit,
+    });
+
+    if (!rateLimitResult.ok) {
+      res.setHeader("Retry-After", String(rateLimitResult.retryAfterSeconds));
+      return res.status(429).json({
+        ok: false,
+        message: "인증번호 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+      });
+    }
+
+    await ensureLookupPhoneVerificationStoreReady();
+    await purgeExpiredLookupPhoneVerifications();
+
+    const name = normalizeText(req.body.name);
+    const phone = normalizeText(formatPhoneNumber(req.body.phone));
+
+    if (!name || !phone) {
+      return res.status(400).json({
+        ok: false,
+        message: "Missing name or phone",
+      });
+    }
+
+    if (phone.replace(/\D/g, "").length !== 11) {
+      return res.status(400).json({
+        ok: false,
+        message: "유효한 휴대전화 번호를 입력해 주세요.",
+      });
+    }
+
+    const phoneRateLimitResult = consumeLookupVerificationRateLimit({
+      action: "phone-send-target",
+      ipAddress: phone,
+      limit: lookupPhoneVerificationSendRateLimit,
+    });
+
+    if (!phoneRateLimitResult.ok) {
+      res.setHeader("Retry-After", String(phoneRateLimitResult.retryAfterSeconds));
+      return res.status(429).json({
+        ok: false,
+        message: "이 휴대전화 번호로 인증번호를 여러 번 요청했습니다. 잠시 후 다시 시도해 주세요.",
+      });
+    }
+
+    const lookupTargetResult = await pool.query(
+      `
+        SELECT 1
+        FROM (
+          SELECT application_number AS reference_number
+          FROM applications
+          WHERE name = $1 AND phone = $2
+          UNION ALL
+          SELECT spectator_order_number AS reference_number
+          FROM spectator_orders
+          WHERE name = $1 AND phone = $2 AND is_test = FALSE
+        ) AS lookup_targets
+        LIMIT 1
+      `,
+      [name, phone]
+    );
+
+    if (lookupTargetResult.rowCount === 0) {
+      return res.status(200).json({
+        ok: true,
+        message: "입력한 정보가 등록되어 있으면 SMS 인증번호를 전송합니다.",
+        expiresInSeconds: lookupVerificationCodeTtlMinutes * 60,
+      });
+    }
+
+    const recentVerificationResult = await pool.query(
+      `
+        SELECT created_at
+        FROM application_lookup_phone_verifications
+        WHERE name = $1
+          AND phone = $2
+        ORDER BY created_at DESC
+        LIMIT 1
+      `,
+      [name, phone]
+    );
+
+    if (recentVerificationResult.rowCount > 0) {
+      const elapsedMs = Date.now() - new Date(recentVerificationResult.rows[0].created_at).getTime();
+      const cooldownMs = lookupVerificationSendCooldownSeconds * 1000;
+
+      if (elapsedMs < cooldownMs) {
+        const remainingSeconds = Math.ceil((cooldownMs - elapsedMs) / 1000);
+        return res.status(429).json({
+          ok: false,
+          message: `${remainingSeconds}초 후에 다시 인증번호를 요청해 주세요.`,
+        });
+      }
+    }
+
+    const code = generateLookupVerificationCode();
+    await sendLookupPhoneVerificationMessage({ phone, code });
+
+    await pool.query(
+      `
+        INSERT INTO application_lookup_phone_verifications (
+          name,
+          phone,
+          code_hash,
+          expires_at
+        )
+        VALUES (
+          $1,
+          $2,
+          $3,
+          NOW() + ($4::text || ' minutes')::interval
+        )
+      `,
+      [name, phone, hashLookupPhoneVerificationCode(code), String(lookupVerificationCodeTtlMinutes)]
+    );
+
+    return res.status(200).json({
+      ok: true,
+      message: "입력한 정보가 등록되어 있으면 SMS 인증번호를 전송합니다.",
+      expiresInSeconds: lookupVerificationCodeTtlMinutes * 60,
+    });
+  } catch (error) {
+    console.error("Failed to send lookup phone verification code:", error);
+    const isSchemaError =
+      error?.message?.includes("phone lookup verification migration") ||
+      error?.message?.includes("phone verification database schema");
+    const isConfigurationError = error?.message === "SOLAPI is not configured";
+
+    return res.status(isSchemaError || isConfigurationError ? 503 : 500).json({
+      ok: false,
+      message: isConfigurationError
+        ? "SMS 인증 서비스 설정이 완료되지 않았습니다."
+        : isSchemaError
+          ? "SMS 인증 조회 기능 준비가 완료되지 않았습니다."
+          : "SMS 인증번호를 전송하지 못했습니다.",
+    });
+  }
+});
+
+app.post("/applications/lookup-phone-verification/verify", async function (req, res) {
+  let client = null;
+
+  try {
+    if (!hasTrustedWriteOrigin(req)) {
+      return res.status(403).json({
+        ok: false,
+        message: "Untrusted request origin",
+      });
+    }
+
+    const rateLimitResult = consumeLookupVerificationRateLimit({
+      action: "phone-verify",
+      ipAddress: getRequestIp(req),
+      limit: lookupVerificationVerifyRateLimit,
+    });
+
+    if (!rateLimitResult.ok) {
+      res.setHeader("Retry-After", String(rateLimitResult.retryAfterSeconds));
+      return res.status(429).json({
+        ok: false,
+        message: "인증 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+      });
+    }
+
+    client = await pool.connect();
+    await ensureLookupPhoneVerificationStoreReady();
+    await purgeExpiredLookupPhoneVerifications();
+
+    const name = normalizeText(req.body.name);
+    const phone = normalizeText(formatPhoneNumber(req.body.phone));
+    const code = normalizeText(req.body.code);
+
+    if (!name || !phone || !code) {
+      return res.status(400).json({
+        ok: false,
+        message: "Missing name, phone, or code",
+      });
+    }
+
+    if (phone.replace(/\D/g, "").length !== 11) {
+      return res.status(400).json({
+        ok: false,
+        message: "유효한 휴대전화 번호를 입력해 주세요.",
+      });
+    }
+
+    if (!isValidLookupVerificationCode(code)) {
+      return res.status(400).json({
+        ok: false,
+        message: "인증번호는 6자리 숫자여야 합니다.",
+      });
+    }
+
+    await client.query("BEGIN");
+
+    const verificationResult = await client.query(
+      `
+        SELECT
+          id,
+          code_hash,
+          attempt_count,
+          expires_at
+        FROM application_lookup_phone_verifications
+        WHERE name = $1
+          AND phone = $2
+          AND status = 'PENDING'
+        ORDER BY created_at DESC
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [name, phone]
+    );
+
+    if (verificationResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({
+        ok: false,
+        message: "먼저 인증번호를 전송해 주세요.",
+      });
+    }
+
+    const verification = verificationResult.rows[0];
+
+    if (new Date(verification.expires_at).getTime() < Date.now()) {
+      await client.query(
+        `
+          UPDATE application_lookup_phone_verifications
+          SET
+            status = 'EXPIRED',
+            updated_at = NOW()
+          WHERE id = $1
+        `,
+        [verification.id]
+      );
+      await client.query("COMMIT");
+
+      return res.status(410).json({
+        ok: false,
+        message: "인증번호가 만료되었습니다. 다시 요청해 주세요.",
+      });
+    }
+
+    if (verification.attempt_count >= lookupVerificationMaxAttempts) {
+      await client.query(
+        `
+          UPDATE application_lookup_phone_verifications
+          SET
+            status = 'FAILED',
+            updated_at = NOW()
+          WHERE id = $1
+        `,
+        [verification.id]
+      );
+      await client.query("COMMIT");
+
+      return res.status(429).json({
+        ok: false,
+        message: "인증 시도 횟수를 초과했습니다. 인증번호를 다시 요청해 주세요.",
+      });
+    }
+
+    if (verification.code_hash !== hashLookupPhoneVerificationCode(code)) {
+      const nextAttemptCount = verification.attempt_count + 1;
+
+      await client.query(
+        `
+          UPDATE application_lookup_phone_verifications
+          SET
+            attempt_count = $2,
+            status = CASE WHEN $2 >= $3 THEN 'FAILED' ELSE status END,
+            updated_at = NOW()
+          WHERE id = $1
+        `,
+        [verification.id, nextAttemptCount, lookupVerificationMaxAttempts]
+      );
+      await client.query("COMMIT");
+
+      return res.status(400).json({
+        ok: false,
+        message:
+          nextAttemptCount >= lookupVerificationMaxAttempts
+            ? "인증 시도 횟수를 초과했습니다. 인증번호를 다시 요청해 주세요."
+            : "인증번호가 올바르지 않습니다.",
+      });
+    }
+
+    const verificationToken = generateLookupVerificationToken();
+
+    await client.query(
+      `
+        UPDATE application_lookup_phone_verifications
+        SET
+          status = 'VERIFIED',
+          verification_token = $2,
+          verified_at = NOW(),
+          updated_at = NOW()
+        WHERE id = $1
+      `,
+      [verification.id, verificationToken]
+    );
+    await client.query("COMMIT");
+
+    return res.status(200).json({
+      ok: true,
+      message: "SMS 인증이 완료되었습니다.",
+      verificationToken,
+      sessionExpiresAt: new Date(
+        Date.now() + lookupVerificationSessionTtlMinutes * 60 * 1000
+      ).toISOString(),
+    });
+  } catch (error) {
+    if (client) {
+      await client.query("ROLLBACK").catch(() => {});
+    }
+    console.error("Failed to verify lookup phone verification code:", error);
+    const isSchemaError =
+      error?.message?.includes("phone lookup verification migration") ||
+      error?.message?.includes("phone verification database schema");
+
+    return res.status(isSchemaError ? 503 : 500).json({
+      ok: false,
+      message: isSchemaError
+        ? "SMS 인증 조회 기능 준비가 완료되지 않았습니다."
+        : "SMS 인증번호 확인에 실패했습니다.",
     });
   } finally {
     if (client) {
