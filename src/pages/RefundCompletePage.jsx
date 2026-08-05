@@ -1,4 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
+import { useState } from "react";
 import { Button } from "../components/common/Button";
 import { PageShell } from "../components/layout/PageShell";
 
@@ -14,9 +15,29 @@ function formatAmount(value) {
   }).format(Number(value));
 }
 
+const refundCompleteStorageKey = "mmkorea-refund-complete";
+const refundCompleteSummaryTtlMs = 15 * 60 * 1000;
+
+function getStoredRefundSummary() {
+  try {
+    const rawSummary = window.sessionStorage.getItem(refundCompleteStorageKey);
+    const summary = rawSummary ? JSON.parse(rawSummary) : null;
+    const completedAt = new Date(summary?.completedAt || "");
+
+    if (!summary || Number.isNaN(completedAt.getTime()) || Date.now() - completedAt.getTime() > refundCompleteSummaryTtlMs) {
+      window.sessionStorage.removeItem(refundCompleteStorageKey);
+      return {};
+    }
+
+    return summary;
+  } catch {
+    return {};
+  }
+}
+
 export function RefundCompletePage() {
   const location = useLocation();
-  const refund = location.state || {};
+  const [refund] = useState(() => location.state || getStoredRefundSummary());
 
   return (
     <PageShell>

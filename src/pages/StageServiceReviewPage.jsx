@@ -125,7 +125,7 @@ export function StageServiceReviewPage() {
     }
   }, [dispatch, state.paymentMethod]);
 
-  async function prepareOrder() {
+  async function prepareOrder({ replacePendingOrder = false } = {}) {
     if (!state.draftId) {
       navigate(detailPath, { state: { source: "review" } });
       return null;
@@ -133,6 +133,7 @@ export function StageServiceReviewPage() {
 
     const orderResponse = await createStageServiceOrder({
       draftId: state.draftId,
+      replacePendingOrder,
     });
     const order = orderResponse.order;
 
@@ -150,7 +151,7 @@ export function StageServiceReviewPage() {
     setOrderMessage("");
 
     try {
-      const order = await prepareOrder();
+      const order = await prepareOrder({ replacePendingOrder: true });
 
       if (!order) {
         return;

@@ -12114,6 +12114,7 @@ app.post("/stage-services/orders", async function (req, res) {
 
   try {
     const draftId = normalizeText(req.body.draftId);
+    const replacePendingOrder = normalizeBoolean(req.body.replacePendingOrder);
 
     if (!draftId) {
       return res.status(400).json({
@@ -12173,6 +12174,7 @@ app.post("/stage-services/orders", async function (req, res) {
         draftTable: "stage_service_drafts",
         draftId: draft.draft_id,
         orderId: draft.order_id,
+        replacePendingOrder,
       });
 
       if (!existingOrderState.reusable) {
@@ -12311,7 +12313,7 @@ app.post("/stage-services/orders", async function (req, res) {
 
     const activeOrderResult = await client.query(
       `
-        SELECT d.draft_id, o.status
+        SELECT d.draft_id, d.order_id, o.status
         FROM stage_service_drafts AS d
         INNER JOIN orders AS o ON o.order_id = d.order_id
         WHERE (
@@ -12331,7 +12333,7 @@ app.post("/stage-services/orders", async function (req, res) {
               AND o.created_at > NOW() - ($4::int * INTERVAL '1 minute')
             )
           )
-        LIMIT 1
+        FOR UPDATE OF d, o
       `,
       [
         linkedApplicationNumbers,
@@ -12342,16 +12344,41 @@ app.post("/stage-services/orders", async function (req, res) {
     );
 
     if (activeOrderResult.rowCount > 0) {
-      await client.query("ROLLBACK");
-      return res.status(409).json({
-        ok: false,
-        code: activeOrderResult.rows[0].status === "PAID"
-          ? "STAGE_SERVICE_PAYMENT_FINALIZING"
-          : "STAGE_SERVICE_PAYMENT_IN_PROGRESS",
-        message: activeOrderResult.rows[0].status === "PAID"
-          ? "같은 무대 서비스 결제를 저장하고 있습니다. 잠시 후 신청 조회에서 확인해 주세요."
-          : `같은 무대 서비스의 결제가 이미 진행 중입니다. ${paymentOrderTtlMinutes}분 후 다시 시도해 주세요.`,
-      });
+      const completedOrder = activeOrderResult.rows.find((order) => order.status === "PAID");
+      const pendingOrderIds = activeOrderResult.rows
+        .filter((order) => order.status === "READY")
+        .map((order) => order.order_id);
+
+      if (replacePendingOrder && !completedOrder && pendingOrderIds.length > 0) {
+        await client.query(
+          `
+            UPDATE orders
+            SET status = 'CANCELED', updated_at = NOW()
+            WHERE order_id = ANY($1::text[])
+              AND status = 'READY'
+          `,
+          [pendingOrderIds]
+        );
+        await client.query(
+          `
+            UPDATE stage_service_drafts
+            SET order_id = NULL, status = 'DRAFT', updated_at = NOW()
+            WHERE order_id = ANY($1::text[])
+          `,
+          [pendingOrderIds]
+        );
+      } else {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          ok: false,
+          code: completedOrder
+            ? "STAGE_SERVICE_PAYMENT_FINALIZING"
+            : "STAGE_SERVICE_PAYMENT_IN_PROGRESS",
+          message: completedOrder
+            ? "같은 무대 서비스 결제를 저장하고 있습니다. 잠시 후 신청 조회에서 확인해 주세요."
+            : `같은 무대 서비스의 결제가 이미 진행 중입니다. ${paymentOrderTtlMinutes}분 후 다시 시도해 주세요.`,
+        });
+      }
     }
 
     const orderId = generateOrderId();
@@ -14575,6 +14602,7 @@ app.get("/spectators/draft/:draftId", async function (req, res) {
 
 app.post("/spectators/orders", async function (req, res) {
   const draftId = normalizeText(req.body.draftId);
+  const replacePendingOrder = normalizeBoolean(req.body.replacePendingOrder);
   if (!draftId) return res.status(400).json({ ok: false, message: "Missing draftId" });
   if (!requireRequestDraftAccess(req, res, { draftId, draftType: "spectator", cookieName: spectatorDraftCookieName })) return;
   if (!getSpectatorSalesStatus().isOpen) return res.status(409).json({ ok: false, code: "SPECTATOR_SALES_CLOSED", message: "현재 참관객 입장권 판매 기간이 아닙니다." });
@@ -14596,7 +14624,13 @@ app.post("/spectators/orders", async function (req, res) {
     }
 
     if (draft.order_id) {
-      const existingOrderState = await releaseReusableDraftOrder({ client, draftTable: "spectator_drafts", draftId, orderId: draft.order_id });
+      const existingOrderState = await releaseReusableDraftOrder({
+        client,
+        draftTable: "spectator_drafts",
+        draftId,
+        orderId: draft.order_id,
+        replacePendingOrder,
+      });
       if (!existingOrderState.reusable) {
         const order = existingOrderState.order;
         const token = createPaymentResultAccessToken({ orderId: order.order_id, secret: paymentResultTokenSecret, ttlSeconds: paymentResultAccessTtlHours * 3600 });
@@ -14613,12 +14647,34 @@ app.post("/spectators/orders", async function (req, res) {
       return res.status(409).json({ ok: false, code: "DUPLICATE_SPECTATOR_TICKET", message: "동일한 정보로 결제 완료된 참관객 입장권이 있습니다." });
     }
     const activeResult = await client.query(
-      `SELECT d.draft_id FROM spectator_drafts d JOIN orders o ON o.order_id = d.order_id WHERE d.name = $1 AND d.phone = $2 AND LOWER(d.email) = $3 AND d.draft_id <> $4 AND d.is_test = FALSE AND (o.status = 'PAID' OR (o.status = 'READY' AND o.created_at >= NOW() - ($5::text || ' minutes')::interval)) LIMIT 1`,
+      `SELECT d.draft_id, d.order_id, o.status FROM spectator_drafts d JOIN orders o ON o.order_id = d.order_id WHERE d.name = $1 AND d.phone = $2 AND LOWER(d.email) = $3 AND d.draft_id <> $4 AND d.is_test = FALSE AND (o.status = 'PAID' OR (o.status = 'READY' AND o.created_at >= NOW() - ($5::text || ' minutes')::interval)) FOR UPDATE OF d, o`,
       [draft.name, draft.phone, draft.email, draftId, String(paymentOrderTtlMinutes)]
     );
     if (activeResult.rowCount) {
-      await client.query("ROLLBACK");
-      return res.status(409).json({ ok: false, code: "SPECTATOR_PAYMENT_IN_PROGRESS", message: "동일한 정보의 입장권 결제가 이미 진행 중입니다." });
+      const completedOrder = activeResult.rows.find((order) => order.status === "PAID");
+      const pendingOrderIds = activeResult.rows
+        .filter((order) => order.status === "READY")
+        .map((order) => order.order_id);
+
+      if (replacePendingOrder && !completedOrder && pendingOrderIds.length > 0) {
+        await client.query(
+          `UPDATE orders SET status = 'CANCELED', updated_at = NOW() WHERE order_id = ANY($1::text[]) AND status = 'READY'`,
+          [pendingOrderIds]
+        );
+        await client.query(
+          `UPDATE spectator_drafts SET order_id = NULL, status = 'DRAFT', updated_at = NOW() WHERE order_id = ANY($1::text[])`,
+          [pendingOrderIds]
+        );
+      } else {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          ok: false,
+          code: completedOrder ? "SPECTATOR_PAYMENT_FINALIZING" : "SPECTATOR_PAYMENT_IN_PROGRESS",
+          message: completedOrder
+            ? "입장권 결제를 저장하고 있습니다. 잠시 후 신청 조회에서 확인해 주세요."
+            : "동일한 정보의 입장권 결제가 이미 진행 중입니다.",
+        });
+      }
     }
 
     const reservedCount = await getReservedSpectatorTicketCount(client);

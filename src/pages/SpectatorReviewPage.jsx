@@ -20,13 +20,16 @@ export function SpectatorReviewPage() {
       .catch((error) => setErrorMessage(error.message || "신청 내용을 불러오지 못했습니다."));
   }, [state.draftId]);
 
-  async function prepareOrder() {
+  async function prepareOrder({ replacePendingOrder = false } = {}) {
     if (!state.draftId) {
       navigate("/apply/spectator");
       return null;
     }
 
-    const response = await createSpectatorOrder({ draftId: state.draftId });
+    const response = await createSpectatorOrder({
+      draftId: state.draftId,
+      replacePendingOrder,
+    });
     const order = response.order;
     dispatch({ type: "SET_ORDER", payload: { orderId: order.orderId } });
     return order;
@@ -37,7 +40,7 @@ export function SpectatorReviewPage() {
     setErrorMessage("");
     setOrderMessage("");
     try {
-      const order = await prepareOrder();
+      const order = await prepareOrder({ replacePendingOrder: true });
       if (!order) return;
 
       if (order.status !== "READY") {

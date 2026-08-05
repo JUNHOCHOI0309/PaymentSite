@@ -14,6 +14,7 @@ import {
 
 const lookupSessionStorageKey = "mmkorea-lookup-session";
 const lookupPhoneSessionStorageKey = "mmkorea-lookup-phone-session";
+const refundCompleteStorageKey = "mmkorea-refund-complete";
 
 const stageServiceTitles = {
   "stage-photo": "무대 사진 촬영",
@@ -168,14 +169,22 @@ export function RefundRequestPage() {
           ? await requestSpectatorRefund(payload)
           : await requestApplicationRefund(payload);
 
-      window.sessionStorage.removeItem(accessMethod === "phone" ? lookupPhoneSessionStorageKey : lookupSessionStorageKey);
+      const refundSummary = {
+        targetTitle,
+        refundAmount: response.refundQuote?.refundAmount ?? quote.refundAmount,
+        refundPercent: response.refundQuote?.refundPercent ?? quote.refundPercent,
+        completedAt: new Date().toISOString(),
+      };
+
+      try {
+        window.sessionStorage.removeItem(accessMethod === "phone" ? lookupPhoneSessionStorageKey : lookupSessionStorageKey);
+        window.sessionStorage.setItem(refundCompleteStorageKey, JSON.stringify(refundSummary));
+      } catch {
+        // 환불은 완료되었으므로 브라우저 저장소를 쓸 수 없어도 완료 화면으로 이동한다.
+      }
       navigate("/refund/complete", {
         replace: true,
-        state: {
-          targetTitle,
-          refundAmount: response.refundQuote?.refundAmount ?? quote.refundAmount,
-          refundPercent: response.refundQuote?.refundPercent ?? quote.refundPercent,
-        },
+        state: refundSummary,
       });
     } catch (error) {
       setErrorMessage(error.message || "환불 처리에 실패했습니다. 잠시 후 다시 시도해 주세요.");
