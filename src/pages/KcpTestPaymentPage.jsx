@@ -42,7 +42,7 @@ const documentFileInputAccept =
 
 const testDisciplineOptions = [
   { imageKey: "register/man_1.png", title: "Bodybuilding" },
-  { imageKey: "register/man_2.png", title: "Classic Physique" },
+  { imageKey: "register/man_2.png", title: "Classic" },
   { imageKey: "register/man_3.png", title: "Physique" },
   { imageKey: "register/common_1.png", title: "Model" },
   { imageKey: "register/common_2.png", title: "Fitness" },

@@ -12,7 +12,7 @@ const localizedServiceTitles = {
 };
 const localizedDisciplineLabels = {
   보디빌딩: { ko: "보디빌딩", en: "Bodybuilding" },
-  클래식: { ko: "클래식 피지크", en: "Classic Physique" },
+  클래식: { ko: "클래식", en: "Classic" },
   피지크: { ko: "피지크", en: "Physique" },
   "남성 모델": { ko: "남성 모델", en: "Men's Model" },
   "남성 피트니스": { ko: "남성 피트니스", en: "Men's Fitness" },

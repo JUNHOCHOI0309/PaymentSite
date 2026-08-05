@@ -336,7 +336,7 @@ function getStageServiceDisciplineFromApplication(application = {}) {
   switch (canonicalDiscipline) {
     case "Bodybuilding":
       return "보디빌딩";
-    case "Classic Physique":
+    case "Classic":
       return "클래식";
     case "Physique":
       return "피지크";
@@ -1223,6 +1223,18 @@ function getCanonicalApplicationDisciplineTitle({ imageKey, discipline } = {}) {
   }
 
   return discipline || null;
+}
+
+function getApplicationDisciplineFilterAliases(discipline) {
+  const normalizedAlias = normalizeDisciplineAlias(discipline);
+  const definition = normalizedAlias
+    ? applicationDisciplineDefinitionByAlias.get(normalizedAlias)
+    : null;
+  const aliases = definition
+    ? [definition.title, ...(definition.aliases || [])]
+    : [discipline];
+
+  return [...new Set(aliases.map((alias) => String(alias || "").trim().toLowerCase()).filter(Boolean))];
 }
 
 function normalizeApplicationSelection(selection = {}) {
@@ -8284,7 +8296,10 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
       addFilter("a.division = ?", division);
     }
     if (discipline && discipline !== "all") {
-      addFilter("a.discipline = ?", discipline);
+      addFilter(
+        "LOWER(a.discipline) = ANY(?::text[])",
+        getApplicationDisciplineFilterAliases(discipline)
+      );
     }
     if (search) {
       addFilter(

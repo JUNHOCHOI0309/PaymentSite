@@ -85,7 +85,7 @@ const localizedAdditionalInfo = {
         ],
       },
       "register/man_2.png": {
-        title: "머슬마니아® 클래식 피지크\n\n(MUSCLEMANIA CLASSIC PHYSIQUE)",
+        title: "머슬마니아® 클래식\n\n(MUSCLEMANIA CLASSIC)",
         sections: [
           {
             title: "종목 소개",
@@ -93,44 +93,44 @@ const localizedAdditionalInfo = {
 보여주고자 하는 남성들을 위한 새로운 종목으로서 단일라운드로 치뤄집니다.`,
           },
           {
-            title: "클래식 피지크 출전자격",
+            title: "클래식 출전자격",
             body: "대회일 기준 만 20세 이상의 남성",
           },
           {
-            title: "클래식 피지크 출전체급",
+            title: "클래식 출전체급",
             body: `남자 주니어 (단일체급, 만22세 이하)
 
 남자 노비스 & 오픈
 
 - 체급 신장 계측 후 균등 분배
-- 클래식 피지크 종목은 클래식보디빌딩 또는 클래식피지크 개념의 종목입니다.`,
+- 클래식 종목은 클래식보디빌딩 또는 클래식 개념의 종목입니다.`,
           },
           {
-            title: "클래식 피지크 심사규정",
+            title: "클래식 심사규정",
             body: "1. 근육대칭미 2. 컨디션 및 데피니션 3. 근육 크기 4. 포즈와 표현력",
           },
           {
-            title: "클래식 피지크 무대진행순서",
+            title: "클래식 무대진행순서",
             body: `개인선수입장 > 무대중앙 자유포즈 > 개인선수퇴장 > 단체라인업재입장
 > 단체쿼터턴심사 > 규정포즈심사 > 퇴장
 
 - 무대 중앙 워킹 & 자유포즈 시간 약 30~40초`,
           },
           {
-            title: "클래식 피지크 규정포즈",
+            title: "클래식 규정포즈",
             body: `1. 프론트 더블 바이셉스 2. 사이드 체스트 3. 트라이셉스
 4. 리어 더블 바이셉스 5. 업도미널 앤 타이
 
-클래식 피지크 규정포즈`,
+클래식 규정포즈`,
           },
           {
-            title: "클래식 피지크 규정포즈 이미지",
+            title: "클래식 규정포즈 이미지",
             type: "image",
             imageKey: "register/man_2_1.png",
           },
           {
-            title: "클래식 피지크 복장규정",
-            body: `규정복장 : 남성 브리프, 클래식 피지크 트렁크
+            title: "클래식 복장규정",
+            body: `규정복장 : 남성 브리프, 클래식 트렁크
 
 액세서리 및 신발 착용 금지
 
@@ -629,7 +629,7 @@ Excessive color cream or oil may result in point deductions.`,
         ],
       },
       "register/man_2.png": {
-        title: "Musclemania Classic Physique",
+        title: "Musclemania Classic",
         sections: [
           {
             title: "Overview",
@@ -646,7 +646,7 @@ Excessive color cream or oil may result in point deductions.`,
 Men Novice and Open
 
 - Height and class distribution are balanced after measurement.
-- This division follows a classic bodybuilding or classic physique concept.`,
+- This division follows a classic bodybuilding concept.`,
           },
           {
             title: "Judging",
@@ -664,7 +664,7 @@ Men Novice and Open
             body: `1. Front Double Biceps 2. Side Chest 3. Triceps
 4. Rear Double Biceps 5. Abdominals and Thigh
 
-Classic Physique mandatory poses`,
+Classic mandatory poses`,
           },
           {
             title: "Mandatory Pose Image",
