@@ -36,7 +36,7 @@ export function SiteFooter() {
           <Link to="/lookup">{t("footer.lookup")}</Link>
         </div>
       </div>
-      <p className="site-footer__copyright">Copyright © 2026 MMKorea All rights reserved.</p>
+      <p className="site-footer__copyright">Copyright © 2026 Fitness Universe, Inc. - All Rights Reserved</p>
     </footer>
   );
 }
