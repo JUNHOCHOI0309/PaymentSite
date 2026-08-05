@@ -685,6 +685,18 @@ function buildKcpReturnUrl(req, params = {}) {
   return url.toString();
 }
 
+function buildKcpFailureUrl(req, params = {}) {
+  const url = new URL("kcp/fail", `${getRequestPublicApiBaseUrl(req)}/`);
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value != null && value !== "") {
+      url.searchParams.set(key, String(value));
+    }
+  });
+
+  return url.toString();
+}
+
 function normalizeKcpPaymentContext(value) {
   const normalized = normalizeText(value);
 
@@ -2763,7 +2775,13 @@ function isPaymentOrderExpired(createdAt, now = Date.now()) {
   );
 }
 
-async function releaseReusableDraftOrder({ client, draftTable, draftId, orderId }) {
+async function releaseReusableDraftOrder({
+  client,
+  draftTable,
+  draftId,
+  orderId,
+  replacePendingOrder = false,
+}) {
   const orderResult = await client.query(
     `
       SELECT order_id, status, created_at
@@ -2788,7 +2806,10 @@ async function releaseReusableDraftOrder({ client, draftTable, draftId, orderId 
     return { reusable: true, reason: "ORDER_NOT_FOUND" };
   }
 
-  if (order.status === "READY" && isPaymentOrderExpired(order.created_at)) {
+  if (
+    order.status === "READY" &&
+    (isPaymentOrderExpired(order.created_at) || replacePendingOrder)
+  ) {
     await client.query(
       `
         UPDATE orders
@@ -2807,7 +2828,10 @@ async function releaseReusableDraftOrder({ client, draftTable, draftId, orderId 
       `,
       [draftId, order.order_id]
     );
-    return { reusable: true, reason: "ORDER_EXPIRED" };
+    return {
+      reusable: true,
+      reason: replacePendingOrder ? "ORDER_REPLACED" : "ORDER_EXPIRED",
+    };
   }
 
   if (["FAILED", "CANCELED"].includes(order.status)) {
@@ -2900,6 +2924,22 @@ async function cancelPendingDraftOrder({ draftTable, draftId, orderId }) {
     throw error;
   } finally {
     client.release();
+  }
+}
+
+async function releaseCanceledKcpDraftOrder({ context, draftId, orderId }) {
+  if (!draftId || !orderId) {
+    return;
+  }
+
+  try {
+    await cancelPendingDraftOrder({
+      draftTable: getKcpDraftBindingTable(context),
+      draftId,
+      orderId,
+    });
+  } catch (error) {
+    console.error("Failed to release canceled KCP order:", error);
   }
 }
 
@@ -6624,8 +6664,7 @@ app.post("/kcp/trade/register", async function (req, res) {
       draftId: trustedDraftId,
       orderId: order.order_id,
     });
-    const failPath = getKcpFailPath(context);
-    const failUrl = buildKcpRedirectUrl(req, failPath, {
+    const failUrl = buildKcpFailureUrl(req, {
       code: "KCP_AUTH_FAILED",
       message: "KCP 결제 인증에 실패했습니다.",
       context,
@@ -7182,20 +7221,37 @@ app.get("/kcp/return", async function (req, res) {
     normalizeText(req.query.message) ||
     "결제가 취소되었습니다. 다시 결제를 시도해 주세요.";
 
-  if (draftId && orderId) {
-    try {
-      await cancelPendingDraftOrder({
-        draftTable: getKcpDraftBindingTable(context),
-        draftId,
-        orderId,
-      });
-    } catch (error) {
-      console.error("Failed to release canceled KCP order:", error);
-    }
-  }
+  await releaseCanceledKcpDraftOrder({ context, draftId, orderId });
 
   return res.redirect(
     buildKcpRedirectUrl(req, failPath, {
+      code: "KCP_PAYMENT_CANCELED",
+      message,
+      context,
+      draftId,
+      orderId,
+    })
+  );
+});
+
+app.all("/kcp/fail", async function (req, res) {
+  const context = normalizeKcpPaymentContext(req.query.context);
+  const draftId = normalizeText(req.query.draftId);
+  const orderId =
+    normalizeText(req.query.orderId) ||
+    normalizeText(req.body?.ordr_idxx) ||
+    normalizeText(req.body?.ordr_no) ||
+    normalizeText(req.body?.order_no);
+  const message =
+    normalizeText(req.body?.res_msg) ||
+    normalizeText(req.query.res_msg) ||
+    normalizeText(req.query.message) ||
+    "결제가 취소되었습니다. 다시 결제를 시도해 주세요.";
+
+  await releaseCanceledKcpDraftOrder({ context, draftId, orderId });
+
+  return res.redirect(
+    buildKcpRedirectUrl(req, getKcpFailPath(context), {
       code: "KCP_PAYMENT_CANCELED",
       message,
       context,
@@ -7233,14 +7289,15 @@ app.post("/kcp/return", async function (req, res) {
     );
   }
 
-  if (!orderId || !encData || !encInfo || !tranCd) {
-    if (responseCode && responseCode !== "0000") {
-      return redirectFailure(
-        "KCP_PAYMENT_CANCELED",
-        responseMessage || "결제가 취소되었습니다. 다시 결제를 시도해 주세요."
-      );
-    }
+  if (responseCode && responseCode !== "0000") {
+    await releaseCanceledKcpDraftOrder({ context, draftId, orderId });
+    return redirectFailure(
+      "KCP_PAYMENT_CANCELED",
+      responseMessage || "결제가 취소되었습니다. 다시 결제를 시도해 주세요."
+    );
+  }
 
+  if (!orderId || !encData || !encInfo || !tranCd) {
     return redirectFailure("KCP_AUTH_DATA_MISSING", "KCP 인증 결과가 올바르지 않습니다.");
   }
 
@@ -15937,6 +15994,7 @@ app.post("/orders", async function (req,res) {
 
   try {
     const normalizedDraftId = normalizeText(req.body.draftId);
+    const replacePendingOrder = normalizeBoolean(req.body.replacePendingOrder);
 
     if (!normalizedDraftId) {
       return res.status(400).json({
@@ -16045,6 +16103,7 @@ app.post("/orders", async function (req,res) {
         draftTable: "application_drafts",
         draftId: draft.draft_id,
         orderId: draft.order_id,
+        replacePendingOrder,
       });
 
       if (!existingOrderState.reusable) {
@@ -16078,7 +16137,7 @@ app.post("/orders", async function (req,res) {
     ]);
     const activeOrderResult = await client.query(
       `
-        SELECT d.draft_id, o.status
+        SELECT d.draft_id, d.order_id, o.status
         FROM application_drafts AS d
         INNER JOIN orders AS o ON o.order_id = d.order_id
         WHERE d.name = $1
@@ -16093,7 +16152,7 @@ app.post("/orders", async function (req,res) {
               AND o.created_at > NOW() - ($6::int * INTERVAL '1 minute')
             )
           )
-        LIMIT 1
+        FOR UPDATE OF d, o
       `,
       [
         draft.name,
@@ -16106,16 +16165,39 @@ app.post("/orders", async function (req,res) {
     );
 
     if (activeOrderResult.rowCount > 0) {
-      await client.query("ROLLBACK");
-      return res.status(409).json({
-        ok: false,
-        code: activeOrderResult.rows[0].status === "PAID"
-          ? "DISCIPLINE_PAYMENT_FINALIZING"
-          : "DISCIPLINE_PAYMENT_IN_PROGRESS",
-        message: activeOrderResult.rows[0].status === "PAID"
-          ? "동일 종목 결제를 저장하고 있습니다. 잠시 후 신청 조회에서 확인해 주세요."
-          : `동일 종목의 결제가 이미 진행 중입니다. ${paymentOrderTtlMinutes}분 후 다시 시도해 주세요.`,
-      });
+      const completedOrder = activeOrderResult.rows.find((order) => order.status === "PAID");
+      const pendingOrderIds = activeOrderResult.rows
+        .filter((order) => order.status === "READY")
+        .map((order) => order.order_id);
+
+      if (replacePendingOrder && !completedOrder && pendingOrderIds.length > 0) {
+        await client.query(
+          `
+            UPDATE orders
+            SET status = 'CANCELED', updated_at = NOW()
+            WHERE order_id = ANY($1::text[])
+              AND status = 'READY'
+          `,
+          [pendingOrderIds]
+        );
+        await client.query(
+          `
+            UPDATE application_drafts
+            SET order_id = NULL, status = 'DRAFT', updated_at = NOW()
+            WHERE order_id = ANY($1::text[])
+          `,
+          [pendingOrderIds]
+        );
+      } else {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          ok: false,
+          code: completedOrder ? "DISCIPLINE_PAYMENT_FINALIZING" : "DISCIPLINE_PAYMENT_IN_PROGRESS",
+          message: completedOrder
+            ? "동일 종목 결제를 저장하고 있습니다. 잠시 후 신청 조회에서 확인해 주세요."
+            : `동일 종목의 결제가 이미 진행 중입니다. ${paymentOrderTtlMinutes}분 후 다시 시도해 주세요.`,
+        });
+      }
     }
     const duplicateApplication = await findCompletedDuplicateApplication({
       client,

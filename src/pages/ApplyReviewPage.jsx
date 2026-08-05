@@ -135,7 +135,7 @@ export function ApplyReviewPage() {
     }
   }, [dispatch, state.paymentMethod]);
 
-  async function prepareOrder() {
+  async function prepareOrder({ replacePendingOrder = false } = {}) {
     if (!state.draftId) {
       navigate(detailPath);
       return null;
@@ -147,6 +147,7 @@ export function ApplyReviewPage() {
       amount: entryFeeAmount,
       customerName: state.applicantInfo.name,
       customerEmail: state.applicantInfo.email,
+      replacePendingOrder,
     });
     const order = orderResponse.order;
 
@@ -173,7 +174,7 @@ export function ApplyReviewPage() {
     setOrderMessage("");
 
     try {
-      const order = await prepareOrder();
+      const order = await prepareOrder({ replacePendingOrder: true });
 
       if (!order) {
         return;
