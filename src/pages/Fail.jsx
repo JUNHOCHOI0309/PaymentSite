@@ -9,6 +9,7 @@ import {
   cancelPendingStageServiceOrder,
 } from "../lib/applicationApi";
 import { applicationFlowSteps } from "../lib/applicationFlowAccess";
+import { buildApplyDetailPath } from "../lib/applicationFlowRoutes";
 import { buildStageServiceDetailPath } from "../lib/stageServiceFlowRoutes";
 import { stageServiceFlowSteps } from "../lib/stageServiceFlowAccess";
 import { useSpectatorFlow, spectatorFlowSteps } from "../context/SpectatorFlowContext";
@@ -25,6 +26,18 @@ export function FailPage() {
   const [actionError, setActionError] = useState("");
   const isStageService = location.pathname.startsWith("/stage-services/");
   const isSpectator = location.pathname.startsWith("/spectators/");
+  const failureTitle = isStageService
+    ? "무대 서비스 결제를 완료하지 못했습니다"
+    : isSpectator
+      ? "참관객 결제를 완료하지 못했습니다"
+      : "결제를 완료하지 못했습니다";
+  const failureDescription = isStageService
+    ? "결제가 취소되었거나 승인 과정에서 중단되었습니다. 신청 내용을 수정하거나 현재 내용으로 다시 결제할 수 있습니다."
+    : isSpectator
+      ? "결제가 취소되었거나 승인 과정에서 중단되었습니다. 신청 내용을 수정하거나 현재 내용으로 다시 결제할 수 있습니다."
+      : "결제가 취소되었거나 승인 과정에서 중단되었습니다. 신청 내용을 수정하거나 현재 내용으로 다시 결제할 수 있습니다.";
+  const failureMessage = searchParams.get("message") || "결제가 취소되었습니다.";
+  const failureCode = searchParams.get("code") || "-";
   const orderId = searchParams.get("orderId") || (isStageService
     ? stageServiceState.orderId
     : isSpectator
@@ -69,7 +82,12 @@ export function FailPage() {
         stageServiceDispatch({ type: "SET_FLOW_STEP", value: stageServiceFlowSteps.REVIEW });
         navigate(
           destination === "edit"
-            ? buildStageServiceDetailPath(stageServiceState.serviceKey)
+            ? buildStageServiceDetailPath({
+              serviceKey: stageServiceState.serviceKey,
+              name: stageServiceState.applicantInfo.name,
+              email: stageServiceState.applicantInfo.email,
+              phone: stageServiceState.applicantInfo.phone,
+            })
             : "/apply/stage-services/review",
           destination === "edit" ? { state: { source: "review" } } : undefined,
         );
@@ -91,7 +109,12 @@ export function FailPage() {
         type: "SET_FLOW_STEP",
         value: destination === "edit" ? applicationFlowSteps.CONSENT : applicationFlowSteps.REVIEW,
       });
-      navigate(destination === "edit" ? "/apply/detail" : "/apply/review");
+      navigate(
+        destination === "edit"
+          ? buildApplyDetailPath(applicationState.selection)
+          : "/apply/review",
+        destination === "edit" ? { state: { source: "review" } } : undefined,
+      );
     } catch (error) {
       setActionError(error.message || "결제 주문을 해제하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     } finally {
@@ -100,37 +123,43 @@ export function FailPage() {
   }
 
   return (
-    <div id="info" className="box_section" style={{ width: "600px" }}>
-      <h2>{t("fail.title")}</h2>
+    <main className="site-kcp-checkout site-kcp-failure">
+      <section className="site-kcp-checkout__panel">
+        <p className="site-kicker">PAYMENT CANCELED</p>
+        <h1>{failureTitle}</h1>
+        <p className="site-kcp-checkout__description">{failureDescription}</p>
 
-      <div className="p-grid typography--p" style={{ marginTop: "50px" }}>
-        <div className="p-grid-col text--left">
-          <b>{t("fail.message")}</b>
+        <dl className="site-kcp-failure__details">
+          <div>
+            <dt>{t("fail.message")}</dt>
+            <dd>{failureMessage}</dd>
+          </div>
+          <div>
+            <dt>{t("fail.code")}</dt>
+            <dd>{failureCode}</dd>
+          </div>
+        </dl>
+
+        {actionError ? <p className="site-kcp-checkout__error">{actionError}</p> : null}
+        <div className="site-kcp-failure__actions">
+          <button
+            className="site-kcp-checkout__back"
+            type="button"
+            disabled={isMoving}
+            onClick={() => moveAfterCancellation("edit")}
+          >
+            신청 내용 수정
+          </button>
+          <button
+            className="site-kcp-checkout__submit"
+            type="button"
+            disabled={isMoving}
+            onClick={() => moveAfterCancellation("retry")}
+          >
+            다시 결제하기
+          </button>
         </div>
-        <div className="p-grid-col text--right" id="message">
-          {searchParams.get("message") || "결제가 취소되었습니다."}
-        </div>
-      </div>
-      <div className="p-grid typography--p" style={{ marginTop: "10px" }}>
-        <div className="p-grid-col text--left">
-          <b>{t("fail.code")}</b>
-        </div>
-        <div className="p-grid-col text--right" id="code">
-          {searchParams.get("code") || "-"}
-        </div>
-      </div>
-      <p style={{ marginTop: "24px" }}>
-        결제 취소 후 신청 내용을 수정하거나, 현재 내용으로 다시 결제를 시도할 수 있습니다.
-      </p>
-      {actionError ? <p style={{ color: "#d14343" }}>{actionError}</p> : null}
-      <div style={{ display: "flex", gap: "12px", marginTop: "24px" }}>
-        <button className="button2" disabled={isMoving} onClick={() => moveAfterCancellation("edit")}>
-          신청 내용 수정
-        </button>
-        <button className="button" disabled={isMoving} onClick={() => moveAfterCancellation("retry")}>
-          다시 결제하기
-        </button>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }

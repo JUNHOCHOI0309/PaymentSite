@@ -346,6 +346,47 @@ html[lang]:not([lang^="ko"]) body {
   background: #f7f9fc;
 }
 
+.site-kcp-failure__details {
+  margin: 28px 0 0;
+  border-top: 1px solid #e1e6ed;
+}
+
+.site-kcp-failure__details > div {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.35fr) minmax(0, 1fr);
+  gap: 16px;
+  padding: 15px 0;
+  border-bottom: 1px solid #e1e6ed;
+}
+
+.site-kcp-failure__details dt {
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.site-kcp-failure__details dd {
+  min-width: 0;
+  margin: 0;
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.site-kcp-failure__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.site-kcp-failure__actions .site-kcp-checkout__submit,
+.site-kcp-failure__actions .site-kcp-checkout__back {
+  margin-top: 0;
+}
+
 @media (max-width: 560px) {
   .site-kcp-checkout {
     padding: 28px 16px;
@@ -361,6 +402,10 @@ html[lang]:not([lang^="ko"]) body {
 
   .site-kcp-checkout__methods {
     margin-top: 24px;
+  }
+
+  .site-kcp-failure__actions {
+    grid-template-columns: 1fr;
   }
 }
 
