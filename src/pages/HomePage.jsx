@@ -4,6 +4,7 @@ import instagramLogo from "../assets/instagram-glyph-gradient.png";
 import floatingPlusIcon from "../assets/floating-plus-icon.png";
 import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
+import { getApplicationAdditionalInfo } from "../data/applicationAdditionalInfo";
 import { getApplicationDisciplineTitleByImageKey } from "../data/applicationDisciplines";
 import { buildApiUrl } from "../lib/applicationApi";
 
@@ -256,6 +257,25 @@ function getLocalDateKey() {
   return `${year}-${month}-${day}`;
 }
 
+function getShowcaseGuide(locale, imageKey) {
+  const detail = getApplicationAdditionalInfo(locale, imageKey);
+  const sections = detail?.sections || [];
+  const overview = sections.find((section) => /^(종목 소개|Overview)$/i.test(section.title || ""));
+  const eligibility = sections.find((section) => /(출전자격|Eligibility)/i.test(section.title || ""));
+  const summary = (overview?.body || "")
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(" ");
+
+  return {
+    title: detail?.title || "",
+    summary,
+    eligibility: eligibility?.body || "",
+  };
+}
+
 function useNearViewport(ref) {
   const [isVisible, setIsVisible] = useState(false);
 
@@ -288,6 +308,7 @@ export function HomePage() {
   const { locale, t } = useLanguage();
   const [activeGroup, setActiveGroup] = useState("man");
   const [activeItemKey, setActiveItemKey] = useState(null);
+  const [isMobileShowcaseGuideOpen, setIsMobileShowcaseGuideOpen] = useState(false);
   const [isParticipantBenefitsOpen, setIsParticipantBenefitsOpen] = useState(false);
   const [isSocialMenuOpen, setIsSocialMenuOpen] = useState(false);
   const homeUpRef = useRef(null);
@@ -342,6 +363,9 @@ export function HomePage() {
   const activeGroupData = competitionGroups[activeGroup] || competitionGroups.man || null;
   const activeItems = activeGroupData?.items || [];
   const activeItem = activeItems.find((item) => item.key === activeItemKey) || activeItems[0] || null;
+  const activeItemGuide = activeItem
+    ? getShowcaseGuide(locale, activeItem.registerKey)
+    : null;
   const activeItemIndex = activeItem ? activeItems.findIndex((item) => item.key === activeItem.key) : -1;
   useEffect(() => {
     if (!activeGroupData) {
@@ -358,6 +382,7 @@ export function HomePage() {
       return;
     }
 
+    setIsMobileShowcaseGuideOpen(false);
     setActiveGroup(groupKey);
     setActiveItemKey(competitionGroups[groupKey].items[0]?.key || null);
   }
@@ -368,6 +393,7 @@ export function HomePage() {
     }
 
     const nextIndex = (activeItemIndex + direction + activeItems.length) % activeItems.length;
+    setIsMobileShowcaseGuideOpen(false);
     setActiveItemKey(activeItems[nextIndex].key);
   }
 
@@ -515,7 +541,10 @@ export function HomePage() {
                   role="tab"
                   type="button"
                   aria-selected={activeItem.key === item.key}
-                  onClick={() => setActiveItemKey(item.key)}
+                  onClick={() => {
+                    setIsMobileShowcaseGuideOpen(false);
+                    setActiveItemKey(item.key);
+                  }}
                 >
                   {item.displayLabel || item.title}
                 </button>
@@ -532,6 +561,7 @@ export function HomePage() {
                 &#8249;
               </button>
               <div
+                key={`${activeGroup}-${activeItem.key}-backdrop`}
                 className="site-home-showcase__backdrop"
                 aria-hidden="true"
                 style={
@@ -542,16 +572,56 @@ export function HomePage() {
               />
               <div className="site-home-showcase__scrim" aria-hidden="true" />
               <img
+                key={`${activeGroup}-${activeItem.key}-image`}
                 className="site-home-showcase__image"
                 src={getHomeImageUrl(activeItem.key)}
                 alt={activeItem.title}
                 decoding="async"
                 loading="lazy"
               />
+              <button
+                className="site-home-showcase__guide-trigger"
+                type="button"
+                aria-expanded={isMobileShowcaseGuideOpen}
+                aria-controls={`showcase-guide-${activeGroup}-${activeItem.key}`}
+                onClick={() => setIsMobileShowcaseGuideOpen((isOpen) => !isOpen)}
+              >
+                <span>{locale === "ko" ? "종목 안내 보기" : "View discipline guide"}</span>
+              </button>
+              {isMobileShowcaseGuideOpen ? (
+                <button
+                  className="site-home-showcase__guide-dismiss"
+                  type="button"
+                  aria-label={locale === "ko" ? "종목 안내 닫기" : "Close discipline guide"}
+                  onClick={() => setIsMobileShowcaseGuideOpen(false)}
+                />
+              ) : null}
               <div className="site-home-showcase__copy">
                 <span className="site-home-showcase__group">{activeGroupData.title}</span>
                 <strong>{activeItem.displayLabel || activeItem.title}</strong>
               </div>
+              {activeItemGuide?.summary ? (
+                <article
+                  className={`site-home-showcase__guide ${
+                    isMobileShowcaseGuideOpen ? "site-home-showcase__guide--mobile-open" : ""
+                  }`.trim()}
+                  key={`${activeGroup}-${activeItem.key}-guide`}
+                  id={`showcase-guide-${activeGroup}-${activeItem.key}`}
+                  aria-live="polite"
+                >
+                  <p className="site-home-showcase__guide-eyebrow">
+                    {locale === "ko" ? "종목 안내" : "DISCIPLINE GUIDE"}
+                  </p>
+                  <h2>{activeItemGuide.title}</h2>
+                  <p>{activeItemGuide.summary}</p>
+                  {activeItemGuide.eligibility ? (
+                    <p className="site-home-showcase__guide-eligibility">
+                      <span>{locale === "ko" ? "참가 자격" : "Eligibility"}</span>
+                      {activeItemGuide.eligibility}
+                    </p>
+                  ) : null}
+                </article>
+              ) : null}
               <button
                 className="site-home-showcase__arrow site-home-showcase__arrow--next"
                 type="button"

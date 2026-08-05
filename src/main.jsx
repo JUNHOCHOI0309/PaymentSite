@@ -3,6 +3,7 @@ import { Navigate, createBrowserRouter, Outlet, RouterProvider, useLocation } fr
 import "./App.css";
 import { SiteFavicon } from "./components/layout/SiteFavicon";
 import { ScrollToTop } from "./components/layout/ScrollToTop";
+import { SeoHead } from "./components/seo/SeoHead";
 import { ApplicationFlowRouteGuard } from "./components/routing/ApplicationFlowRouteGuard";
 import { StageServiceFlowRouteGuard } from "./components/routing/StageServiceFlowRouteGuard";
 import { SpectatorFlowRouteGuard } from "./components/routing/SpectatorFlowRouteGuard";
@@ -77,6 +78,7 @@ function RootLayout() {
 
   return (
     <>
+      <SeoHead />
       <SiteFavicon />
       <ScrollToTop />
       <Outlet />

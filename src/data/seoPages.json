@@ -1,0 +1,166 @@
+{
+  "siteName": "MMKorea",
+  "siteUrl": "https://www.mmkorea.com",
+  "defaultTitle": "MMKorea | 2026 머슬마니아® 코리아",
+  "defaultDescription": "2026 머슬마니아® 코리아 공식 사이트입니다. 종목 신청, 무대 서비스, 참관객 입장권, 신청 안내와 대회 정보를 확인하세요.",
+  "pages": [
+    {
+      "path": "/",
+      "indexable": true,
+      "title": "MMKorea | 2026 머슬마니아® 코리아",
+      "description": "2026 머슬마니아® 코리아 공식 사이트입니다. 대회 일정, 종목 소개, 참가 신청과 무대 서비스를 확인하세요.",
+      "heading": "2026 머슬마니아® 코리아",
+      "content": [
+        {
+          "heading": "대회 신청",
+          "text": "보디빌딩, 클래식 피지크, 피지크, 모델, 피트니스, 데님, 미즈비키니, 피규어, 트랜스포메이션 종목 신청을 지원합니다."
+        },
+        {
+          "heading": "종목 안내",
+          "text": "보디빌딩 대회 종목을 비롯해 피지크, 클래식 피지크, 미즈비키니, 피규어, 모델, 피트니스, 데님, 트랜스포메이션의 종목 소개와 참가 자격을 확인할 수 있습니다."
+        },
+        {
+          "heading": "공식 안내",
+          "text": "웰니스케어 축제와 헬시플레저, 웰에이징, 건강한 라이프스타일을 지향하는 피트니스 페스티벌의 대회 소개, 참가비, 환불 규정, 신청 조회와 무대 서비스 정보를 확인할 수 있습니다."
+        }
+      ]
+    },
+    {
+      "path": "/competition-intro",
+      "indexable": true,
+      "title": "대회 소개 | MMKorea",
+      "description": "머슬마니아® 코리아 대회의 운영 방향과 프로페셔널 디비전 안내를 확인하세요.",
+      "heading": "대회 소개",
+      "content": [
+        {
+          "heading": "머슬마니아® 코리아",
+          "text": "자연 선수의 성과와 스포츠맨십을 기반으로 운영되는 피트니스 대회입니다."
+        }
+      ]
+    },
+    {
+      "path": "/mmk-intro",
+      "indexable": true,
+      "title": "MMK 소개 | MMKorea",
+      "description": "MMKorea와 머슬마니아® 코리아의 비전 및 대회 관련 정보를 소개합니다.",
+      "heading": "MMK 소개",
+      "content": [
+        {
+          "heading": "MMKorea",
+          "text": "머슬마니아® 코리아의 공식 대회 운영 및 참가 안내 정보를 제공합니다."
+        }
+      ]
+    },
+    {
+      "path": "/organization",
+      "indexable": true,
+      "title": "조직도 | MMKorea",
+      "description": "MMKorea 조직위원회 및 대회 운영 조직도를 확인하세요.",
+      "heading": "MMKorea 조직도",
+      "content": [
+        {
+          "heading": "대회 운영 조직",
+          "text": "대회장, 조직위원장, 집행위원장 및 각 운영위원회로 구성된 MMKorea 조직 체계입니다."
+        }
+      ]
+    },
+    {
+      "path": "/apply",
+      "indexable": true,
+      "title": "종목 신청 | MMKorea",
+      "description": "2026 머슬마니아® 코리아 참가 종목을 선택하고 신청을 시작하세요.",
+      "heading": "2026 머슬마니아® 코리아 종목 신청",
+      "content": [
+        {
+          "heading": "참가 종목",
+          "text": "남성, 여성 및 공통 종목을 선택하여 대회 참가 신청을 진행할 수 있습니다."
+        }
+      ]
+    },
+    {
+      "path": "/apply/stage-services",
+      "indexable": true,
+      "title": "무대 서비스 신청 | MMKorea",
+      "description": "무대 사진 촬영, 무대 영상 촬영, 헤어&메이크업, 오피셜 탄 서비스를 신청하세요.",
+      "heading": "무대 서비스 신청",
+      "content": [
+        {
+          "heading": "공식 무대 서비스",
+          "text": "참가 종목 내역을 기준으로 무대 사진, 영상, 헤어&메이크업 및 오피셜 탄 서비스를 신청할 수 있습니다."
+        }
+      ]
+    },
+    {
+      "path": "/apply/spectator",
+      "indexable": true,
+      "title": "참관객 신청 | MMKorea",
+      "description": "2026 머슬마니아® 코리아 참관객 입장권을 사전 신청하세요.",
+      "heading": "참관객 신청",
+      "content": [
+        {
+          "heading": "참관객 입장권",
+          "text": "원활한 입장을 위해 참관객 입장권 사전 구매를 권장합니다."
+        }
+      ]
+    },
+    {
+      "path": "/apply/guide",
+      "indexable": true,
+      "title": "신청 안내 | MMKorea",
+      "description": "대회 신청서 작성 방법, 참가비, 신청 조회, 환불 및 주요 규정을 확인하세요.",
+      "heading": "신청 안내",
+      "content": [
+        {
+          "heading": "신청서 작성 방법",
+          "text": "종목을 선택하고 신청 정보를 입력한 뒤 필수 동의를 완료하여 결제를 진행합니다."
+        },
+        {
+          "heading": "참가비 및 환불 규정",
+          "text": "접수 기간별 참가비와 환불 기준, 반복 환불 요청 제한 기준을 확인할 수 있습니다."
+        }
+      ]
+    },
+    {
+      "path": "/privacy",
+      "indexable": true,
+      "title": "개인정보처리방침 | MMKorea",
+      "description": "MMKorea의 개인정보 수집, 이용, 보관, 국외 이전 및 이용자 권리 안내입니다.",
+      "heading": "개인정보처리방침",
+      "content": [
+        {
+          "heading": "개인정보 보호",
+          "text": "MMKorea는 대회 신청과 결제, 신청 조회 및 고객 응대를 위해 필요한 개인정보를 처리합니다."
+        }
+      ]
+    },
+    {
+      "path": "/terms",
+      "indexable": true,
+      "title": "이용약관 | MMKorea",
+      "description": "MMKorea 서비스 이용 및 대회 신청, 결제에 관한 이용약관입니다.",
+      "heading": "이용약관",
+      "content": [
+        {
+          "heading": "서비스 이용약관",
+          "text": "MMKorea 웹사이트, 대회 신청 및 부가 서비스 이용에 적용되는 기본 약관입니다."
+        }
+      ]
+    },
+    {
+      "path": "/organization-committee",
+      "indexable": false,
+      "title": "조직위원회 | MMKorea",
+      "description": "MMKorea 조직위원회 안내입니다.",
+      "heading": "조직위원회",
+      "content": []
+    },
+    {
+      "path": "/hall-of-fame",
+      "indexable": false,
+      "title": "명예의 전당 | MMKorea",
+      "description": "MMKorea 명예의 전당 안내입니다.",
+      "heading": "명예의 전당",
+      "content": []
+    }
+  ]
+}

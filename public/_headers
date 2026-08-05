@@ -5,3 +5,69 @@
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://api.mmkorea.com; media-src 'self' https://api.mmkorea.com; connect-src 'self' https://api.mmkorea.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://*.kcp.co.kr; object-src 'none'
+
+/admin*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/organization-committee*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/hall-of-fame*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/apply/detail*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/apply/consent*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/apply/review*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/apply/complete*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/apply/spectator/consent*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/apply/spectator/review*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/apply/spectator/complete*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/apply/stage-services/detail*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/apply/stage-services/review*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/apply/stage-services/complete*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/lookup*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/refund/*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/payment/*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/stage-services/payment/*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/spectators/payment/*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/kcp-test*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/fail*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/stage-services/fail*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/spectators/fail*
+  X-Robots-Tag: noindex, nofollow, noarchive
