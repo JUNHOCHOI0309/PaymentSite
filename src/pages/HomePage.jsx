@@ -7,7 +7,7 @@ import { useLanguage } from "../context/LanguageContext";
 import { getApplicationDisciplineTitleByImageKey } from "../data/applicationDisciplines";
 import { buildApiUrl } from "../lib/applicationApi";
 
-const homeUpImageKeys = Array.from({ length: 10 }, (_, index) => `home/home_up_${index + 1}.png`);
+const homeUpImageKeys = Array.from({ length: 13 }, (_, index) => `home/home_up_${index + 1}.png`);
 const homeHeroLeftImageKeys = ["home/main_1.webp", "home/main_3.webp", "home/main_5.webp", "home/main_7.webp"];
 const homeHeroRightImageKeys = ["home/main_2.webp", "home/main_4.webp", "home/main_6.webp", "home/main_8.webp"];
 const participantBenefitsDismissalStorageKey = "mmkorea-home-participant-benefits-dismissed-date";
