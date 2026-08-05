@@ -14121,7 +14121,7 @@ app.post("/applications/refund/request", async function (req, res) {
         refundQuote.matchedRuleLabel,
         JSON.stringify(refundQuote),
         name,
-        email,
+        application.email,
         providerIdempotencyKey,
       ]
     );
