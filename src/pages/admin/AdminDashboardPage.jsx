@@ -2325,7 +2325,16 @@ export function AdminDashboardPage() {
                       />
                     ),
                   },
-                  { key: "paymentStatus", label: "결제 상태" },
+                  {
+                    key: "paymentStatus",
+                    label: "결제 상태 / 지불 금액",
+                    render: (row) => (
+                      <MetaCell
+                        primary={row.paymentStatus || "-"}
+                        secondary={row.paymentAmount === null ? "-" : formatAmount(row.paymentAmount)}
+                      />
+                    ),
+                  },
                   {
                     key: "submittedAt",
                     label: "접수 일시",

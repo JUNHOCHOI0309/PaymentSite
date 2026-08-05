@@ -20,6 +20,11 @@ const {
   validatePaymentResultAccess,
 } = require("./server/paymentCompletionSecurity");
 const {
+  getPaymentMaintenanceMessage,
+  isPaymentMaintenanceWindow,
+  paymentMaintenance,
+} = require("./server/paymentMaintenance");
+const {
   GetObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
@@ -6364,6 +6369,20 @@ app.post("/kcp/trade/register", async function (req, res) {
     }
   }
 
+  if (!isKcpTestContext(context) && isPaymentMaintenanceWindow()) {
+    return res.status(503).json({
+      ok: false,
+      code: "PAYMENT_MAINTENANCE_WINDOW",
+      message: getPaymentMaintenanceMessage(),
+      maintenanceWindow: {
+        timeZone: paymentMaintenance.timeZone,
+        start: paymentMaintenance.start,
+        end: paymentMaintenance.end,
+        resume: paymentMaintenance.resume,
+      },
+    });
+  }
+
   if (!kcpMethod) {
     return res.status(400).json({
       ok: false,
@@ -8332,8 +8351,11 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
           a.discipline,
           a.payment_status,
           a.submitted_at,
+          o.amount AS payment_amount,
           document_files.files AS document_files
         FROM applications a
+        LEFT JOIN orders o
+          ON o.order_id = a.order_id
         LEFT JOIN LATERAL (
           SELECT json_agg(
             json_build_object(
@@ -8401,6 +8423,7 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
             discipline: row.discipline,
           }),
           paymentStatus: row.payment_status,
+          paymentAmount: row.payment_amount === null ? null : Number(row.payment_amount),
           submittedAt: row.submitted_at,
           documentFiles,
           documentOriginalFilename: documentFiles
@@ -10228,10 +10251,10 @@ app.post("/admin/stage-service-refunds/:refundRequestId/retry-sync", requireAdmi
       `
         UPDATE stage_service_orders
         SET
-          payment_status = $2,
+          payment_status = $2::text,
           service_status = CASE
-            WHEN $2 = 'CANCELED' THEN 'REFUNDED'
-            WHEN $2 = 'PARTIAL_CANCELED' THEN 'PARTIAL_REFUNDED'
+            WHEN $2::text = 'CANCELED' THEN 'REFUNDED'
+            WHEN $2::text = 'PARTIAL_CANCELED' THEN 'PARTIAL_REFUNDED'
             ELSE service_status
           END,
           updated_at = NOW()
@@ -13149,8 +13172,30 @@ app.post("/stage-services/refund/request", async function (req, res) {
       [serviceOrderNumber]
     );
     if (activeResult.rowCount > 0) {
+      const activeRefundRequest = activeResult.rows[0];
       await client.query("ROLLBACK");
-      return res.status(409).json({ ok: false, code: "REFUND_ALREADY_REQUESTED", message: "이미 환불 요청이 접수되었거나 처리된 무대 서비스입니다.", refundRequest: mapStageServiceRefundRequestRow(activeResult.rows[0]) });
+      if (activeRefundRequest.request_status === "SYNC_FAILED") {
+        return res.status(409).json({
+          ok: false,
+          code: "REFUND_SYNC_PENDING",
+          message: "결제사 환불은 완료되었지만 사이트 반영이 지연되고 있습니다. 관리자 재동기화 후 환불 완료 상태로 변경됩니다.",
+          refundRequest: mapStageServiceRefundRequestRow(activeRefundRequest),
+        });
+      }
+      if (activeRefundRequest.request_status === "COMPLETED") {
+        return res.status(409).json({
+          ok: false,
+          code: "REFUND_ALREADY_COMPLETED",
+          message: "이미 환불이 완료된 무대 서비스입니다.",
+          refundRequest: mapStageServiceRefundRequestRow(activeRefundRequest),
+        });
+      }
+      return res.status(409).json({
+        ok: false,
+        code: "REFUND_ALREADY_REQUESTED",
+        message: "이미 환불 요청이 처리 중인 무대 서비스입니다.",
+        refundRequest: mapStageServiceRefundRequestRow(activeRefundRequest),
+      });
     }
     const insertResult = await client.query(
       `
@@ -13223,10 +13268,10 @@ app.post("/stage-services/refund/request", async function (req, res) {
       `
         UPDATE stage_service_orders
         SET
-          payment_status = $2,
+          payment_status = $2::text,
           service_status = CASE
-            WHEN $2 = 'CANCELED' THEN 'REFUNDED'
-            WHEN $2 = 'PARTIAL_CANCELED' THEN 'PARTIAL_REFUNDED'
+            WHEN $2::text = 'CANCELED' THEN 'REFUNDED'
+            WHEN $2::text = 'PARTIAL_CANCELED' THEN 'PARTIAL_REFUNDED'
             ELSE service_status
           END,
           updated_at = NOW()

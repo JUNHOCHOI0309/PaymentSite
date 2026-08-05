@@ -21,6 +21,7 @@ import {
   getApplicationEntryFeePricing,
   getApplicationEntryFeeSchedule,
 } from "../data/applicationEntryFees";
+import { getPaymentMaintenanceNotice } from "../data/paymentMaintenance";
 import { getWeightClassOptions } from "../data/applicationWeightClassOptions";
 import {
   getSnsPlatformOptions,
@@ -1327,6 +1328,7 @@ export function ApplyPage() {
             </table>
           </div>
           <p className="site-apply-detail__fee-note">{entryFeeNoticeCopy.consent}</p>
+          <p className="site-apply-detail__fee-note">{getPaymentMaintenanceNotice(locale)}</p>
           <Link className="site-notice__link" to="/apply/guide">
             {t("common.viewApplyGuide")}
           </Link>

@@ -4,6 +4,7 @@ import { Button } from "../components/common/Button";
 import { Input } from "../components/common/Input";
 import { PageShell } from "../components/layout/PageShell";
 import { useSpectatorFlow, spectatorFlowSteps } from "../context/SpectatorFlowContext";
+import { getPaymentMaintenanceNotice } from "../data/paymentMaintenance";
 import refundPolicy from "../data/refundPolicy.json";
 import spectatorTicketConfig from "../data/spectatorTicketConfig.json";
 import {
@@ -251,6 +252,7 @@ export function SpectatorApplyPage() {
             <p><strong>10월 25일 (일) : {formatAmount(TICKET_PRICE)}</strong></p>
             <p>판매 기간: 2026년 8월 3일 ~ 10월 18일 / 선착순 500매</p>
             <p>*선수를 제외한 모든 인원은 입장권을 구매하셔야 대회장에 입장 가능합니다.</p>
+            <p>{getPaymentMaintenanceNotice("ko")}</p>
             <h3>환불 안내</h3>
             <div className="site-refund-page__policy-table-wrap">
               <table className="site-refund-page__policy-table">

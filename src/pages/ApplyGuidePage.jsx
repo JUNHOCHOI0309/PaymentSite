@@ -10,6 +10,7 @@ import {
   getApplicationAdditionalDisciplineFee,
   getApplicationEntryFeeSchedule,
 } from "../data/applicationEntryFees";
+import { getPaymentMaintenanceNotice } from "../data/paymentMaintenance";
 
 function GuideAccordionSection({
   sectionKey,
@@ -100,6 +101,7 @@ function EntryFeeGuide({ locale }) {
         </table>
       </div>
       <p>{copy.note}</p>
+      <p>{getPaymentMaintenanceNotice(locale)}</p>
     </div>
   );
 }

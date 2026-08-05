@@ -19,6 +19,7 @@ import {
   getStageVideoAdditionalDisciplineChoices,
   getVideoTypeOptions,
 } from "../data/stageServiceConfig";
+import { getPaymentMaintenanceNotice } from "../data/paymentMaintenance";
 import {
   buildApiUrl,
   createStageServiceDraft,
@@ -763,6 +764,7 @@ export function StageServiceDetailPage() {
               <li>{t("stageService.notice2")}</li>
               <li>{t("stageService.notice3")}</li>
               <li>{repeatRefundReviewNotice}</li>
+              <li>{getPaymentMaintenanceNotice(locale)}</li>
               {serviceKey === "stage-photo" ? (
                 <li>모든 전달 사진은 보정 완료본이며, 원본 사이즈로 제공됩니다.</li>
               ) : null}
