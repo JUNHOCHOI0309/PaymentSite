@@ -16,19 +16,26 @@ import { formatStoredSnsIdentity } from "../../lib/applicationSns";
 import {
   adminLogout,
   buildApiUrl,
+  createAdminSmsCampaign,
+  createAdminSmsMarketingOptOut,
   createAdminUser,
+  deleteAdminSmsMarketingOptOut,
   deleteAdminApplication,
   getAdminApplications,
   getAdminAuditLogs,
   getAdminCanceledPayments,
   getAdminMe,
   getAdminRefundRequests,
+  getAdminSmsCampaigns,
+  getAdminSmsMarketingOptOuts,
   getAdminSpectators,
   getAdminStageServices,
   getAdminUsers,
   keepAliveAdminSession,
+  previewAdminSmsCampaign,
   reconcileAdminKcpPayment,
   retryAdminRefundSync,
+  retryAdminSmsCampaign,
   updateAdminApplication,
   updateAdminUser,
 } from "../../lib/applicationApi";
@@ -835,6 +842,19 @@ export function AdminDashboardPage() {
   const [refunds, setRefunds] = useState([]);
   const [adminUsers, setAdminUsers] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
+  const [smsCampaigns, setSmsCampaigns] = useState([]);
+  const [smsMarketingOptOuts, setSmsMarketingOptOuts] = useState([]);
+  const [smsCampaignForm, setSmsCampaignForm] = useState({
+    messageKind: "NOTICE",
+    audience: "ALL_PAID",
+    content: "",
+  });
+  const [smsCampaignPreview, setSmsCampaignPreview] = useState(null);
+  const [isSmsPreviewing, setIsSmsPreviewing] = useState(false);
+  const [isSendingSmsCampaign, setIsSendingSmsCampaign] = useState(false);
+  const [retryingSmsCampaignId, setRetryingSmsCampaignId] = useState(null);
+  const [smsOptOutForm, setSmsOptOutForm] = useState({ phone: "", reason: "" });
+  const [isSavingSmsOptOut, setIsSavingSmsOptOut] = useState(false);
   const [activeSection, setActiveSection] = useState("overview");
   const [applicationSearch, setApplicationSearch] = useState("");
   const [applicationPaymentStatusFilter, setApplicationPaymentStatusFilter] = useState("all");
@@ -1135,6 +1155,15 @@ export function AdminDashboardPage() {
       totalPages: 1,
     });
   }, [refundPaymentQuery]);
+
+  const loadSmsData = useCallback(async () => {
+    const [campaignResponse, optOutResponse] = await Promise.all([
+      getAdminSmsCampaigns(),
+      getAdminSmsMarketingOptOuts(),
+    ]);
+    setSmsCampaigns(campaignResponse.campaigns || []);
+    setSmsMarketingOptOuts(optOutResponse.optOuts || []);
+  }, []);
 
   const loadAdminData = useCallback(async ({ silent = false } = {}) => {
     let didLoad = false;
@@ -1453,6 +1482,27 @@ export function AdminDashboardPage() {
   ]);
 
   useEffect(() => {
+    if (!isInitialAdminDataLoaded || activeSection !== "sms" || adminUser?.role !== "superadmin") {
+      return undefined;
+    }
+
+    loadSmsData().catch((error) => {
+      if (
+        error.code === "ADMIN_AUTH_REQUIRED"
+        || error.code === "ADMIN_SESSION_EXPIRED"
+        || error.code === "ADMIN_SESSION_IDLE_EXPIRED"
+      ) {
+        forceAdminLogout();
+        return;
+      }
+
+      setErrorMessage(error.message || "문자 발송 데이터를 불러오지 못했습니다.");
+    });
+
+    return undefined;
+  }, [activeSection, adminUser?.role, forceAdminLogout, isInitialAdminDataLoaded, loadSmsData]);
+
+  useEffect(() => {
     let warningTimerId = null;
     let logoutTimerId = null;
     let countdownIntervalId = null;
@@ -1650,7 +1700,12 @@ export function AdminDashboardPage() {
     { id: "spectators", label: "참관객 신청 장부" },
     { id: "refunds", label: "환불 / 취소 현황" },
     { id: "audit", label: "감사 로그" },
-    ...(adminUser?.role === "superadmin" ? [{ id: "accounts", label: "관리자 계정" }] : []),
+    ...(adminUser?.role === "superadmin"
+      ? [
+          { id: "sms", label: "문자 발송" },
+          { id: "accounts", label: "관리자 계정" },
+        ]
+      : []),
   ];
 
   async function handleLogout() {
@@ -1696,6 +1751,107 @@ export function AdminDashboardPage() {
       setErrorMessage(error.message || "환불 재동기화에 실패했습니다.");
     } finally {
       setRetryingRefundRequestId(null);
+    }
+  }
+
+  function updateSmsCampaignForm(nextValues) {
+    setSmsCampaignForm((current) => ({ ...current, ...nextValues }));
+    setSmsCampaignPreview(null);
+  }
+
+  async function handlePreviewSmsCampaign() {
+    if (!smsCampaignForm.content.trim()) {
+      setErrorMessage("발송할 문자 내용을 입력해 주세요.");
+      return;
+    }
+
+    setIsSmsPreviewing(true);
+    setErrorMessage("");
+
+    try {
+      const response = await previewAdminSmsCampaign(smsCampaignForm);
+      setSmsCampaignPreview(response);
+    } catch (error) {
+      setErrorMessage(error.message || "문자 발송 대상을 미리 확인하지 못했습니다.");
+    } finally {
+      setIsSmsPreviewing(false);
+    }
+  }
+
+  async function handleSendSmsCampaign() {
+    if (!smsCampaignForm.content.trim()) {
+      setErrorMessage("발송할 문자 내용을 입력해 주세요.");
+      return;
+    }
+
+    setIsSendingSmsCampaign(true);
+    setErrorMessage("");
+
+    try {
+      const preview = await previewAdminSmsCampaign(smsCampaignForm);
+      if (!preview.recipientCount) {
+        setErrorMessage("현재 조건에 해당하는 발송 대상이 없습니다.");
+        return;
+      }
+
+      const kindLabel = smsCampaignForm.messageKind === "MARKETING" ? "마케팅 문자" : "공지 문자";
+      if (!window.confirm(`${kindLabel}를 ${preview.recipientCount.toLocaleString("ko-KR")}명에게 발송하시겠습니까?`)) {
+        return;
+      }
+
+      await createAdminSmsCampaign(smsCampaignForm);
+      setSmsCampaignForm({ messageKind: "NOTICE", audience: "ALL_PAID", content: "" });
+      setSmsCampaignPreview(null);
+      await loadSmsData();
+    } catch (error) {
+      setErrorMessage(error.message || "문자 발송을 시작하지 못했습니다.");
+    } finally {
+      setIsSendingSmsCampaign(false);
+    }
+  }
+
+  async function handleRetrySmsCampaign(campaignId) {
+    setRetryingSmsCampaignId(campaignId);
+    setErrorMessage("");
+
+    try {
+      await retryAdminSmsCampaign(campaignId);
+      await loadSmsData();
+    } catch (error) {
+      setErrorMessage(error.message || "실패한 문자 재발송을 시작하지 못했습니다.");
+    } finally {
+      setRetryingSmsCampaignId(null);
+    }
+  }
+
+  async function handleSaveSmsMarketingOptOut(event) {
+    event.preventDefault();
+    setIsSavingSmsOptOut(true);
+    setErrorMessage("");
+
+    try {
+      await createAdminSmsMarketingOptOut(smsOptOutForm);
+      setSmsOptOutForm({ phone: "", reason: "" });
+      await loadSmsData();
+    } catch (error) {
+      setErrorMessage(error.message || "마케팅 수신 거부를 저장하지 못했습니다.");
+    } finally {
+      setIsSavingSmsOptOut(false);
+    }
+  }
+
+  async function handleDeleteSmsMarketingOptOut(phone) {
+    if (!window.confirm(`${phone} 번호의 마케팅 수신 거부를 해제하시겠습니까?`)) {
+      return;
+    }
+
+    setErrorMessage("");
+
+    try {
+      await deleteAdminSmsMarketingOptOut(phone);
+      await loadSmsData();
+    } catch (error) {
+      setErrorMessage(error.message || "마케팅 수신 거부를 해제하지 못했습니다.");
     }
   }
 
@@ -2789,6 +2945,197 @@ export function AdminDashboardPage() {
                 }}
               />
             </>
+          ) : null}
+
+          {activeSection === "sms" && adminUser?.role === "superadmin" ? (
+            <section className="site-admin-sms">
+              <div className="site-admin-section__header">
+                <div>
+                  <h2>문자 발송</h2>
+                  <p>일반 공지와 마케팅 문자를 분리해 발송합니다. 마케팅 문자는 수신 동의자와 수신 거부 제외 대상에게만 발송됩니다.</p>
+                </div>
+              </div>
+
+              <div className="site-admin-sms__grid">
+                <section className="site-admin-sms__card">
+                  <div className="site-admin-sms__card-header">
+                    <h3>대량 문자 작성</h3>
+                    <span>슈퍼관리자 전용</span>
+                  </div>
+                  <div className="site-admin-sms__fields">
+                    <label className="site-admin-form__field">
+                      <span>문자 유형</span>
+                      <select
+                        onChange={(event) => {
+                          const messageKind = event.target.value;
+                          updateSmsCampaignForm({
+                            messageKind,
+                            audience: messageKind === "MARKETING" ? "MARKETING_CONSENTED" : "ALL_PAID",
+                          });
+                        }}
+                        value={smsCampaignForm.messageKind}
+                      >
+                        <option value="NOTICE">일반 공지</option>
+                        <option value="MARKETING">마케팅</option>
+                      </select>
+                    </label>
+                    <label className="site-admin-form__field">
+                      <span>발송 대상</span>
+                      <select
+                        disabled={smsCampaignForm.messageKind === "MARKETING"}
+                        onChange={(event) => updateSmsCampaignForm({ audience: event.target.value })}
+                        value={smsCampaignForm.audience}
+                      >
+                        {smsCampaignForm.messageKind === "MARKETING" ? (
+                          <option value="MARKETING_CONSENTED">마케팅 수신 동의자</option>
+                        ) : (
+                          <>
+                            <option value="ALL_PAID">전체 결제 완료자</option>
+                            <option value="APPLICATIONS">대회 신청 완료자</option>
+                            <option value="STAGE_SERVICES">무대 서비스 결제자</option>
+                            <option value="SPECTATORS">참관객 결제자</option>
+                          </>
+                        )}
+                      </select>
+                    </label>
+                    <label className="site-admin-form__field site-admin-form__field--wide">
+                      <span>문자 내용</span>
+                      <textarea
+                        maxLength="1000"
+                        onChange={(event) => updateSmsCampaignForm({ content: event.target.value })}
+                        placeholder="수신자에게 전달할 내용을 입력해 주세요."
+                        value={smsCampaignForm.content}
+                      />
+                    </label>
+                  </div>
+                  <p className="site-admin-sms__notice">
+                    {smsCampaignForm.messageKind === "MARKETING"
+                      ? "마케팅 문자는 '(광고)' 표기와 서버에 설정된 무료 수신 거부 안내가 자동으로 추가됩니다."
+                      : "일반 공지는 결제 완료 상태의 대상에게만 발송됩니다."}
+                  </p>
+                  {smsCampaignPreview ? (
+                    <div className="site-admin-sms__preview">
+                      <strong>발송 예정 {smsCampaignPreview.recipientCount.toLocaleString("ko-KR")}명</strong>
+                      <pre>{smsCampaignPreview.messageBody}</pre>
+                    </div>
+                  ) : null}
+                  <div className="site-admin-form__actions">
+                    <button
+                      className="site-admin-action-button"
+                      disabled={isSmsPreviewing || isSendingSmsCampaign}
+                      onClick={handlePreviewSmsCampaign}
+                      type="button"
+                    >
+                      {isSmsPreviewing ? "확인 중..." : "대상 미리 보기"}
+                    </button>
+                    <button
+                      className="site-admin-action-button site-admin-action-button--primary"
+                      disabled={isSendingSmsCampaign || isSmsPreviewing}
+                      onClick={handleSendSmsCampaign}
+                      type="button"
+                    >
+                      {isSendingSmsCampaign ? "발송 준비 중..." : "발송 시작"}
+                    </button>
+                  </div>
+                </section>
+
+                <section className="site-admin-sms__card">
+                  <div className="site-admin-sms__card-header">
+                    <h3>마케팅 수신 거부</h3>
+                    <span>{smsMarketingOptOuts.length}건</span>
+                  </div>
+                  <form className="site-admin-sms__opt-out-form" onSubmit={handleSaveSmsMarketingOptOut}>
+                    <label className="site-admin-form__field">
+                      <span>휴대전화</span>
+                      <input
+                        inputMode="numeric"
+                        onChange={(event) => setSmsOptOutForm((current) => ({ ...current, phone: event.target.value }))}
+                        placeholder="010-0000-0000"
+                        required
+                        value={smsOptOutForm.phone}
+                      />
+                    </label>
+                    <label className="site-admin-form__field">
+                      <span>사유</span>
+                      <input
+                        maxLength="500"
+                        onChange={(event) => setSmsOptOutForm((current) => ({ ...current, reason: event.target.value }))}
+                        placeholder="요청 경로 또는 메모"
+                        value={smsOptOutForm.reason}
+                      />
+                    </label>
+                    <button className="site-admin-action-button" disabled={isSavingSmsOptOut} type="submit">
+                      {isSavingSmsOptOut ? "저장 중..." : "수신 거부 등록"}
+                    </button>
+                  </form>
+                  <div className="site-admin-sms__opt-out-list">
+                    {smsMarketingOptOuts.length ? smsMarketingOptOuts.map((item) => (
+                      <article className="site-admin-sms__opt-out-item" key={item.phone}>
+                        <div>
+                          <strong>{item.phone}</strong>
+                          <span>{item.reason || "사유 없음"}</span>
+                        </div>
+                        <button
+                          className="site-admin-action-button site-admin-action-button--danger"
+                          onClick={() => handleDeleteSmsMarketingOptOut(item.phone)}
+                          type="button"
+                        >
+                          해제
+                        </button>
+                      </article>
+                    )) : <p className="site-admin-sms__empty">등록된 수신 거부 번호가 없습니다.</p>}
+                  </div>
+                </section>
+              </div>
+
+              <section className="site-admin-sms__card site-admin-sms__card--history">
+                <div className="site-admin-sms__card-header">
+                  <div>
+                    <h3>최근 발송 이력</h3>
+                    <p>실패 건은 동일한 수신자에게만 재발송합니다.</p>
+                  </div>
+                </div>
+                <div className="site-admin-table-wrap">
+                  <table className="site-admin-table">
+                    <thead>
+                      <tr>
+                        <th>유형 / 대상</th>
+                        <th>상태</th>
+                        <th>발송 결과</th>
+                        <th>작성자</th>
+                        <th>생성 일시</th>
+                        <th>관리</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {smsCampaigns.length ? smsCampaigns.map((campaign) => (
+                        <tr key={campaign.id}>
+                          <td><MetaCell primary={campaign.messageKind === "MARKETING" ? "마케팅" : "일반 공지"} secondary={campaign.audience} /></td>
+                          <td><MetaCell primary={campaign.status} secondary={campaign.failureMessage || "-"} /></td>
+                          <td>{`${campaign.sentCount.toLocaleString("ko-KR")} / ${campaign.recipientCount.toLocaleString("ko-KR")}명${campaign.failedCount ? ` (실패 ${campaign.failedCount}명)` : ""}`}</td>
+                          <td>{campaign.createdByName || "-"}</td>
+                          <td>{formatDateTime(campaign.createdAt)}</td>
+                          <td>
+                            {campaign.failedCount ? (
+                              <button
+                                className="site-admin-action-button"
+                                disabled={retryingSmsCampaignId === campaign.id}
+                                onClick={() => handleRetrySmsCampaign(campaign.id)}
+                                type="button"
+                              >
+                                {retryingSmsCampaignId === campaign.id ? "재시도 중..." : "실패 건 재발송"}
+                              </button>
+                            ) : "-"}
+                          </td>
+                        </tr>
+                      )) : (
+                        <tr><td className="site-admin-table__empty" colSpan="6">문자 발송 이력이 없습니다.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </section>
           ) : null}
 
           {activeSection === "accounts" && adminUser?.role === "superadmin" ? (

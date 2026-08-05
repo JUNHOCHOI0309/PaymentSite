@@ -8,10 +8,14 @@ import { useLanguage } from "../context/LanguageContext";
 import {
   getApplicationRefundQuote,
   getSpectatorRefundQuote,
+  getStageServiceRefundQuote,
   getStageServiceSummary,
   lookupApplication,
   lookupApplicationByNumber,
+  lookupApplicationByPhone,
+  sendLookupPhoneVerificationCode,
   sendLookupVerificationCode,
+  verifyLookupPhoneVerificationCode,
   verifyLookupVerificationCode,
 } from "../lib/applicationApi";
 import {
@@ -22,6 +26,7 @@ import {
 } from "../lib/emailAddress";
 
 const lookupSessionStorageKey = "mmkorea-lookup-session";
+const lookupPhoneSessionStorageKey = "mmkorea-lookup-phone-session";
 
 function getStoredLookupSession() {
   try {
@@ -37,6 +42,29 @@ function getStoredLookupSession() {
       expiresAt.getTime() <= Date.now()
     ) {
       window.sessionStorage.removeItem(lookupSessionStorageKey);
+      return null;
+    }
+
+    return session;
+  } catch {
+    return null;
+  }
+}
+
+function getStoredLookupPhoneSession() {
+  try {
+    const rawSession = window.sessionStorage.getItem(lookupPhoneSessionStorageKey);
+    const session = rawSession ? JSON.parse(rawSession) : null;
+    const expiresAt = new Date(session?.expiresAt || "");
+
+    if (
+      !session?.name ||
+      !session?.phone ||
+      !session?.verificationToken ||
+      Number.isNaN(expiresAt.getTime()) ||
+      expiresAt.getTime() <= Date.now()
+    ) {
+      window.sessionStorage.removeItem(lookupPhoneSessionStorageKey);
       return null;
     }
 
@@ -67,6 +95,24 @@ function formatVerificationCode(value) {
 
 function hasValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+function formatPhoneNumber(value) {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 11);
+
+  if (digits.length <= 3) {
+    return digits;
+  }
+
+  if (digits.length <= 7) {
+    return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  }
+
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
+function hasValidPhoneNumber(value) {
+  return String(value || "").replace(/\D/g, "").length === 11;
 }
 
 function formatRemainingTime(remainingSeconds) {
@@ -110,6 +156,7 @@ export function LookupPage() {
   const [form, setForm] = useState({
     name: "",
     email: "",
+    phone: "",
     verificationCode: "",
     applicationNumber: "",
   });
@@ -123,7 +170,9 @@ export function LookupPage() {
   const [actionErrorMessage, setActionErrorMessage] = useState("");
   const [verificationMessage, setVerificationMessage] = useState("");
   const [verificationToken, setVerificationToken] = useState("");
+  const [phoneVerificationToken, setPhoneVerificationToken] = useState("");
   const [recentLookupSession, setRecentLookupSession] = useState(getStoredLookupSession);
+  const [recentPhoneLookupSession, setRecentPhoneLookupSession] = useState(getStoredLookupPhoneSession);
   const [devVerificationCode, setDevVerificationCode] = useState("");
   const [verificationDeadline, setVerificationDeadline] = useState(null);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
@@ -175,12 +224,14 @@ export function LookupPage() {
     const nextValue =
       field === "verificationCode"
         ? formatVerificationCode(event.target.value)
+        : field === "phone"
+          ? formatPhoneNumber(event.target.value)
         : event.target.value;
 
     setForm((current) => ({
       ...current,
       [field]: nextValue,
-      ...(field === "name" || field === "email"
+      ...(field === "name" || field === "email" || field === "phone"
         ? {
             verificationCode: "",
           }
@@ -193,12 +244,11 @@ export function LookupPage() {
     setNumberLookupResult(null);
 
     if (field === "name" || field === "email") {
-      setVerificationToken("");
-      setVerificationMessage("");
-      setDevVerificationCode("");
-      setVerificationDeadline(null);
-      setRecentLookupSession(null);
-      window.sessionStorage.removeItem(lookupSessionStorageKey);
+      resetLookupVerification();
+    }
+
+    if (field === "name" || field === "phone") {
+      resetPhoneLookupVerification();
     }
   };
 
@@ -209,6 +259,14 @@ export function LookupPage() {
     setVerificationDeadline(null);
     setRecentLookupSession(null);
     window.sessionStorage.removeItem(lookupSessionStorageKey);
+  }
+
+  function resetPhoneLookupVerification() {
+    setPhoneVerificationToken("");
+    setVerificationMessage("");
+    setVerificationDeadline(null);
+    setRecentPhoneLookupSession(null);
+    window.sessionStorage.removeItem(lookupPhoneSessionStorageKey);
   }
 
   function updateLookupEmail({
@@ -276,6 +334,22 @@ export function LookupPage() {
 
     if (!hasValidEmail(email)) {
       return t("lookup.emailInvalid");
+    }
+
+    return "";
+  }
+
+  function validateNameAndPhone(name = form.name, phone = form.phone) {
+    if (!name.trim()) {
+      return locale === "ko" ? "성함을 입력해 주세요." : "Enter your name.";
+    }
+
+    if (!phone.trim()) {
+      return locale === "ko" ? "휴대전화 번호를 입력해 주세요." : "Enter your phone number.";
+    }
+
+    if (!hasValidPhoneNumber(phone)) {
+      return locale === "ko" ? "유효한 휴대전화 번호를 입력해 주세요." : "Enter a valid phone number.";
     }
 
     return "";
@@ -367,6 +441,96 @@ export function LookupPage() {
       setVerificationToken("");
       setVerificationMessage("");
       setActionErrorMessage(error.message || t("lookup.verifyFailed"));
+    } finally {
+      setIsVerifyingCode(false);
+    }
+  }
+
+  async function handleSendPhoneVerificationCode() {
+    const validationMessage = validateNameAndPhone();
+
+    if (validationMessage) {
+      setActionErrorMessage(validationMessage);
+      return;
+    }
+
+    setIsSendingCode(true);
+    setActionErrorMessage("");
+    setVerificationMessage("");
+    setPhoneVerificationToken("");
+    setVerificationDeadline(null);
+    setResults([]);
+    setSpectatorResults([]);
+
+    try {
+      const json = await sendLookupPhoneVerificationCode({
+        name: form.name,
+        phone: form.phone,
+      });
+
+      setForm((current) => ({
+        ...current,
+        verificationCode: "",
+      }));
+      setVerificationMessage(json.message || (locale === "ko" ? "SMS 인증번호를 전송했습니다." : "SMS verification code sent."));
+      setVerificationDeadline(Date.now() + (json.expiresInSeconds || 300) * 1000);
+    } catch (error) {
+      setVerificationMessage("");
+      setActionErrorMessage(error.message || (locale === "ko" ? "SMS 인증번호를 전송하지 못했습니다." : "Unable to send the SMS code."));
+    } finally {
+      setIsSendingCode(false);
+    }
+  }
+
+  async function handleVerifyPhoneCode() {
+    const validationMessage = validateNameAndPhone();
+
+    if (validationMessage) {
+      setActionErrorMessage(validationMessage);
+      return;
+    }
+
+    if (!form.verificationCode.trim()) {
+      setActionErrorMessage(t("lookup.codeRequired"));
+      return;
+    }
+
+    if (form.verificationCode.length !== 6) {
+      setActionErrorMessage(t("lookup.codeLength"));
+      return;
+    }
+
+    if (!remainingSeconds) {
+      setActionErrorMessage(t("lookup.expired"));
+      return;
+    }
+
+    setIsVerifyingCode(true);
+    setActionErrorMessage("");
+    setVerificationMessage("");
+
+    try {
+      const json = await verifyLookupPhoneVerificationCode({
+        name: form.name,
+        phone: form.phone,
+        code: form.verificationCode,
+      });
+
+      setPhoneVerificationToken(json.verificationToken || "");
+      setVerificationMessage(json.message || (locale === "ko" ? "SMS 인증이 완료되었습니다." : "SMS verification completed."));
+      setVerificationDeadline(null);
+      const nextPhoneLookupSession = {
+        name: form.name.trim(),
+        phone: form.phone.trim(),
+        verificationToken: json.verificationToken || "",
+        expiresAt: json.sessionExpiresAt || "",
+      };
+      window.sessionStorage.setItem(lookupPhoneSessionStorageKey, JSON.stringify(nextPhoneLookupSession));
+      setRecentPhoneLookupSession(nextPhoneLookupSession);
+    } catch (error) {
+      setPhoneVerificationToken("");
+      setVerificationMessage("");
+      setActionErrorMessage(error.message || (locale === "ko" ? "SMS 인증번호 확인에 실패했습니다." : "Unable to verify the SMS code."));
     } finally {
       setIsVerifyingCode(false);
     }
@@ -488,10 +652,136 @@ export function LookupPage() {
     }
   }
 
+  async function handlePhoneLookup() {
+    const validationMessage = validateNameAndPhone();
+
+    if (validationMessage) {
+      setActionErrorMessage(validationMessage);
+      return;
+    }
+
+    if (!phoneVerificationToken) {
+      setActionErrorMessage(
+        locale === "ko"
+          ? "SMS 인증을 먼저 완료해 주세요."
+          : "Complete SMS verification first."
+      );
+      return;
+    }
+
+    setIsSubmitting(true);
+    setActionErrorMessage("");
+    setVerificationMessage("");
+    setNumberLookupResult(null);
+
+    try {
+      const json = await lookupApplicationByPhone({
+        name: form.name,
+        phone: form.phone,
+        verificationToken: phoneVerificationToken,
+      });
+
+      const phoneLookupIdentity = {
+        name: form.name,
+        phone: form.phone,
+        verificationToken: phoneVerificationToken,
+      };
+      const applications = Array.isArray(json.applications) ? json.applications : [];
+      const spectators = Array.isArray(json.spectators) ? json.spectators : [];
+
+      const applicationsWithRefundQuotes = await Promise.all(
+        applications.map(async (application) => {
+          let refundQuote = null;
+          let refundQuoteError = "";
+
+          try {
+            const refundJson = await getApplicationRefundQuote({
+              ...phoneLookupIdentity,
+              applicationNumber: application.applicationNumber,
+            });
+            refundQuote = refundJson.refundQuote || null;
+          } catch (error) {
+            refundQuoteError = error.message || t("lookup.refundQuoteFailed");
+          }
+
+          const purchases = application.stageServiceSummary?.purchases || [];
+          const purchasesWithRefundQuotes = await Promise.all(
+            purchases.map(async (purchase) => {
+              try {
+                const refundJson = await getStageServiceRefundQuote({
+                  ...phoneLookupIdentity,
+                  serviceOrderNumber: purchase.serviceOrderNumber,
+                });
+                return { ...purchase, refundQuote: refundJson.refundQuote || null, refundQuoteError: "" };
+              } catch (error) {
+                return {
+                  ...purchase,
+                  refundQuote: null,
+                  refundQuoteError: error.message || t("lookup.refundQuoteFailed"),
+                };
+              }
+            }),
+          );
+
+          return {
+            ...application,
+            refundQuote,
+            refundQuoteError,
+            stageServiceSummary: application.stageServiceSummary
+              ? { ...application.stageServiceSummary, purchases: purchasesWithRefundQuotes }
+              : null,
+            stageServiceSummaryError: "",
+          };
+        }),
+      );
+      const spectatorsWithRefundQuotes = await Promise.all(
+        spectators.map(async (spectator) => {
+          try {
+            const refundJson = await getSpectatorRefundQuote({
+              ...phoneLookupIdentity,
+              spectatorOrderNumber: spectator.spectatorOrderNumber,
+            });
+            return { ...spectator, refundQuote: refundJson.refundQuote || null, refundQuoteError: "" };
+          } catch (error) {
+            return {
+              ...spectator,
+              refundQuote: null,
+              refundQuoteError: error.message || t("lookup.refundQuoteFailed"),
+            };
+          }
+        }),
+      );
+
+      setResults(applicationsWithRefundQuotes);
+      setSpectatorResults(spectatorsWithRefundQuotes);
+      setVerificationMessage(
+        locale === "ko"
+          ? "SMS 인증으로 신청 내역을 조회했습니다."
+          : "Your applications were found with SMS verification."
+      );
+    } catch (error) {
+      setResults([]);
+      setSpectatorResults([]);
+      setActionErrorMessage(
+        error.message ||
+          (locale === "ko" ? "SMS 인증 신청 조회에 실패했습니다." : "Unable to look up applications with SMS verification.")
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   function handleLookupModeChange(mode) {
     setLookupMode(mode);
     setActionErrorMessage("");
     setVerificationMessage("");
+    setDevVerificationCode("");
+    setVerificationDeadline(null);
+    setPhoneVerificationToken("");
+    setForm((current) => ({
+      ...current,
+      verificationCode: "",
+    }));
     setResults([]);
     setSpectatorResults([]);
     setNumberLookupResult(null);
@@ -538,7 +828,9 @@ export function LookupPage() {
     setForm({
       name: session.name,
       email: session.email,
+      phone: "",
       verificationCode: "",
+      applicationNumber: "",
     });
     const parsedEmailAddress = parseEmailAddress(session.email);
     setEmailLocalPart(parsedEmailAddress.localPart);
@@ -549,6 +841,12 @@ export function LookupPage() {
   }
 
   const hasStatusMessage = Boolean(actionErrorMessage || verificationMessage || devVerificationCode);
+  const isPhoneLookup = lookupMode === "phone";
+
+  function getRefundRequestPath(type, id) {
+    const access = isPhoneLookup ? "phone" : "email";
+    return `/refund/request?type=${encodeURIComponent(type)}&id=${encodeURIComponent(id)}&access=${access}`;
+  }
   const completedPaymentResults = results.filter((result) => result.paymentStatus === "DONE");
   const completedStageServicePurchases = Array.from(
     results
@@ -594,7 +892,9 @@ export function LookupPage() {
             <p>
               {lookupMode === "number"
                 ? (locale === "ko" ? "완료 화면에 표시된 신청번호로 결제 및 신청 상태를 확인할 수 있습니다." : "Use the application number shown on the completion page to check payment and application status.")
-                : t("lookup.description")}
+                : lookupMode === "phone"
+                  ? (locale === "ko" ? "성함과 휴대전화 SMS 인증으로 신청·결제 내역과 환불 가능 정보를 조회할 수 있습니다." : "Verify your name and phone by SMS to view applications, payments, and refund availability.")
+                  : t("lookup.description")}
             </p>
           </div>
 
@@ -608,6 +908,16 @@ export function LookupPage() {
             >
               <strong>{locale === "ko" ? "이름 + 이메일로 조회" : "Name + email"}</strong>
               <span>{locale === "ko" ? "이메일 인증 후 전체 신청 내역을 확인합니다." : "Verify your email to view all applications."}</span>
+            </button>
+            <button
+              className={`site-lookup-mode-card ${lookupMode === "phone" ? "site-lookup-mode-card--active" : ""}`}
+              type="button"
+              role="tab"
+              aria-selected={lookupMode === "phone"}
+              onClick={() => handleLookupModeChange("phone")}
+            >
+              <strong>{locale === "ko" ? "이름 + 휴대전화로 조회" : "Name + phone"}</strong>
+              <span>{locale === "ko" ? "SMS 인증 후 신청·환불 정보를 확인합니다." : "Verify by SMS to view applications and refund details."}</span>
             </button>
             <button
               className={`site-lookup-mode-card ${lookupMode === "number" ? "site-lookup-mode-card--active" : ""}`}
@@ -769,6 +1079,102 @@ export function LookupPage() {
             </div>
           </div>
             </>
+          ) : lookupMode === "phone" ? (
+            <section className="site-lookup-phone-form" aria-label={locale === "ko" ? "휴대전화 SMS 인증 조회" : "Phone SMS verification lookup"}>
+              <div className="site-form-grid site-lookup-form-grid">
+                <Input
+                  label={t("lookup.name")}
+                  value={form.name}
+                  onChange={setField("name")}
+                  placeholder={t("lookup.namePlaceholder")}
+                />
+                <div className="site-lookup-field-action">
+                  <Input
+                    className="site-lookup-field-action__input"
+                    label={locale === "ko" ? "휴대전화" : "Phone"}
+                    value={form.phone}
+                    onChange={setField("phone")}
+                    placeholder="010-0000-0000"
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="tel"
+                  />
+                  <Button
+                    className="site-lookup-field-action__button"
+                    onClick={handleSendPhoneVerificationCode}
+                    disabled={isSendingCode}
+                  >
+                    {isSendingCode
+                      ? (locale === "ko" ? "SMS 전송 중" : "Sending SMS")
+                      : (locale === "ko" ? "SMS 인증번호 전송" : "Send SMS code")}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="site-lookup-verification">
+                <div className="site-lookup-field-action">
+                  <label className="site-field site-lookup-field-action__input">
+                    <span className="site-lookup-field__label-row">
+                      <span className="site-field__label">{t("lookup.verificationCode")}</span>
+                    </span>
+                    <span className="site-lookup-code-input-wrap">
+                      <input
+                        className="site-input site-lookup-code-input"
+                        value={form.verificationCode}
+                        onChange={setField("verificationCode")}
+                        placeholder={t("lookup.verificationPlaceholder")}
+                        type="tel"
+                        inputMode="numeric"
+                      />
+                      {remainingSeconds > 0 ? (
+                        <span className="site-lookup-timer">{formatRemainingTime(remainingSeconds)}</span>
+                      ) : null}
+                    </span>
+                    <span className="site-field__hint">
+                      {locale === "ko" ? "SMS로 받은 6자리 인증번호를 입력해 주세요." : "Enter the 6-digit code sent by SMS."}
+                    </span>
+                  </label>
+                  <Button
+                    className="site-lookup-field-action__button"
+                    onClick={handleVerifyPhoneCode}
+                    disabled={isVerifyingCode}
+                  >
+                    {isVerifyingCode
+                      ? (locale === "ko" ? "SMS 인증 중" : "Verifying SMS")
+                      : (locale === "ko" ? "SMS 인증 확인" : "Verify SMS code")}
+                  </Button>
+                </div>
+
+                <div className="site-lookup-status-area">
+                  {hasStatusMessage ? (
+                    <div
+                      className={`site-lookup-status-box ${
+                        actionErrorMessage ? "site-lookup-status-box--error" : "site-lookup-status-box--success"
+                      }`.trim()}
+                    >
+                      <span className="site-lookup-status-box__badge">
+                        {actionErrorMessage ? t("lookup.info") : t("lookup.status")}
+                      </span>
+                      {actionErrorMessage ? <p>{actionErrorMessage}</p> : null}
+                      {verificationMessage ? <p>{verificationMessage}</p> : null}
+                    </div>
+                  ) : null}
+                </div>
+
+                <p className="site-field__hint site-lookup-phone-form__hint">
+                  {locale === "ko"
+                    ? "SMS 인증 후 신청·결제 내역과 환불 가능 정보를 조회할 수 있습니다. 환불 요청 시 인증은 즉시 사용 처리됩니다."
+                    : "SMS verification lets you view applications, payments, and refund availability. The verification is consumed when a refund is requested."}
+                </p>
+                <div className="site-lookup-actions">
+                  <Button onClick={handlePhoneLookup} disabled={isSubmitting}>
+                    {isSubmitting
+                      ? (locale === "ko" ? "조회 중" : "Looking up")
+                      : (locale === "ko" ? "SMS 인증으로 조회하기" : "Look up with SMS")}
+                  </Button>
+                </div>
+              </div>
+            </section>
           ) : (
             <section className="site-lookup-number-form" aria-label={locale === "ko" ? "신청번호 조회" : "Application number lookup"}>
               <Input
@@ -797,6 +1203,12 @@ export function LookupPage() {
                 <li>{locale === "ko" ? "신청번호는 완료 화면에서 확인할 수 있으며, 타인에게 공유하지 않는 것이 좋습니다." : "Your application number is shown on the completion page and should not be shared."}</li>
                 <li>{locale === "ko" ? "신청번호 조회에서는 결제 및 신청 상태만 확인할 수 있습니다." : "Application number lookup shows payment and application status only."}</li>
                 <li>{locale === "ko" ? "환불 신청은 본인 확인을 위해 이름과 이메일 인증 조회에서 진행해 주세요." : "Use name and email verification to request a refund."}</li>
+              </ul>
+            ) : lookupMode === "phone" ? (
+              <ul className="site-list">
+                <li>{locale === "ko" ? "성함과 휴대전화가 신청 정보와 일치하는 경우에만 SMS 인증번호가 전송됩니다." : "An SMS code is sent only when your name and phone match an application."}</li>
+                <li>{locale === "ko" ? "SMS 인증 조회에서도 환불 가능 정보와 환불 신청 버튼을 확인할 수 있습니다." : "SMS lookup also shows refund availability and refund actions."}</li>
+                <li>{locale === "ko" ? "환불 요청을 완료하면 해당 SMS 인증은 즉시 사용 처리됩니다." : "The SMS verification is consumed immediately after a refund request."}</li>
               </ul>
             ) : (
               <ul className="site-list">
@@ -910,7 +1322,7 @@ export function LookupPage() {
                             disabled={!canRequestRefund}
                             onClick={() =>
                               navigate(
-                                `/refund/request?type=application&id=${encodeURIComponent(result.applicationNumber)}`
+                                getRefundRequestPath("application", result.applicationNumber)
                               )
                             }
                           >
@@ -986,7 +1398,7 @@ export function LookupPage() {
                                   <Button
                                     onClick={() =>
                                       navigate(
-                                        `/refund/request?type=stage-service&id=${encodeURIComponent(purchase.serviceOrderNumber)}`
+                                        getRefundRequestPath("stage-service", purchase.serviceOrderNumber)
                                       )
                                     }
                                   >
@@ -998,7 +1410,7 @@ export function LookupPage() {
                           ))}
                         </div>
                       ) : null}
-                      {result.stageServiceSummary &&
+                      {!isPhoneLookup && result.stageServiceSummary &&
                       (!result.stageServiceSummary.hasStagePhoto ||
                         !result.stageServiceSummary.hasStageVideo ||
                         !result.stageServiceSummary.hasHairMakeup) ? (
@@ -1032,14 +1444,14 @@ export function LookupPage() {
                         <div className="site-review-row"><span>결제 완료 시점</span><strong>{formatPaymentCompletedAt(spectator.paymentCompletedAt, locale)}</strong></div>
                         <div className="site-lookup-refund">
                           <h4>환불 가능 정보</h4>
-                          <div className="site-review-row"><span>환불 비율</span><strong>{typeof spectator.refundQuote?.refundPercent === "number" ? `${spectator.refundQuote.refundPercent}%` : "-"}</strong></div>
-                          <div className="site-review-row"><span>예상 환불 금액</span><strong>{formatAmount(spectator.refundQuote?.refundAmount, locale)}</strong></div>
-                          <div className="site-lookup-refund__actions">
-                            <span className="site-lookup-refund__action-tooltip" tabIndex={canRequestRefund ? -1 : 0}>
-                              <Button disabled={!canRequestRefund} onClick={() => navigate(`/refund/request?type=spectator&id=${encodeURIComponent(spectator.spectatorOrderNumber)}`)}>환불 신청</Button>
-                              {!canRequestRefund ? <span className="site-lookup-refund__tooltip" role="tooltip">{disabledReason}</span> : null}
-                            </span>
-                          </div>
+                              <div className="site-review-row"><span>환불 비율</span><strong>{typeof spectator.refundQuote?.refundPercent === "number" ? `${spectator.refundQuote.refundPercent}%` : "-"}</strong></div>
+                              <div className="site-review-row"><span>예상 환불 금액</span><strong>{formatAmount(spectator.refundQuote?.refundAmount, locale)}</strong></div>
+                              <div className="site-lookup-refund__actions">
+                                <span className="site-lookup-refund__action-tooltip" tabIndex={canRequestRefund ? -1 : 0}>
+                                  <Button disabled={!canRequestRefund} onClick={() => navigate(getRefundRequestPath("spectator", spectator.spectatorOrderNumber))}>환불 신청</Button>
+                                  {!canRequestRefund ? <span className="site-lookup-refund__tooltip" role="tooltip">{disabledReason}</span> : null}
+                                </span>
+                              </div>
                         </div>
                       </article>
                     );
