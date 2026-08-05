@@ -26,21 +26,6 @@ import { CompetitionIntroPage, MmkIntroPage } from "./pages/CompetitionIntroPage
 import { FailPage } from "./pages/Fail";
 import { HomePage } from "./pages/HomePage";
 import {
-  KcpTestPaymentFailPage,
-  KcpTestPaymentPage,
-  KcpTestPaymentSuccessPage,
-} from "./pages/KcpTestPaymentPage";
-import {
-  KcpTestStageServiceFailPage,
-  KcpTestStageServicePage,
-  KcpTestStageServiceSuccessPage,
-} from "./pages/KcpTestStageServicePage";
-import {
-  KcpTestSpectatorFailPage,
-  KcpTestSpectatorPage,
-  KcpTestSpectatorSuccessPage,
-} from "./pages/KcpTestSpectatorPage";
-import {
   HallOfFamePage,
   OrganizationCommitteePage,
   OrganizationPage,
@@ -245,40 +230,8 @@ const router = createBrowserRouter([
         element: <TermsPage />,
       },
       {
-        path: "kcp-test",
-        element: <KcpTestPaymentPage />,
-      },
-      {
-        path: "kcp-test/success",
-        element: <KcpTestPaymentSuccessPage />,
-      },
-      {
-        path: "kcp-test/fail",
-        element: <KcpTestPaymentFailPage />,
-      },
-      {
-        path: "kcp-test/stage-services",
-        element: <KcpTestStageServicePage />,
-      },
-      {
-        path: "kcp-test/stage-services/success",
-        element: <KcpTestStageServiceSuccessPage />,
-      },
-      {
-        path: "kcp-test/stage-services/fail",
-        element: <KcpTestStageServiceFailPage />,
-      },
-      {
-        path: "kcp-test/spectators",
-        element: <KcpTestSpectatorPage />,
-      },
-      {
-        path: "kcp-test/spectators/success",
-        element: <KcpTestSpectatorSuccessPage />,
-      },
-      {
-        path: "kcp-test/spectators/fail",
-        element: <KcpTestSpectatorFailPage />,
+        path: "kcp-test/*",
+        element: <Navigate to="/" replace />,
       },
       {
         path: "payment",
