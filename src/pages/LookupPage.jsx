@@ -652,15 +652,18 @@ export function LookupPage() {
     }
   }
 
-  async function handlePhoneLookup() {
-    const validationMessage = validateNameAndPhone();
+  async function handlePhoneLookup(session = null) {
+    const lookupName = session?.name || form.name;
+    const lookupPhone = session?.phone || form.phone;
+    const lookupVerificationToken = session?.verificationToken || phoneVerificationToken;
+    const validationMessage = validateNameAndPhone(lookupName, lookupPhone);
 
     if (validationMessage) {
       setActionErrorMessage(validationMessage);
       return;
     }
 
-    if (!phoneVerificationToken) {
+    if (!lookupVerificationToken) {
       setActionErrorMessage(
         locale === "ko"
           ? "SMS 인증을 먼저 완료해 주세요."
@@ -676,15 +679,15 @@ export function LookupPage() {
 
     try {
       const json = await lookupApplicationByPhone({
-        name: form.name,
-        phone: form.phone,
-        verificationToken: phoneVerificationToken,
+        name: lookupName,
+        phone: lookupPhone,
+        verificationToken: lookupVerificationToken,
       });
 
       const phoneLookupIdentity = {
-        name: form.name,
-        phone: form.phone,
-        verificationToken: phoneVerificationToken,
+        name: lookupName,
+        phone: lookupPhone,
+        verificationToken: lookupVerificationToken,
       };
       const applications = Array.isArray(json.applications) ? json.applications : [];
       const spectators = Array.isArray(json.spectators) ? json.spectators : [];
@@ -838,6 +841,30 @@ export function LookupPage() {
     setEmailCustomDomain(parsedEmailAddress.customDomain);
     setVerificationToken(session.verificationToken);
     await handleLookup(session);
+  }
+
+  async function handleRecentPhoneLookup() {
+    const session = getStoredLookupPhoneSession();
+
+    if (!session) {
+      setRecentPhoneLookupSession(null);
+      setActionErrorMessage(
+        locale === "ko"
+          ? "최근 SMS 인증 정보가 만료되었습니다. 휴대전화 인증을 다시 진행해 주세요."
+          : "Your recent SMS verification has expired. Please verify your phone again."
+      );
+      return;
+    }
+
+    setForm({
+      name: session.name,
+      email: "",
+      phone: session.phone,
+      verificationCode: "",
+      applicationNumber: "",
+    });
+    setPhoneVerificationToken(session.verificationToken);
+    await handlePhoneLookup(session);
   }
 
   const hasStatusMessage = Boolean(actionErrorMessage || verificationMessage || devVerificationCode);
@@ -1081,6 +1108,19 @@ export function LookupPage() {
             </>
           ) : lookupMode === "phone" ? (
             <section className="site-lookup-phone-form" aria-label={locale === "ko" ? "휴대전화 SMS 인증 조회" : "Phone SMS verification lookup"}>
+              {recentPhoneLookupSession && !phoneVerificationToken ? (
+                <section className="site-lookup-recent-session" aria-label={locale === "ko" ? "최근 SMS 인증 조회" : "Recent SMS verified lookup"}>
+                  <p>
+                    {locale === "ko"
+                      ? "최근 SMS 인증이 남아 있습니다. 버튼을 누르면 신청 내역을 조회합니다."
+                      : "A recent SMS verification is available. Select the button to look up your applications."}
+                  </p>
+                  <Button onClick={handleRecentPhoneLookup} disabled={isSubmitting} variant="ghost">
+                    {locale === "ko" ? "최근 인증으로 조회하기" : "Use recent verification"}
+                  </Button>
+                </section>
+              ) : null}
+
               <div className="site-form-grid site-lookup-form-grid">
                 <Input
                   label={t("lookup.name")}
@@ -1163,8 +1203,8 @@ export function LookupPage() {
 
                 <p className="site-field__hint site-lookup-phone-form__hint">
                   {locale === "ko"
-                    ? "SMS 인증 후 신청·결제 내역과 환불 가능 정보를 조회할 수 있습니다. 환불 요청 시 인증은 즉시 사용 처리됩니다."
-                    : "SMS verification lets you view applications, payments, and refund availability. The verification is consumed when a refund is requested."}
+                    ? "SMS 인증 후 신청·결제 내역과 환불 가능 정보를 조회할 수 있습니다. 환불이 완료되면 인증은 사용 처리됩니다."
+                    : "SMS verification lets you view applications, payments, and refund availability. The verification is consumed after a refund is completed."}
                 </p>
                 <div className="site-lookup-actions">
                   <Button onClick={handlePhoneLookup} disabled={isSubmitting}>
@@ -1186,8 +1226,8 @@ export function LookupPage() {
               />
               <p className="site-field__hint">
                 {locale === "ko"
-                  ? "대회 신청(APPL), 무대 서비스(SS), 참관객 신청(SPCT) 완료 화면에 표시된 신청번호를 입력해 주세요. 환불은 본인 확인을 위해 이름·이메일 인증 조회에서 진행합니다."
-                  : "Enter the APPL, SS, or SPCT number shown on the completion page. Refunds require name and email verification."}
+                  ? "대회 신청(APPL), 무대 서비스(SS), 참관객 신청(SPCT) 완료 화면에 표시된 신청번호를 입력해 주세요. 환불은 본인 확인을 위해 이름·이메일 또는 이름·휴대전화 SMS 인증 조회에서 진행합니다."
+                  : "Enter the APPL, SS, or SPCT number shown on the completion page. Refunds require name and email or name and phone SMS verification."}
               </p>
               <div className="site-lookup-actions">
                 <Button onClick={handleNumberLookup} disabled={isSubmitting}>
@@ -1202,13 +1242,13 @@ export function LookupPage() {
               <ul className="site-list">
                 <li>{locale === "ko" ? "신청번호는 완료 화면에서 확인할 수 있으며, 타인에게 공유하지 않는 것이 좋습니다." : "Your application number is shown on the completion page and should not be shared."}</li>
                 <li>{locale === "ko" ? "신청번호 조회에서는 결제 및 신청 상태만 확인할 수 있습니다." : "Application number lookup shows payment and application status only."}</li>
-                <li>{locale === "ko" ? "환불 신청은 본인 확인을 위해 이름과 이메일 인증 조회에서 진행해 주세요." : "Use name and email verification to request a refund."}</li>
+                <li>{locale === "ko" ? "환불 신청은 본인 확인을 위해 이름·이메일 또는 이름·휴대전화 SMS 인증 조회에서 진행해 주세요." : "Use name and email or name and phone SMS verification to request a refund."}</li>
               </ul>
             ) : lookupMode === "phone" ? (
               <ul className="site-list">
                 <li>{locale === "ko" ? "성함과 휴대전화가 신청 정보와 일치하는 경우에만 SMS 인증번호가 전송됩니다." : "An SMS code is sent only when your name and phone match an application."}</li>
                 <li>{locale === "ko" ? "SMS 인증 조회에서도 환불 가능 정보와 환불 신청 버튼을 확인할 수 있습니다." : "SMS lookup also shows refund availability and refund actions."}</li>
-                <li>{locale === "ko" ? "환불 요청을 완료하면 해당 SMS 인증은 즉시 사용 처리됩니다." : "The SMS verification is consumed immediately after a refund request."}</li>
+                <li>{locale === "ko" ? "환불이 완료되면 해당 SMS 인증은 사용 처리됩니다." : "The SMS verification is consumed after a refund is completed."}</li>
               </ul>
             ) : (
               <ul className="site-list">
@@ -1235,7 +1275,7 @@ export function LookupPage() {
                 <div className="site-review-row"><span>{locale === "ko" ? "결제 금액" : "Payment amount"}</span><strong>{formatAmount(numberLookupResult.paymentAmount ?? numberLookupResult.totalAmount, locale)}</strong></div>
                 <div className="site-review-row"><span>{locale === "ko" ? "결제 완료 시점" : "Payment completed at"}</span><strong>{formatPaymentCompletedAt(numberLookupResult.paymentCompletedAt || numberLookupResult.purchasedAt, locale)}</strong></div>
               </div>
-              <p className="site-field__hint">{locale === "ko" ? "신청번호 조회는 결제·신청 정보 확인용입니다. 환불 신청은 이름과 이메일 인증 조회 후 진행해 주세요." : "Application number lookup is read-only. Use name and email verification to request a refund."}</p>
+              <p className="site-field__hint">{locale === "ko" ? "신청번호 조회는 결제·신청 정보 확인용입니다. 환불 신청은 이름·이메일 또는 이름·휴대전화 SMS 인증 조회 후 진행해 주세요." : "Application number lookup is read-only. Use name and email or name and phone SMS verification to request a refund."}</p>
             </div>
           ) : null}
 

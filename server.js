@@ -2683,6 +2683,19 @@ async function consumeVerifiedLookupAccess(client, access) {
   return consumeVerifiedLookupSession(client, access);
 }
 
+async function consumeCompletedRefundLookupAccess(client, access) {
+  try {
+    const consumed = await consumeVerifiedLookupAccess(client, access);
+
+    if (!consumed) {
+      console.warn("Refund completed without consuming lookup verification", { method: access.method });
+    }
+  } catch (error) {
+    // The KCP cancellation has already succeeded. Do not roll back a completed refund if the one-time lookup token cannot be cleared.
+    console.error("Failed to consume lookup verification after completed refund:", error);
+  }
+}
+
 async function findLookupOwnedApplication({ name, email, phone, applicationNumber }) {
   const isPhoneLookup = Boolean(phone);
   const result = await pool.query(
@@ -13042,10 +13055,6 @@ app.post("/stage-services/refund/request", async function (req, res) {
       await client.query("ROLLBACK");
       return res.status(409).json({ ok: false, code: "REFUND_ALREADY_REQUESTED", message: "이미 환불 요청이 접수되었거나 처리된 무대 서비스입니다.", refundRequest: mapStageServiceRefundRequestRow(activeResult.rows[0]) });
     }
-    if (!(await consumeVerifiedLookupAccess(client, access))) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({ ok: false, message: `${access.method === "phone" ? "SMS" : "이메일"} 인증이 이미 사용되었거나 만료되었습니다. 다시 인증해 주세요.` });
-    }
     const insertResult = await client.query(
       `
         INSERT INTO stage_service_refund_requests (
@@ -13132,6 +13141,7 @@ app.post("/stage-services/refund/request", async function (req, res) {
       `UPDATE stage_service_refund_requests SET request_status = 'COMPLETED', provider_status_code = $2, provider_response_json = $3::jsonb, processed_at = NOW(), updated_at = NOW() WHERE id = $1 RETURNING *`,
       [refundRequestId, cancellation.httpStatus, JSON.stringify(cancellation.result)]
     );
+    await consumeCompletedRefundLookupAccess(client, access);
     await client.query("COMMIT");
 
     void sendRefundCompletedSms({
@@ -13990,16 +14000,6 @@ app.post("/applications/refund/request", async function (req, res) {
       });
     }
 
-    const verificationConsumed = await consumeVerifiedLookupAccess(client, access);
-
-    if (!verificationConsumed) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({
-        ok: false,
-        message: `${access.method === "phone" ? "SMS" : "이메일"} 인증이 이미 사용되었거나 만료되었습니다. 다시 인증해 주세요.`,
-      });
-    }
-
     const insertResult = await client.query(
       `
         INSERT INTO application_refund_requests (
@@ -14201,6 +14201,8 @@ app.post("/applications/refund/request", async function (req, res) {
       [refundRequestId, providerCancelStatusCode, JSON.stringify(providerCancelResult)]
     );
 
+    await consumeCompletedRefundLookupAccess(client, access);
+
     await client.query("COMMIT");
 
     void sendRefundCompletedSms({
@@ -14366,10 +14368,6 @@ app.post("/spectators/refund/request", async function (req, res) {
       await client.query("ROLLBACK");
       return res.status(409).json({ ok: false, code: "REFUND_ALREADY_REQUESTED", message: "이미 환불 요청이 접수되었거나 처리되었습니다." });
     }
-    if (!(await consumeVerifiedLookupAccess(client, access))) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({ ok: false, message: `${access.method === "phone" ? "SMS" : "이메일"} 인증이 이미 사용되었거나 만료되었습니다.` });
-    }
     const insertResult = await client.query(
       `INSERT INTO spectator_refund_requests (spectator_order_number, order_id, payment_key, request_reason, request_status, refund_percent, refund_amount, original_amount, policy_version, policy_rule_id, policy_rule_label, policy_snapshot_json, requested_by_name, requested_by_email, provider_idempotency_key) VALUES ($1,$2,$3,$4,'PROCESSING',$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14) RETURNING *`,
       [spectatorOrderNumber, spectatorOrder.order_id, spectatorOrder.payment_key, requestReason, refundQuote.refundPercent, refundQuote.refundAmount, originalAmount, refundQuote.policyVersion, refundQuote.matchedRuleId, refundQuote.matchedRuleLabel, JSON.stringify(refundQuote), access.name, spectatorOrder.email, generateRefundIdempotencyKey()]
@@ -14394,6 +14392,7 @@ app.post("/spectators/refund/request", async function (req, res) {
     await client.query(`UPDATE orders SET status = $2, updated_at = NOW() WHERE order_id = $1`, [spectatorOrder.order_id, mapPaymentStatusToOrderStatus(nextPaymentStatus) || "CANCELED"]);
     await client.query(`UPDATE spectator_orders SET payment_status = $2, admission_status = $3, updated_at = NOW() WHERE spectator_order_number = $1`, [spectatorOrderNumber, nextPaymentStatus, nextPaymentStatus === "PARTIAL_CANCELED" ? "PARTIAL_REFUNDED" : "REFUNDED"]);
     await client.query(`UPDATE spectator_refund_requests SET request_status = 'COMPLETED', provider_status_code = $2, provider_response_json = $3::jsonb, processed_at = NOW(), updated_at = NOW() WHERE id = $1`, [refundRequestId, providerCancelStatusCode, JSON.stringify(providerCancelResult)]);
+    await consumeCompletedRefundLookupAccess(client, access);
     await client.query("COMMIT");
     void sendRefundCompletedSms({
       eventKey: `spectator-refund:${refundRequestId}`,

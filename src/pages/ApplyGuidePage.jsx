@@ -127,7 +127,7 @@ function RegulationGuide({ locale }) {
               title: "환불 규정",
               required: "필수",
               body:
-                "환불 금액은 결제 완료 시점과 환불 요청 시점의 대회 시작일 기준 구간에 따라 자동 산정됩니다. 대회 신청과 무대 서비스는 환불 이력을 합산하며, 최근 30일 내 환불 완료가 5회 이상이면 다음 요청은 운영 확인 후 처리됩니다. 참관객 입장권 환불 이력은 별도로 계산됩니다.",
+                "환불 금액은 결제 완료 시점과 환불 요청 시점의 대회 시작일 기준 구간에 따라 자동 산정됩니다. 다만 카드 결제 취소는 KCP 등 결제대행사의 정산 상태에 따라 즉시 처리되지 않거나 별도 확인이 필요할 수 있습니다. 대회 신청과 무대 서비스는 환불 이력을 합산하며, 최근 30일 내 환불 완료가 5회 이상이면 다음 요청은 운영 확인 후 처리됩니다. 참관객 입장권 환불 이력은 별도로 계산됩니다.",
             },
             {
               title: "마케팅 정보 수신",
@@ -171,7 +171,7 @@ function RegulationGuide({ locale }) {
               title: "Refund policy",
               required: "Required",
               body:
-                "Refund amounts are calculated automatically based on the policy period at payment completion and the refund request time, relative to the competition date.",
+                "Refund amounts are calculated automatically based on the policy period at payment completion and the refund request time, relative to the competition date. Card cancellations may be delayed or require separate confirmation depending on the settlement status of the payment provider, such as KCP.",
             },
             {
               title: "Marketing communications",
