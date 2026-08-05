@@ -5,6 +5,7 @@ import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
 import { formatStageServiceAmount, getStageServiceTitle } from "../data/stageServiceConfig";
 import { getStageServiceOrderByNumber, getStageServiceOrderByOrder } from "../lib/applicationApi";
+import { getCustomerPaymentStatus } from "../lib/customerPaymentStatus";
 
 export function StageServiceCompletePage() {
   const [searchParams] = useSearchParams();
@@ -52,7 +53,7 @@ export function StageServiceCompletePage() {
             <div className="site-review-row"><span>{t("complete.phone")}</span><strong>{serviceOrder?.phone || "-"}</strong></div>
             <div className="site-review-row"><span>{t("complete.email")}</span><strong>{serviceOrder?.email || "-"}</strong></div>
             <div className="site-review-row"><span>{t("stageService.totalAmount")}</span><strong>{serviceOrder ? formatStageServiceAmount(serviceOrder.totalAmount, locale) : "-"}</strong></div>
-            <div className="site-review-row"><span>{t("complete.paymentStatus")}</span><strong>{serviceOrder?.paymentStatus || "-"}</strong></div>
+            <div className="site-review-row"><span>{t("complete.paymentStatus")}</span><strong>{getCustomerPaymentStatus({ paymentStatus: serviceOrder?.paymentStatus, operationalStatus: serviceOrder?.serviceStatus, locale })}</strong></div>
             <div className="site-review-row"><span>{t("complete.submittedAt")}</span><strong>{serviceOrder?.purchasedAt || "-"}</strong></div>
           </div>
 

@@ -11,6 +11,10 @@ import {
   requestStageServiceRefund,
   requestSpectatorRefund,
 } from "../lib/applicationApi";
+import {
+  clearStoredRefundLookupAccess,
+  getStoredRefundLookupAccess,
+} from "../lib/refundLookupAccess";
 
 const lookupSessionStorageKey = "mmkorea-lookup-session";
 const lookupPhoneSessionStorageKey = "mmkorea-lookup-phone-session";
@@ -34,31 +38,6 @@ function formatAmount(value) {
   }).format(Number(value));
 }
 
-function getLookupSession(accessMethod) {
-  try {
-    const storageKey = accessMethod === "phone" ? lookupPhoneSessionStorageKey : lookupSessionStorageKey;
-    const value = window.sessionStorage.getItem(storageKey);
-    const session = value ? JSON.parse(value) : null;
-    const expiresAt = new Date(session?.expiresAt || "");
-    const hasIdentity = accessMethod === "phone" ? Boolean(session?.phone) : Boolean(session?.email);
-
-    if (
-      !session?.name ||
-      !hasIdentity ||
-      !session?.verificationToken ||
-      Number.isNaN(expiresAt.getTime()) ||
-      expiresAt.getTime() <= Date.now()
-    ) {
-      window.sessionStorage.removeItem(storageKey);
-      return null;
-    }
-
-    return session;
-  } catch {
-    return null;
-  }
-}
-
 export function RefundRequestPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -67,8 +46,8 @@ export function RefundRequestPage() {
   const isStageService = refundType === "stage-service";
   const isApplication = refundType === "application";
   const isSpectator = refundType === "spectator";
-  const accessMethod = searchParams.get("access") === "phone" ? "phone" : "email";
-  const [lookupSession] = useState(() => getLookupSession(accessMethod));
+  const [lookupAccess] = useState(getStoredRefundLookupAccess);
+  const accessMethod = lookupAccess?.method || "";
   const [quote, setQuote] = useState(null);
   const [target, setTarget] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -105,8 +84,8 @@ export function RefundRequestPage() {
         return;
       }
 
-      if (!lookupSession?.name || !(accessMethod === "phone" ? lookupSession?.phone : lookupSession?.email) || !lookupSession?.verificationToken) {
-        setErrorMessage(`${accessMethod === "phone" ? "휴대전화 SMS" : "이메일"} 인증이 필요합니다. 신청 조회에서 인증 후 다시 시도해 주세요.`);
+      if (!lookupAccess?.name || !(accessMethod === "phone" ? lookupAccess?.phone : lookupAccess?.email) || !lookupAccess?.verificationToken) {
+        setErrorMessage("환불을 진행하려면 이름·이메일 또는 이름·휴대전화 SMS 인증 조회에서 다시 본인 인증해 주세요.");
         setIsLoading(false);
         return;
       }
@@ -116,9 +95,9 @@ export function RefundRequestPage() {
 
       try {
         const payload = {
-          name: lookupSession.name,
-          verificationToken: lookupSession.verificationToken,
-          ...(accessMethod === "phone" ? { phone: lookupSession.phone } : { email: lookupSession.email }),
+          name: lookupAccess.name,
+          verificationToken: lookupAccess.verificationToken,
+          ...(accessMethod === "phone" ? { phone: lookupAccess.phone } : { email: lookupAccess.email }),
           ...(isStageService
             ? { serviceOrderNumber: targetId }
             : isSpectator
@@ -141,10 +120,10 @@ export function RefundRequestPage() {
     }
 
     loadRefundQuote();
-  }, [accessMethod, isApplication, isSpectator, isStageService, lookupSession, targetId]);
+  }, [accessMethod, isApplication, isSpectator, isStageService, lookupAccess, targetId]);
 
   async function handleRefund() {
-    if (!quote?.canAutoRefund || !isAcknowledged || isSubmitting || !lookupSession) {
+    if (!quote?.canAutoRefund || !isAcknowledged || isSubmitting || !lookupAccess) {
       return;
     }
 
@@ -153,9 +132,9 @@ export function RefundRequestPage() {
 
     try {
       const payload = {
-        name: lookupSession.name,
-        verificationToken: lookupSession.verificationToken,
-        ...(accessMethod === "phone" ? { phone: lookupSession.phone } : { email: lookupSession.email }),
+        name: lookupAccess.name,
+        verificationToken: lookupAccess.verificationToken,
+        ...(accessMethod === "phone" ? { phone: lookupAccess.phone } : { email: lookupAccess.email }),
         requestReason: "사용자 요청 자동 환불",
         ...(isStageService
           ? { serviceOrderNumber: targetId }
@@ -178,6 +157,7 @@ export function RefundRequestPage() {
 
       try {
         window.sessionStorage.removeItem(accessMethod === "phone" ? lookupPhoneSessionStorageKey : lookupSessionStorageKey);
+        clearStoredRefundLookupAccess();
         window.sessionStorage.setItem(refundCompleteStorageKey, JSON.stringify(refundSummary));
       } catch {
         // 환불은 완료되었으므로 브라우저 저장소를 쓸 수 없어도 완료 화면으로 이동한다.

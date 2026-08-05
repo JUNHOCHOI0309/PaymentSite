@@ -1903,6 +1903,52 @@ body,
   line-height: 1.5;
 }
 
+.site-lookup-result-tabs {
+  margin: 20px 0 24px;
+}
+
+.site-lookup-result-tab {
+  min-height: 86px;
+  text-align: center;
+}
+
+.site-lookup-result-tab span {
+  margin-top: 4px;
+}
+
+.site-lookup-result-panel {
+  min-height: 148px;
+}
+
+.site-lookup-result-empty {
+  margin: 0;
+  padding: 42px 20px;
+  border: 1px dashed #c8d2df;
+  border-radius: 14px;
+  color: #657184;
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .site-lookup-result-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .site-lookup-result-tab {
+    min-height: 76px;
+    padding: 14px 8px;
+  }
+
+  .site-lookup-result-tab strong {
+    font-size: 0.88rem;
+  }
+
+  .site-lookup-result-tab span {
+    font-size: 0.76rem;
+  }
+}
+
 .site-lookup-number-form {
   display: grid;
   gap: 14px;

@@ -24,6 +24,8 @@ import {
   parseEmailAddress,
   presetEmailDomains,
 } from "../lib/emailAddress";
+import { getCustomerPaymentStatus } from "../lib/customerPaymentStatus";
+import { storeRefundLookupAccess } from "../lib/refundLookupAccess";
 
 const lookupSessionStorageKey = "mmkorea-lookup-session";
 const lookupPhoneSessionStorageKey = "mmkorea-lookup-phone-session";
@@ -166,6 +168,8 @@ export function LookupPage() {
   const [emailCustomDomain, setEmailCustomDomain] = useState("");
   const [results, setResults] = useState([]);
   const [spectatorResults, setSpectatorResults] = useState([]);
+  const [lookupResultAccessMethod, setLookupResultAccessMethod] = useState("");
+  const [lookupResultTab, setLookupResultTab] = useState("applications");
   const [numberLookupResult, setNumberLookupResult] = useState(null);
   const [actionErrorMessage, setActionErrorMessage] = useState("");
   const [verificationMessage, setVerificationMessage] = useState("");
@@ -241,6 +245,7 @@ export function LookupPage() {
     setActionErrorMessage("");
     setResults([]);
     setSpectatorResults([]);
+    setLookupResultAccessMethod("");
     setNumberLookupResult(null);
 
     if (field === "name" || field === "email") {
@@ -291,6 +296,7 @@ export function LookupPage() {
     setActionErrorMessage("");
     setResults([]);
     setSpectatorResults([]);
+    setLookupResultAccessMethod("");
     setNumberLookupResult(null);
     resetLookupVerification();
   }
@@ -642,10 +648,13 @@ export function LookupPage() {
         }),
       );
       setSpectatorResults(spectatorsWithRefundQuotes);
+      setLookupResultAccessMethod("email");
+      setLookupResultTab("applications");
       setVerificationMessage(t("lookup.lookupDone"));
     } catch (error) {
       setResults([]);
       setSpectatorResults([]);
+      setLookupResultAccessMethod("");
       setActionErrorMessage(error.message || t("lookup.lookupFailed"));
     } finally {
       setIsSubmitting(false);
@@ -757,6 +766,8 @@ export function LookupPage() {
 
       setResults(applicationsWithRefundQuotes);
       setSpectatorResults(spectatorsWithRefundQuotes);
+      setLookupResultAccessMethod("phone");
+      setLookupResultTab("applications");
       setVerificationMessage(
         locale === "ko"
           ? "SMS 인증으로 신청 내역을 조회했습니다."
@@ -765,6 +776,7 @@ export function LookupPage() {
     } catch (error) {
       setResults([]);
       setSpectatorResults([]);
+      setLookupResultAccessMethod("");
       setActionErrorMessage(
         error.message ||
           (locale === "ko" ? "SMS 인증 신청 조회에 실패했습니다." : "Unable to look up applications with SMS verification.")
@@ -787,6 +799,7 @@ export function LookupPage() {
     }));
     setResults([]);
     setSpectatorResults([]);
+    setLookupResultAccessMethod("");
     setNumberLookupResult(null);
   }
 
@@ -803,6 +816,7 @@ export function LookupPage() {
     setVerificationMessage("");
     setResults([]);
     setSpectatorResults([]);
+    setLookupResultAccessMethod("");
 
     try {
       const json = await lookupApplicationByNumber({ applicationNumber });
@@ -868,24 +882,34 @@ export function LookupPage() {
   }
 
   const hasStatusMessage = Boolean(actionErrorMessage || verificationMessage || devVerificationCode);
-  const isPhoneLookup = lookupMode === "phone";
+  function navigateToRefundRequest(type, id) {
+    const accessMethod = lookupResultAccessMethod;
+    const session = accessMethod === "phone" ? getStoredLookupPhoneSession() : getStoredLookupSession();
 
-  function getRefundRequestPath(type, id) {
-    const access = isPhoneLookup ? "phone" : "email";
-    return `/refund/request?type=${encodeURIComponent(type)}&id=${encodeURIComponent(id)}&access=${access}`;
+    if (!accessMethod || !storeRefundLookupAccess({ method: accessMethod, session })) {
+      setActionErrorMessage(
+        locale === "ko"
+          ? "환불을 진행하려면 현재 조회 탭에서 본인 인증을 다시 완료해 주세요."
+          : "Complete verification again in the current lookup tab before requesting a refund."
+      );
+      return;
+    }
+
+    navigate(`/refund/request?type=${encodeURIComponent(type)}&id=${encodeURIComponent(id)}`);
   }
-  const completedPaymentResults = results.filter((result) => result.paymentStatus === "DONE");
-  const completedStageServicePurchases = Array.from(
+  const stageServicePurchases = Array.from(
     results
       .flatMap((result) => result.stageServiceSummary?.purchases || [])
-      .filter((purchase) => purchase.paymentStatus === "DONE")
       .reduce((purchasesByOrderNumber, purchase) => {
         purchasesByOrderNumber.set(purchase.serviceOrderNumber, purchase);
         return purchasesByOrderNumber;
       }, new Map())
       .values(),
   );
+  const completedPaymentResults = results.filter((result) => result.paymentStatus === "DONE");
+  const completedStageServicePurchases = stageServicePurchases.filter((purchase) => purchase.paymentStatus === "DONE");
   const completedSpectatorResults = spectatorResults.filter((result) => result.paymentStatus === "DONE");
+  const hasLookupResults = results.length > 0 || stageServicePurchases.length > 0 || spectatorResults.length > 0;
   const totalPaidAmount = completedPaymentResults.reduce(
     (total, result) => total + Number(result.paymentAmount || 0),
     0,
@@ -907,6 +931,20 @@ export function LookupPage() {
           title: "Payment summary",
           completedCount: "Completed applications / services",
           totalPaid: "Completed payment total",
+        };
+  const lookupResultTabCopy =
+    locale === "ko"
+      ? {
+          applications: "종목",
+          stageServices: "무대서비스",
+          spectators: "참관객 신청",
+          empty: "신청한 내역이 없습니다.",
+        }
+      : {
+          applications: "Competition",
+          stageServices: "Stage services",
+          spectators: "Spectator",
+          empty: "No application history was found.",
         };
 
   return (
@@ -1272,7 +1310,7 @@ export function LookupPage() {
                 {numberLookupResult.type === "stageService" ? <><div className="site-review-row"><span>{locale === "ko" ? "서비스" : "Service"}</span><strong>{stageServiceTitles[numberLookupResult.serviceType] || numberLookupResult.serviceType}</strong></div><div className="site-review-row"><span>{locale === "ko" ? "연결 종목" : "Linked disciplines"}</span><strong>{numberLookupResult.linkedDisciplines?.join(", ") || "-"}</strong></div></> : null}
                 {numberLookupResult.type === "spectator" ? <><div className="site-review-row"><span>{locale === "ko" ? "입장권" : "Ticket"}</span><strong>{numberLookupResult.quantity || 1}{locale === "ko" ? "매" : " ticket"}</strong></div><div className="site-review-row"><span>{locale === "ko" ? "입장 상태" : "Admission status"}</span><strong>{numberLookupResult.admissionStatus || "-"}</strong></div></> : null}
                 {numberLookupResult.isTest ? <div className="site-review-row"><span>{locale === "ko" ? "결제 구분" : "Payment type"}</span><strong>{locale === "ko" ? "테스트 결제" : "Test payment"}</strong></div> : null}
-                <div className="site-review-row"><span>{t("lookup.paymentStatus")}</span><strong>{numberLookupResult.paymentStatus || "-"}</strong></div>
+                <div className="site-review-row"><span>{t("lookup.paymentStatus")}</span><strong>{getCustomerPaymentStatus({ paymentStatus: numberLookupResult.paymentStatus, operationalStatus: numberLookupResult.status || numberLookupResult.serviceStatus || numberLookupResult.admissionStatus, locale })}</strong></div>
                 <div className="site-review-row"><span>{locale === "ko" ? "결제 금액" : "Payment amount"}</span><strong>{formatAmount(numberLookupResult.paymentAmount ?? numberLookupResult.totalAmount, locale)}</strong></div>
                 <div className="site-review-row"><span>{locale === "ko" ? "결제 완료 시점" : "Payment completed at"}</span><strong>{formatPaymentCompletedAt(numberLookupResult.paymentCompletedAt || numberLookupResult.purchasedAt, locale)}</strong></div>
               </div>
@@ -1280,227 +1318,131 @@ export function LookupPage() {
             </div>
           ) : null}
 
-          {results.length > 0 || spectatorResults.length > 0 ? (
+          {hasLookupResults ? (
             <div className="site-result-card">
               <h3>{t("lookup.resultTitle")}</h3>
-              <div className="site-lookup-results">
-                {results.map((result) => {
-                  const canRequestRefund =
-                    result.paymentStatus === "DONE" &&
-                    result.refundQuote?.canAutoRefund === true &&
-                    result.refundRequest?.requestStatus !== "COMPLETED";
-                  const refundDisabledReason =
-                    result.refundRequest?.requestStatus === "COMPLETED"
-                      ? t("lookup.refundProcessed")
-                      : result.refundQuote?.message ||
-                        result.refundQuoteError ||
-                        t("lookup.refundQuoteFailed");
-
-                  return (
-                  <div className="site-lookup-result" key={result.applicationNumber}>
-                    <div className="site-review-row"><span>{t("lookup.applicationStatus")}</span><strong>{result.status}</strong></div>
-                    <div className="site-review-row"><span>{t("lookup.applicationNumber")}</span><strong>{result.applicationNumber}</strong></div>
-                    <div className="site-review-row"><span>{t("lookup.discipline", locale === "ko" ? "신청 종목" : "Applied discipline")}</span><strong>{result.discipline || "-"}</strong></div>
-                    <div className="site-review-row"><span>{t("lookup.paymentStatus")}</span><strong>{result.paymentStatus}</strong></div>
-                    <div className="site-review-row"><span>{locale === "ko" ? "결제 완료 시점" : "Payment completed at"}</span><strong>{formatPaymentCompletedAt(result.paymentCompletedAt, locale)}</strong></div>
-                    <div className="site-review-row"><span>{t("lookup.applicant")}</span><strong>{result.name}</strong></div>
-                    <div className="site-review-row"><span>{t("lookup.phone")}</span><strong>{result.phone}</strong></div>
-                    <div className="site-review-row"><span>{t("lookup.emailLabel")}</span><strong>{result.email}</strong></div>
-                    <div className="site-lookup-refund">
-                      <h4>{t("lookup.refundTitle")}</h4>
-                      {result.refundRequest?.requestStatus === "COMPLETED" ? (
-                        <p className="site-lookup-refund__success">{t("lookup.refundProcessed")}</p>
-                      ) : null}
-                      {result.refundQuote ? (
-                        <div className="site-lookup-refund__rows">
-                          <div className="site-review-row">
-                            <span>{t("lookup.refundStatus")}</span>
-                            <strong>
-                              {result.refundQuote.requiresManualReview
-                                ? t("lookup.refundManualReview")
-                                : result.refundQuote.canAutoRefund
-                                  ? t("lookup.refundAvailable")
-                                  : t("lookup.refundUnavailable")}
-                            </strong>
-                          </div>
-                          <div className="site-review-row">
-                            <span>{t("lookup.refundPercent")}</span>
-                            <strong>
-                              {typeof result.refundQuote.refundPercent === "number"
-                                ? `${result.refundQuote.refundPercent}%`
-                                : "-"}
-                            </strong>
-                          </div>
-                          <div className="site-review-row">
-                            <span>{t("lookup.refundAmount")}</span>
-                            <strong>{formatAmount(result.refundQuote.refundAmount, locale)}</strong>
-                          </div>
-                          <div className="site-review-row">
-                            <span>{t("lookup.refundRule")}</span>
-                            <strong>{result.refundQuote.matchedRuleLabel || "-"}</strong>
-                          </div>
-                          <div className="site-review-row">
-                            <span>{t("lookup.refundPolicyVersion")}</span>
-                            <strong>{result.refundQuote.policyVersion || "-"}</strong>
-                          </div>
-                          <div className="site-review-row">
-                            <span>{t("lookup.refundReason")}</span>
-                            <strong>{result.refundQuote.message || "-"}</strong>
-                          </div>
-                        </div>
-                      ) : result.refundQuoteError ? (
-                        <p className="site-lookup-refund__error">{result.refundQuoteError}</p>
-                      ) : (
-                        <p className="site-lookup-refund__pending">{t("lookup.refundPending")}</p>
-                      )}
-                      <div className="site-lookup-refund__actions">
-                        <span
-                          className="site-lookup-refund__action-tooltip"
-                          tabIndex={canRequestRefund ? -1 : 0}
-                          aria-label={canRequestRefund ? undefined : refundDisabledReason}
-                        >
-                          <Button
-                            disabled={!canRequestRefund}
-                            onClick={() =>
-                              navigate(
-                                getRefundRequestPath("application", result.applicationNumber)
-                              )
-                            }
-                          >
-                            {t("lookup.refundRequest")}
-                          </Button>
-                          {!canRequestRefund ? (
-                            <span className="site-lookup-refund__tooltip" role="tooltip">
-                              {refundDisabledReason}
-                            </span>
-                          ) : null}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="site-lookup-stage-services">
-                      <h4>{t("stageService.lookupTitle")}</h4>
-                      {result.stageServiceSummary ? (
-                        <div className="site-lookup-refund__rows">
-                          <div className="site-review-row">
-                            <span>{t("stageService.lookupPhoto")}</span>
-                            <strong>
-                              {result.stageServiceSummary.hasStagePhoto
-                                ? t("stageService.lookupPurchased")
-                                : t("stageService.lookupMissing")}
-                            </strong>
-                          </div>
-                          <div className="site-review-row">
-                            <span>{t("stageService.lookupVideo")}</span>
-                            <strong>
-                              {result.stageServiceSummary.hasStageVideo
-                                ? t("stageService.lookupPurchased")
-                                : t("stageService.lookupMissing")}
-                            </strong>
-                          </div>
-                          <div className="site-review-row">
-                            <span>{t("stageService.lookupHairMakeup")}</span>
-                            <strong>
-                              {result.stageServiceSummary.hasHairMakeup
-                                ? t("stageService.lookupPurchased")
-                                : t("stageService.lookupMissing")}
-                            </strong>
-                          </div>
-                        </div>
-                      ) : result.stageServiceSummaryError ? (
-                        <p className="site-lookup-refund__error">{result.stageServiceSummaryError}</p>
-                      ) : null}
-                      {result.stageServiceSummary?.purchases?.length ? (
-                        <div className="site-lookup-stage-services__purchases">
-                          {result.stageServiceSummary.purchases.map((purchase) => (
-                            <article
-                              className="site-lookup-stage-services__purchase"
-                              key={purchase.serviceOrderNumber}
-                            >
-                              <strong>
-                                {stageServiceTitles[purchase.serviceType] || purchase.serviceType}
-                                {getStageServiceLinkedDisciplines(purchase)
-                                  ? ` · ${getStageServiceLinkedDisciplines(purchase)}`
-                                  : ""}
-                              </strong>
-                              <div className="site-review-row">
-                                <span>주문 번호</span>
-                                <strong>{purchase.serviceOrderNumber}</strong>
-                              </div>
-                              <div className="site-review-row">
-                                <span>결제 상태</span>
-                                <strong>{purchase.paymentStatus}</strong>
-                              </div>
-                              <div className="site-review-row">
-                                <span>결제 금액</span>
-                                <strong>{formatAmount(purchase.totalAmount, locale)}</strong>
-                              </div>
-                              {purchase.paymentStatus === "DONE" ? (
-                                <div className="site-lookup-refund__actions">
-                                  <Button
-                                    onClick={() =>
-                                      navigate(
-                                        getRefundRequestPath("stage-service", purchase.serviceOrderNumber)
-                                      )
-                                    }
-                                  >
-                                    {t("lookup.refundRequest")}
-                                  </Button>
-                                </div>
-                              ) : null}
-                            </article>
-                          ))}
-                        </div>
-                      ) : null}
-                      {!isPhoneLookup && result.stageServiceSummary &&
-                      (!result.stageServiceSummary.hasStagePhoto ||
-                        !result.stageServiceSummary.hasStageVideo ||
-                        !result.stageServiceSummary.hasHairMakeup) ? (
-                        <div className="site-lookup-refund__actions">
-                          <a
-                            className="site-lookup-stage-services__link"
-                            href={`/apply/stage-services?name=${encodeURIComponent(form.name)}&email=${encodeURIComponent(form.email)}`}
-                          >
-                            {t("stageService.lookupSelectLink")}
-                          </a>
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                  );
-                })}
+              <div className="site-lookup-mode-grid site-lookup-result-tabs" role="tablist" aria-label={locale === "ko" ? "신청 내역 구분" : "Application history category"}>
+                {[
+                  ["applications", lookupResultTabCopy.applications, results.length],
+                  ["stageServices", lookupResultTabCopy.stageServices, stageServicePurchases.length],
+                  ["spectators", lookupResultTabCopy.spectators, spectatorResults.length],
+                ].map(([tab, label, count]) => (
+                  <button
+                    aria-selected={lookupResultTab === tab}
+                    className={`site-lookup-mode-card site-lookup-result-tab ${lookupResultTab === tab ? "site-lookup-mode-card--active" : ""}`}
+                    key={tab}
+                    onClick={() => setLookupResultTab(tab)}
+                    role="tab"
+                    type="button"
+                  >
+                    <strong>{label}</strong>
+                    <span>{locale === "ko" ? `${count}건` : `${count} item${count === 1 ? "" : "s"}`}</span>
+                  </button>
+                ))}
               </div>
-              {spectatorResults.length > 0 ? (
-                <section className="site-lookup-spectators" aria-label="참관객 신청 내역">
-                  <h3>참관객 신청 내역</h3>
-                  {spectatorResults.map((spectator) => {
-                    const isTestPayment = spectator.isTest === true;
-                    const canRequestRefund = spectator.paymentStatus === "DONE" && spectator.refundQuote?.canAutoRefund === true;
-                    const disabledReason = spectator.refundQuote?.message || spectator.refundQuoteError || "현재 환불 가능 여부를 확인할 수 없습니다.";
-                    return (
-                      <article className="site-lookup-result" key={spectator.spectatorOrderNumber}>
-                        <div className="site-review-row"><span>신청번호</span><strong>{spectator.spectatorOrderNumber}</strong></div>
-                        <div className="site-review-row"><span>신청자</span><strong>{spectator.name}</strong></div>
-                        {isTestPayment ? <div className="site-review-row"><span>결제 구분</span><strong>테스트 결제</strong></div> : null}
-                        <div className="site-review-row"><span>입장권</span><strong>{spectator.quantity || 1}매</strong></div>
-                        <div className="site-review-row"><span>결제 상태</span><strong>{spectator.paymentStatus}</strong></div>
-                        <div className="site-review-row"><span>결제 금액</span><strong>{formatAmount(spectator.paymentAmount || spectator.totalAmount, locale)}</strong></div>
-                        <div className="site-review-row"><span>결제 완료 시점</span><strong>{formatPaymentCompletedAt(spectator.paymentCompletedAt, locale)}</strong></div>
-                        <div className="site-lookup-refund">
-                          <h4>환불 가능 정보</h4>
-                              <div className="site-review-row"><span>환불 비율</span><strong>{typeof spectator.refundQuote?.refundPercent === "number" ? `${spectator.refundQuote.refundPercent}%` : "-"}</strong></div>
-                              <div className="site-review-row"><span>예상 환불 금액</span><strong>{formatAmount(spectator.refundQuote?.refundAmount, locale)}</strong></div>
+
+              <div className="site-lookup-result-panel" role="tabpanel">
+                {lookupResultTab === "applications" ? (
+                  results.length > 0 ? (
+                    <div className="site-lookup-results">
+                      {results.map((result) => {
+                        const canRequestRefund =
+                          result.paymentStatus === "DONE" &&
+                          result.refundQuote?.canAutoRefund === true &&
+                          result.refundRequest?.requestStatus !== "COMPLETED";
+                        const refundDisabledReason =
+                          result.refundRequest?.requestStatus === "COMPLETED"
+                            ? t("lookup.refundProcessed")
+                            : result.refundQuote?.message || result.refundQuoteError || t("lookup.refundQuoteFailed");
+
+                        return (
+                          <article className="site-lookup-result" key={result.applicationNumber}>
+                            <div className="site-review-row"><span>{t("lookup.applicationStatus")}</span><strong>{result.status}</strong></div>
+                            <div className="site-review-row"><span>{t("lookup.applicationNumber")}</span><strong>{result.applicationNumber}</strong></div>
+                            <div className="site-review-row"><span>{t("lookup.discipline", locale === "ko" ? "신청 종목" : "Applied discipline")}</span><strong>{result.discipline || "-"}</strong></div>
+                            <div className="site-review-row"><span>{t("lookup.paymentStatus")}</span><strong>{getCustomerPaymentStatus({ paymentStatus: result.paymentStatus, refundRequestStatus: result.refundRequest?.requestStatus, operationalStatus: result.status, locale })}</strong></div>
+                            <div className="site-review-row"><span>{locale === "ko" ? "결제 완료 시점" : "Payment completed at"}</span><strong>{formatPaymentCompletedAt(result.paymentCompletedAt, locale)}</strong></div>
+                            <div className="site-review-row"><span>{t("lookup.applicant")}</span><strong>{result.name}</strong></div>
+                            <div className="site-review-row"><span>{t("lookup.phone")}</span><strong>{result.phone}</strong></div>
+                            <div className="site-review-row"><span>{t("lookup.emailLabel")}</span><strong>{result.email}</strong></div>
+                            <div className="site-lookup-refund">
+                              <h4>{t("lookup.refundTitle")}</h4>
+                              {result.refundRequest?.requestStatus === "COMPLETED" ? <p className="site-lookup-refund__success">{t("lookup.refundProcessed")}</p> : null}
+                              {result.refundQuote ? (
+                                <div className="site-lookup-refund__rows">
+                                  <div className="site-review-row"><span>{t("lookup.refundStatus")}</span><strong>{result.refundQuote.requiresManualReview ? t("lookup.refundManualReview") : result.refundQuote.canAutoRefund ? t("lookup.refundAvailable") : t("lookup.refundUnavailable")}</strong></div>
+                                  <div className="site-review-row"><span>{t("lookup.refundPercent")}</span><strong>{typeof result.refundQuote.refundPercent === "number" ? `${result.refundQuote.refundPercent}%` : "-"}</strong></div>
+                                  <div className="site-review-row"><span>{t("lookup.refundAmount")}</span><strong>{formatAmount(result.refundQuote.refundAmount, locale)}</strong></div>
+                                  <div className="site-review-row"><span>{t("lookup.refundRule")}</span><strong>{result.refundQuote.matchedRuleLabel || "-"}</strong></div>
+                                  <div className="site-review-row"><span>{t("lookup.refundPolicyVersion")}</span><strong>{result.refundQuote.policyVersion || "-"}</strong></div>
+                                  <div className="site-review-row"><span>{t("lookup.refundReason")}</span><strong>{result.refundQuote.message || "-"}</strong></div>
+                                </div>
+                              ) : result.refundQuoteError ? <p className="site-lookup-refund__error">{result.refundQuoteError}</p> : <p className="site-lookup-refund__pending">{t("lookup.refundPending")}</p>}
                               <div className="site-lookup-refund__actions">
-                                <span className="site-lookup-refund__action-tooltip" tabIndex={canRequestRefund ? -1 : 0}>
-                                  <Button disabled={!canRequestRefund} onClick={() => navigate(getRefundRequestPath("spectator", spectator.spectatorOrderNumber))}>환불 신청</Button>
+                                <span className="site-lookup-refund__action-tooltip" tabIndex={canRequestRefund ? -1 : 0} aria-label={canRequestRefund ? undefined : refundDisabledReason}>
+                                  <Button disabled={!canRequestRefund} onClick={() => navigateToRefundRequest("application", result.applicationNumber)}>{t("lookup.refundRequest")}</Button>
+                                  {!canRequestRefund ? <span className="site-lookup-refund__tooltip" role="tooltip">{refundDisabledReason}</span> : null}
+                                </span>
+                              </div>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ) : <p className="site-lookup-result-empty">{lookupResultTabCopy.empty}</p>
+                ) : null}
+
+                {lookupResultTab === "stageServices" ? (
+                  stageServicePurchases.length > 0 ? (
+                    <div className="site-lookup-stage-services__purchases">
+                      {stageServicePurchases.map((purchase) => (
+                        <article className="site-lookup-stage-services__purchase" key={purchase.serviceOrderNumber}>
+                          <strong>{stageServiceTitles[purchase.serviceType] || purchase.serviceType}{getStageServiceLinkedDisciplines(purchase) ? ` · ${getStageServiceLinkedDisciplines(purchase)}` : ""}</strong>
+                          <div className="site-review-row"><span>{locale === "ko" ? "주문 번호" : "Order number"}</span><strong>{purchase.serviceOrderNumber}</strong></div>
+                          <div className="site-review-row"><span>{t("lookup.paymentStatus")}</span><strong>{getCustomerPaymentStatus({ paymentStatus: purchase.paymentStatus, refundRequestStatus: purchase.refundRequest?.requestStatus, operationalStatus: purchase.serviceStatus, locale })}</strong></div>
+                          <div className="site-review-row"><span>{locale === "ko" ? "결제 금액" : "Payment amount"}</span><strong>{formatAmount(purchase.totalAmount, locale)}</strong></div>
+                          {purchase.paymentStatus === "DONE" ? <div className="site-lookup-refund__actions"><Button onClick={() => navigateToRefundRequest("stage-service", purchase.serviceOrderNumber)}>{t("lookup.refundRequest")}</Button></div> : null}
+                        </article>
+                      ))}
+                    </div>
+                  ) : <p className="site-lookup-result-empty">{lookupResultTabCopy.empty}</p>
+                ) : null}
+
+                {lookupResultTab === "spectators" ? (
+                  spectatorResults.length > 0 ? (
+                    <div className="site-lookup-results">
+                      {spectatorResults.map((spectator) => {
+                        const isTestPayment = spectator.isTest === true;
+                        const canRequestRefund = spectator.paymentStatus === "DONE" && spectator.refundQuote?.canAutoRefund === true;
+                        const disabledReason = spectator.refundQuote?.message || spectator.refundQuoteError || (locale === "ko" ? "현재 환불 가능 여부를 확인할 수 없습니다." : "Refund availability cannot be confirmed.");
+
+                        return (
+                          <article className="site-lookup-result" key={spectator.spectatorOrderNumber}>
+                            <div className="site-review-row"><span>{locale === "ko" ? "신청번호" : "Application number"}</span><strong>{spectator.spectatorOrderNumber}</strong></div>
+                            <div className="site-review-row"><span>{t("lookup.applicant")}</span><strong>{spectator.name}</strong></div>
+                            {isTestPayment ? <div className="site-review-row"><span>{locale === "ko" ? "결제 구분" : "Payment type"}</span><strong>{locale === "ko" ? "테스트 결제" : "Test payment"}</strong></div> : null}
+                            <div className="site-review-row"><span>{locale === "ko" ? "입장권" : "Ticket"}</span><strong>{spectator.quantity || 1}{locale === "ko" ? "매" : " ticket"}</strong></div>
+                            <div className="site-review-row"><span>{t("lookup.paymentStatus")}</span><strong>{getCustomerPaymentStatus({ paymentStatus: spectator.paymentStatus, refundRequestStatus: spectator.refundRequest?.requestStatus, operationalStatus: spectator.admissionStatus, locale })}</strong></div>
+                            <div className="site-review-row"><span>{locale === "ko" ? "결제 금액" : "Payment amount"}</span><strong>{formatAmount(spectator.paymentAmount || spectator.totalAmount, locale)}</strong></div>
+                            <div className="site-review-row"><span>{locale === "ko" ? "결제 완료 시점" : "Payment completed at"}</span><strong>{formatPaymentCompletedAt(spectator.paymentCompletedAt, locale)}</strong></div>
+                            <div className="site-lookup-refund">
+                              <h4>{locale === "ko" ? "환불 가능 정보" : "Refund availability"}</h4>
+                              <div className="site-review-row"><span>{t("lookup.refundPercent")}</span><strong>{typeof spectator.refundQuote?.refundPercent === "number" ? `${spectator.refundQuote.refundPercent}%` : "-"}</strong></div>
+                              <div className="site-review-row"><span>{t("lookup.refundAmount")}</span><strong>{formatAmount(spectator.refundQuote?.refundAmount, locale)}</strong></div>
+                              <div className="site-lookup-refund__actions">
+                                <span className="site-lookup-refund__action-tooltip" tabIndex={canRequestRefund ? -1 : 0} aria-label={canRequestRefund ? undefined : disabledReason}>
+                                  <Button disabled={!canRequestRefund} onClick={() => navigateToRefundRequest("spectator", spectator.spectatorOrderNumber)}>{t("lookup.refundRequest")}</Button>
                                   {!canRequestRefund ? <span className="site-lookup-refund__tooltip" role="tooltip">{disabledReason}</span> : null}
                                 </span>
                               </div>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </section>
-              ) : null}
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ) : <p className="site-lookup-result-empty">{lookupResultTabCopy.empty}</p>
+                ) : null}
+              </div>
               <section className="site-lookup-payment-summary" aria-label={paymentSummaryCopy.title}>
                 <h4>{paymentSummaryCopy.title}</h4>
                 <div className="site-review-row">

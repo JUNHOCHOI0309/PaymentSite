@@ -4,6 +4,7 @@ import { Button } from "../components/common/Button";
 import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
 import { getApplicationByNumber, getApplicationByOrder } from "../lib/applicationApi";
+import { getCustomerPaymentStatus } from "../lib/customerPaymentStatus";
 
 const previewApplication = {
   applicationNumber: "APPL-2026-PREVIEW01",
@@ -16,7 +17,7 @@ const previewApplication = {
 
 export function ApplyCompletePage({ preview = false }) {
   const [searchParams] = useSearchParams();
-  const { t } = useLanguage();
+  const { locale, t } = useLanguage();
   const [application, setApplication] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
   const stageServiceSearchParams = new URLSearchParams();
@@ -82,7 +83,7 @@ export function ApplyCompletePage({ preview = false }) {
             <div className="site-review-row"><span>{t("complete.phone")}</span><strong>{application?.phone || "-"}</strong></div>
             <div className="site-review-row"><span>{t("complete.email")}</span><strong>{application?.email || "-"}</strong></div>
             <div className="site-review-row"><span>{t("complete.submittedAt")}</span><strong>{application?.submittedAt || "-"}</strong></div>
-            <div className="site-review-row"><span>{t("complete.paymentStatus")}</span><strong>{application?.paymentStatus || "-"}</strong></div>
+            <div className="site-review-row"><span>{t("complete.paymentStatus")}</span><strong>{getCustomerPaymentStatus({ paymentStatus: application?.paymentStatus, operationalStatus: application?.status, locale })}</strong></div>
           </div>
 
           <p className="site-field__hint">

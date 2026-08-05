@@ -2595,7 +2595,9 @@ async function consumeVerifiedLookupPhoneSession(client, { name, phone, verifica
     `
       UPDATE application_lookup_phone_verifications
       SET
-        status = 'CONSUMED',
+        -- The phone verification schema accepts PENDING, VERIFIED, EXPIRED, and FAILED.
+        -- Expiring the verified row invalidates it immediately after a completed refund.
+        status = 'EXPIRED',
         updated_at = NOW()
       WHERE id = (
         SELECT id
@@ -3126,13 +3128,17 @@ function assertSolapiConfigured() {
   }
 }
 
+function normalizeSmsRecipientPhone(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
 async function sendSolapiMessages(messages) {
   assertSolapiConfigured();
 
   const normalizedMessages = Array.isArray(messages)
     ? messages
         .map((message) => ({
-          to: String(message?.to || "").replace(/\D/g, ""),
+          to: normalizeSmsRecipientPhone(message?.to),
           text: normalizeText(message?.text),
         }))
         .filter((message) => message.to.length === 11 && message.text)
@@ -3445,6 +3451,13 @@ async function dispatchSmsCampaign(campaignId) {
 async function sendRefundCompletedSms({ eventKey, name, phone, targetTitle, refundAmount }) {
   try {
     await ensureSmsMessagingStoresReady();
+    const recipientPhone = normalizeSmsRecipientPhone(phone);
+
+    if (!/^01\d{9}$/.test(recipientPhone)) {
+      console.warn("Skipping refund completion SMS for an invalid recipient phone", { eventKey });
+      return;
+    }
+
     const messageText = createRefundCompletedSmsText({ name, targetTitle, refundAmount });
     const insertResult = await pool.query(
       `
@@ -3455,7 +3468,7 @@ async function sendRefundCompletedSms({ eventKey, name, phone, targetTitle, refu
         ON CONFLICT (event_key) DO NOTHING
         RETURNING id
       `,
-      [eventKey, name, phone, eventKey, messageText]
+      [eventKey, name, recipientPhone, eventKey, messageText]
     );
 
     if (!insertResult.rowCount) {
@@ -3463,7 +3476,7 @@ async function sendRefundCompletedSms({ eventKey, name, phone, targetTitle, refu
     }
 
     try {
-      const providerResponse = await sendSolapiMessages([{ to: phone, text: messageText }]);
+      const providerResponse = await sendSolapiMessages([{ to: recipientPhone, text: messageText }]);
       await pool.query(
         `UPDATE sms_message_logs SET status = 'SENT', provider_response_json = $2::jsonb, sent_at = NOW(), updated_at = NOW() WHERE id = $1`,
         [insertResult.rows[0].id, JSON.stringify(providerResponse)]
@@ -13084,6 +13097,7 @@ app.post("/stage-services/refund/request", async function (req, res) {
 
     const name = normalizeText(req.body.name);
     const email = normalizeEmail(req.body.email);
+    const phone = normalizeText(formatPhoneNumber(req.body.phone));
     const verificationToken = normalizeText(req.body.verificationToken);
     const serviceOrderNumber = normalizeText(req.body.serviceOrderNumber);
     const requestReason = normalizeText(req.body.requestReason) || "사용자 요청 자동 환불";
