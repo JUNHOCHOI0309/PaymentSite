@@ -3808,7 +3808,6 @@ async function findLookupOwnedSpectator({ name, email, phone, spectatorOrderNumb
       WHERE spectator_orders.spectator_order_number = $1
         AND spectator_orders.name = $2
         AND ${isPhoneLookup ? "spectator_orders.phone = $3" : "LOWER(spectator_orders.email) = $3"}
-        AND spectator_orders.is_test = FALSE
       LIMIT 1
     `,
     [spectatorOrderNumber, name, isPhoneLookup ? phone : email]
@@ -13531,7 +13530,6 @@ app.post("/applications/lookup", async function (req, res) {
         ) AS latest_payment ON TRUE
         WHERE spectator_orders.name = $1
           AND LOWER(spectator_orders.email) = $2
-          AND spectator_orders.is_test = FALSE
         ORDER BY spectator_orders.purchased_at DESC NULLS LAST, spectator_orders.updated_at DESC
         LIMIT 10
       `,
@@ -13684,7 +13682,6 @@ app.post("/applications/lookup/by-phone", async function (req, res) {
         ) AS latest_payment ON TRUE
         WHERE spectator_orders.name = $1
           AND spectator_orders.phone = $2
-          AND spectator_orders.is_test = FALSE
         ORDER BY spectator_orders.purchased_at DESC NULLS LAST, spectator_orders.updated_at DESC
         LIMIT 10
       `,
@@ -13874,10 +13871,10 @@ app.post("/applications/lookup/by-number", async function (req, res) {
           total_amount,
           payment_status,
           admission_status,
+          is_test,
           purchased_at
         FROM spectator_orders
         WHERE spectator_order_number = $1
-          AND is_test = FALSE
         LIMIT 1
       `,
       [applicationNumber]
@@ -13897,6 +13894,7 @@ app.post("/applications/lookup/by-number", async function (req, res) {
         totalAmount: Number(row.total_amount || 0),
         paymentStatus: row.payment_status,
         admissionStatus: row.admission_status,
+        isTest: row.is_test === true,
         purchasedAt: row.purchased_at,
       },
     });
@@ -15008,7 +15006,7 @@ app.post("/applications/lookup-verification/send", async function (req, res) {
           UNION ALL
           SELECT spectator_order_number AS reference_number
           FROM spectator_orders
-          WHERE name = $1 AND LOWER(email) = $2 AND is_test = FALSE
+          WHERE name = $1 AND LOWER(email) = $2
         ) AS lookup_targets
         LIMIT 1
       `,
@@ -15342,7 +15340,7 @@ app.post("/applications/lookup-phone-verification/send", async function (req, re
           UNION ALL
           SELECT spectator_order_number AS reference_number
           FROM spectator_orders
-          WHERE name = $1 AND phone = $2 AND is_test = FALSE
+          WHERE name = $1 AND phone = $2
         ) AS lookup_targets
         LIMIT 1
       `,

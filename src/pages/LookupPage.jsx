@@ -1271,6 +1271,7 @@ export function LookupPage() {
                 {numberLookupResult.type === "application" ? <><div className="site-review-row"><span>{locale === "ko" ? "신청 종목" : "Discipline"}</span><strong>{numberLookupResult.discipline || "-"}</strong></div><div className="site-review-row"><span>{locale === "ko" ? "체급" : "Weight class"}</span><strong>{numberLookupResult.weightClass || "-"}</strong></div></> : null}
                 {numberLookupResult.type === "stageService" ? <><div className="site-review-row"><span>{locale === "ko" ? "서비스" : "Service"}</span><strong>{stageServiceTitles[numberLookupResult.serviceType] || numberLookupResult.serviceType}</strong></div><div className="site-review-row"><span>{locale === "ko" ? "연결 종목" : "Linked disciplines"}</span><strong>{numberLookupResult.linkedDisciplines?.join(", ") || "-"}</strong></div></> : null}
                 {numberLookupResult.type === "spectator" ? <><div className="site-review-row"><span>{locale === "ko" ? "입장권" : "Ticket"}</span><strong>{numberLookupResult.quantity || 1}{locale === "ko" ? "매" : " ticket"}</strong></div><div className="site-review-row"><span>{locale === "ko" ? "입장 상태" : "Admission status"}</span><strong>{numberLookupResult.admissionStatus || "-"}</strong></div></> : null}
+                {numberLookupResult.isTest ? <div className="site-review-row"><span>{locale === "ko" ? "결제 구분" : "Payment type"}</span><strong>{locale === "ko" ? "테스트 결제" : "Test payment"}</strong></div> : null}
                 <div className="site-review-row"><span>{t("lookup.paymentStatus")}</span><strong>{numberLookupResult.paymentStatus || "-"}</strong></div>
                 <div className="site-review-row"><span>{locale === "ko" ? "결제 금액" : "Payment amount"}</span><strong>{formatAmount(numberLookupResult.paymentAmount ?? numberLookupResult.totalAmount, locale)}</strong></div>
                 <div className="site-review-row"><span>{locale === "ko" ? "결제 완료 시점" : "Payment completed at"}</span><strong>{formatPaymentCompletedAt(numberLookupResult.paymentCompletedAt || numberLookupResult.purchasedAt, locale)}</strong></div>
@@ -1472,12 +1473,14 @@ export function LookupPage() {
                 <section className="site-lookup-spectators" aria-label="참관객 신청 내역">
                   <h3>참관객 신청 내역</h3>
                   {spectatorResults.map((spectator) => {
+                    const isTestPayment = spectator.isTest === true;
                     const canRequestRefund = spectator.paymentStatus === "DONE" && spectator.refundQuote?.canAutoRefund === true;
                     const disabledReason = spectator.refundQuote?.message || spectator.refundQuoteError || "현재 환불 가능 여부를 확인할 수 없습니다.";
                     return (
                       <article className="site-lookup-result" key={spectator.spectatorOrderNumber}>
                         <div className="site-review-row"><span>신청번호</span><strong>{spectator.spectatorOrderNumber}</strong></div>
                         <div className="site-review-row"><span>신청자</span><strong>{spectator.name}</strong></div>
+                        {isTestPayment ? <div className="site-review-row"><span>결제 구분</span><strong>테스트 결제</strong></div> : null}
                         <div className="site-review-row"><span>입장권</span><strong>{spectator.quantity || 1}매</strong></div>
                         <div className="site-review-row"><span>결제 상태</span><strong>{spectator.paymentStatus}</strong></div>
                         <div className="site-review-row"><span>결제 금액</span><strong>{formatAmount(spectator.paymentAmount || spectator.totalAmount, locale)}</strong></div>
