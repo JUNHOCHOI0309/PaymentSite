@@ -24,6 +24,7 @@ const {
   isPaymentMaintenanceWindow,
   paymentMaintenance,
 } = require("./server/paymentMaintenance");
+const { getRefundStatusBlock } = require("./server/refundStatusEligibility");
 const {
   GetObjectCommand,
   ListObjectsV2Command,
@@ -2018,6 +2019,7 @@ function diffCalendarDaysInTimeZone(fromDate, toDate, timeZone) {
 function calculateRefundQuote({
   applicationStatus,
   serviceStatus,
+  spectatorStatus,
   paymentStatus,
   amount,
   paymentCompletedAt,
@@ -2063,8 +2065,6 @@ function calculateRefundQuote({
   }
 
   const normalizedPaymentStatus = normalizeText(paymentStatus);
-  const normalizedApplicationStatus = normalizeText(applicationStatus);
-  const normalizedServiceStatus = normalizeText(serviceStatus);
 
   if (normalizedPaymentStatus === "CANCELED" || normalizedPaymentStatus === "PARTIAL_CANCELED") {
     return {
@@ -2102,25 +2102,13 @@ function calculateRefundQuote({
     };
   }
 
-  if (normalizedServiceStatus && normalizedServiceStatus !== "PURCHASED") {
-    return {
-      policyVersion: refundPolicy.version,
-      policyName: refundPolicy.name,
-      eventDate: refundPolicy.eventDate,
-      requestedAt: requestedAt.toISOString(),
-      timeZone: refundPolicyTimeZone,
-      canAutoRefund: false,
-      isRefundable: false,
-      requiresManualReview: true,
-      reasonCode: "STAGE_SERVICE_STATUS_NOT_REFUNDABLE",
-      message: "현재 무대 서비스 상태에서는 자동 환불을 처리할 수 없습니다.",
-      refundPercent: null,
-      refundAmount: null,
-      nonRefundableAmount: safeAmount,
-    };
-  }
+  const statusBlock = getRefundStatusBlock({
+    applicationStatus,
+    serviceStatus,
+    spectatorStatus,
+  });
 
-  if (!normalizedServiceStatus && normalizedApplicationStatus && normalizedApplicationStatus !== "SUBMITTED") {
+  if (statusBlock) {
     return {
       policyVersion: refundPolicy.version,
       policyName: refundPolicy.name,
@@ -2130,8 +2118,8 @@ function calculateRefundQuote({
       canAutoRefund: false,
       isRefundable: false,
       requiresManualReview: true,
-      reasonCode: "APPLICATION_STATUS_NOT_REFUNDABLE",
-      message: "현재 신청 상태에서는 자동 환불을 처리할 수 없습니다.",
+      reasonCode: statusBlock.reasonCode,
+      message: statusBlock.message,
       refundPercent: null,
       refundAmount: null,
       nonRefundableAmount: safeAmount,
@@ -14440,7 +14428,7 @@ app.post("/spectators/refund/quote", async function (req, res) {
     const spectatorOrder = await findLookupOwnedSpectator({ ...access, spectatorOrderNumber });
     if (!spectatorOrder) return res.status(404).json({ ok: false, message: "참관객 신청을 찾을 수 없습니다." });
     let refundQuote = calculateRefundQuote({
-      applicationStatus: spectatorOrder.admission_status,
+      spectatorStatus: spectatorOrder.admission_status,
       paymentStatus: spectatorOrder.latest_payment_status || spectatorOrder.payment_status,
       amount: spectatorOrder.total_amount || spectatorOrder.order_amount,
       paymentCompletedAt: spectatorOrder.approved_at || spectatorOrder.payment_created_at,
@@ -14481,7 +14469,7 @@ app.post("/spectators/refund/request", async function (req, res) {
     if (!spectatorOrder) return res.status(404).json({ ok: false, message: "참관객 신청을 찾을 수 없습니다." });
     const originalAmount = Number(spectatorOrder.total_amount || spectatorOrder.order_amount || 0);
     let refundQuote = calculateRefundQuote({
-      applicationStatus: spectatorOrder.admission_status,
+      spectatorStatus: spectatorOrder.admission_status,
       paymentStatus: spectatorOrder.latest_payment_status || spectatorOrder.payment_status,
       amount: originalAmount,
       paymentCompletedAt: spectatorOrder.approved_at || spectatorOrder.payment_created_at,
