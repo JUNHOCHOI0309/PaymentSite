@@ -975,16 +975,6 @@ export function LookupPage() {
               <span>{locale === "ko" ? "이메일 인증 후 전체 신청 내역을 확인합니다." : "Verify your email to view all applications."}</span>
             </button>
             <button
-              className={`site-lookup-mode-card ${lookupMode === "phone" ? "site-lookup-mode-card--active" : ""}`}
-              type="button"
-              role="tab"
-              aria-selected={lookupMode === "phone"}
-              onClick={() => handleLookupModeChange("phone")}
-            >
-              <strong>{locale === "ko" ? "이름 + 휴대전화로 조회" : "Name + phone"}</strong>
-              <span>{locale === "ko" ? "SMS 인증 후 신청·환불 정보를 확인합니다." : "Verify by SMS to view applications and refund details."}</span>
-            </button>
-            <button
               className={`site-lookup-mode-card ${lookupMode === "number" ? "site-lookup-mode-card--active" : ""}`}
               type="button"
               role="tab"
@@ -1082,6 +1072,13 @@ export function LookupPage() {
                 {isSendingCode ? t("lookup.sendingCode") : t("lookup.sendCode")}
               </Button>
             </div>
+          </div>
+
+          <div className="site-lookup-phone-assist">
+            <span>{locale === "ko" ? "이메일이 기억이 안나시나요?" : "Can't remember your email?"}</span>
+            <button type="button" onClick={() => handleLookupModeChange("phone")}>
+              {locale === "ko" ? "휴대전화로 인증하기" : "Verify by phone"}
+            </button>
           </div>
 
           <div className="site-lookup-verification">

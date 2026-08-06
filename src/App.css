@@ -1848,7 +1848,7 @@ body,
 
 .site-lookup-mode-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin: 28px 0 24px;
 }
@@ -1884,11 +1884,13 @@ body,
 
 @media (max-width: 760px) {
   .site-lookup-mode-grid {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .site-lookup-mode-card {
     min-height: 0;
+    padding: 16px 12px;
   }
 }
 
@@ -1901,6 +1903,32 @@ body,
   margin-top: 8px;
   font-size: 0.86rem;
   line-height: 1.5;
+}
+
+.site-lookup-phone-assist {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 22px;
+  color: #62708a;
+  font-size: 0.9rem;
+}
+
+.site-lookup-phone-assist button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1f4d81;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.site-lookup-phone-assist button:hover,
+.site-lookup-phone-assist button:focus-visible {
+  color: #102e51;
 }
 
 .site-lookup-result-tabs {
