@@ -1,5 +1,8 @@
 User-agent: *
 Allow: /
 
+User-agent: OAI-SearchBot
+Allow: /
+
 # 거래·관리자·신청 조회 경로는 robots 메타 태그와 X-Robots-Tag 헤더로 검색 제외합니다.
 Sitemap: https://www.mmkorea.com/sitemap.xml

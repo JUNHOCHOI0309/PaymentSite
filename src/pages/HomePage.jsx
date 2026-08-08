@@ -637,6 +637,65 @@ export function HomePage() {
         )}
       </section>
 
+      <section className="site-home-aeo" aria-labelledby="home-aeo-title">
+        <div className="site-home-aeo__heading">
+          <p>2026 MUSCLEMANIA KOREA</p>
+          <h2 id="home-aeo-title">
+            {locale === "ko" ? "대회 및 참가 안내" : "Competition and registration guide"}
+          </h2>
+        </div>
+        <div className="site-home-aeo__grid">
+          <article>
+            <h3>
+              {locale === "ko"
+                ? "머슬마니아® 코리아 2026 대회는 언제 열리나요?"
+                : "When is Musclemania Korea 2026 held?"}
+            </h3>
+            <p>
+              {locale === "ko"
+                ? "머슬마니아® 코리아 2026은 2026년 10월 25일 광운대학교 동해문화예술관(서울 노원구 광운로 21 2-3층)에서 개최됩니다. 세부 시간은 공식 공지로 안내합니다."
+                : "Musclemania Korea 2026 takes place at Kwangwoon University Donghae Culture and Arts Center in Seoul on October 25, 2026. The detailed schedule will be announced through official notices."}
+            </p>
+          </article>
+          <article>
+            <h3>
+              {locale === "ko"
+                ? "참가 신청은 어떻게 하나요?"
+                : "How do I register for the competition?"}
+            </h3>
+            <p>
+              {locale === "ko"
+                ? "종목과 체급을 선택한 뒤 신청서를 작성하고, 이메일 인증과 필수 동의를 완료한 후 온라인으로 참가비를 결제하면 됩니다."
+                : "Choose a discipline and class, complete the application, verify your email, complete the required consents, and pay the entry fee online."}
+            </p>
+          </article>
+          <article>
+            <h3>
+              {locale === "ko"
+                ? "참가 가능한 종목은 무엇인가요?"
+                : "Which disciplines can I enter?"}
+            </h3>
+            <p>
+              {locale === "ko"
+                ? "보디빌딩, 클래식, 피지크, 모델, 피트니스, 데님, 미즈비키니, 피규어, 트랜스포메이션 종목에 참가할 수 있습니다."
+                : "Available disciplines are Bodybuilding, Classic, Physique, Model, Fitness, Denim, Ms.Bikini, Figure, and Transformation."}
+            </p>
+          </article>
+          <article>
+            <h3>
+              {locale === "ko"
+                ? "참가 신청 기간과 참가비는 어떻게 되나요?"
+                : "What are the registration dates and entry fees?"}
+            </h3>
+            <p>
+              {locale === "ko"
+                ? "참가 신청은 2026년 8월 3일부터 10월 18일까지 진행됩니다. 접수 기간별 첫 종목 참가비와 추가 종목 참가비는 신청 안내에서 확인할 수 있습니다."
+                : "Registration is open from August 3 through October 18, 2026. See the registration guide for the first-discipline and additional-discipline fees for each registration period."}
+            </p>
+          </article>
+        </div>
+      </section>
+
       <section className="site-home-sponsors" aria-label="Sponsor logos" ref={homeSponsorsRef}>
         <div className="site-home-sponsors__viewport">
           <div className="site-home-sponsors__track">

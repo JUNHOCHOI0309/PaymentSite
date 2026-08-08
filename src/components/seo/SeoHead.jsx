@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import seoPages from "../../data/seoPages.json";
+import structuredData from "../../data/seoStructuredData.json";
 
 const { defaultDescription, defaultTitle, pages, siteName, siteUrl } = seoPages;
 
@@ -69,6 +70,23 @@ function upsertCanonical(href) {
   element.setAttribute("href", href);
 }
 
+function upsertStructuredData(id, data) {
+  let element = document.head.querySelector(`script[data-seo-schema="${id}"]`);
+
+  if (!element) {
+    element = document.createElement("script");
+    element.type = "application/ld+json";
+    element.dataset.seoSchema = id;
+    document.head.appendChild(element);
+  }
+
+  element.textContent = JSON.stringify(data);
+}
+
+function removeStructuredData(id) {
+  document.head.querySelector(`script[data-seo-schema="${id}"]`)?.remove();
+}
+
 export function SeoHead() {
   const { pathname } = useLocation();
 
@@ -93,6 +111,14 @@ export function SeoHead() {
     upsertMeta('meta[property="og:site_name"]', { property: "og:site_name", content: siteName });
     upsertMeta('meta[property="og:url"]', { property: "og:url", content: canonicalUrl });
     upsertCanonical(canonicalUrl);
+
+    if (pathname === "/") {
+      upsertStructuredData("organization", structuredData.organization);
+      upsertStructuredData("event", structuredData.event);
+    } else {
+      removeStructuredData("organization");
+      removeStructuredData("event");
+    }
   }, [pathname]);
 
   return null;

@@ -6,6 +6,7 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDirectory, "..");
 const distDirectory = path.join(projectRoot, "dist");
 const seoPagesPath = path.join(projectRoot, "src", "data", "seoPages.json");
+const seoStructuredDataPath = path.join(projectRoot, "src", "data", "seoStructuredData.json");
 
 function escapeHtml(value) {
   return String(value)
@@ -34,7 +35,18 @@ function renderSnapshot(page) {
   return `<main data-seo-prerendered="true">\n        <article>\n          <h1>${escapeHtml(page.heading || page.title)}</h1>${sections}\n        </article>\n      </main>`;
 }
 
-function renderPageHtml(baseHtml, page, seoPages) {
+function renderStructuredData(page, structuredData) {
+  if (page.path !== "/") {
+    return "";
+  }
+
+  return [structuredData.organization, structuredData.event]
+    .filter(Boolean)
+    .map((data) => `<script type="application/ld+json">${JSON.stringify(data)}</script>`)
+    .join("\n    ");
+}
+
+function renderPageHtml(baseHtml, page, seoPages, structuredData) {
   const canonicalUrl = `${seoPages.siteUrl}${page.path === "/" ? "" : page.path}`;
   let html = baseHtml
     .replace(/<html\s+lang="[^"]*">/i, '<html lang="ko">')
@@ -71,12 +83,18 @@ function renderPageHtml(baseHtml, page, seoPages) {
     /<meta\s+property="og:url"[^>]*>/i,
     `<meta property="og:url" content="${canonicalUrl}" />`,
   );
+  html = replaceOrInsert(
+    html,
+    /<script\s+type="application\/ld\+json">[^<]*<\/script>/i,
+    renderStructuredData(page, structuredData),
+  );
 
   return html;
 }
 
 export async function prerenderSeoPages() {
   const seoPages = JSON.parse(await readFile(seoPagesPath, "utf8"));
+  const structuredData = JSON.parse(await readFile(seoStructuredDataPath, "utf8"));
   const baseHtml = await readFile(path.join(distDirectory, "index.html"), "utf8");
 
   for (const page of seoPages.pages) {
@@ -86,7 +104,7 @@ export async function prerenderSeoPages() {
     const outputFile = path.join(outputDirectory, "index.html");
 
     await mkdir(outputDirectory, { recursive: true });
-    await writeFile(outputFile, renderPageHtml(baseHtml, page, seoPages), "utf8");
+    await writeFile(outputFile, renderPageHtml(baseHtml, page, seoPages, structuredData), "utf8");
   }
 
   console.log(`SEO prerendered ${seoPages.pages.length} routes.`);
