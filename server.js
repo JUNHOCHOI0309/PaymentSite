@@ -14612,8 +14612,6 @@ app.patch("/spectators/draft/:draftId/consents", async function (req, res) {
   if (
     consents.privacy !== true
     || consents.refund !== true
-    || consents.marketing !== true
-    || consents.photoVideo !== true
   ) {
     return res.status(400).json({ ok: false, code: "REQUIRED_CONSENTS_MISSING", message: "참관객 결제에 필요한 필수 동의 사항을 모두 확인해 주세요." });
   }
@@ -14633,7 +14631,12 @@ app.patch("/spectators/draft/:draftId/consents", async function (req, res) {
     await client.query(`DELETE FROM spectator_consents WHERE draft_id = $1 AND spectator_order_id IS NULL`, [draftId]);
     await client.query(
       `INSERT INTO spectator_consents (draft_id, privacy_consent, refund_consent, marketing_consent, photo_video_consent, consent_version, consented_at) VALUES ($1, TRUE, TRUE, $2, $3, $4, NOW())`,
-      [draftId, true, true, normalizeText(consents.version) || "spectator-v1"]
+      [
+        draftId,
+        consents.marketing === true,
+        consents.photoVideo === true,
+        normalizeText(consents.version) || "spectator-v1",
+      ]
     );
     await client.query(`UPDATE spectator_drafts SET status = 'CONSENTED', updated_at = NOW() WHERE draft_id = $1`, [draftId]);
     await client.query("COMMIT");
