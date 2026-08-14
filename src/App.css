@@ -7280,7 +7280,7 @@ body {
 
 @media (max-width: 800px) {
   .site-organization-chart {
-    padding: 28px 16px;
+    padding: 28px max(0px, min(16px, calc((100vw - 415px) / 2)));
   }
 
   .site-organization-chart__viewport {

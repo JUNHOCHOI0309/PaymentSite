@@ -80,7 +80,7 @@ export function OrganizationPage() {
     function updateChartMetrics() {
       const isMobile = window.matchMedia("(max-width: 800px)").matches;
       const scale = isMobile
-        ? Math.min(1, Math.max(0.3, viewport.clientWidth / 1050))
+        ? Math.min(1, viewport.clientWidth / 1050)
         : 1;
 
       setChartMetrics({
