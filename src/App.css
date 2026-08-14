@@ -3928,98 +3928,124 @@ body {
 }
 
 .site-home-hero__stage {
-  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(460px, 1.05fr);
+  grid-template-rows: minmax(0, 1fr);
   width: 100%;
-  min-height: 680px;
-  height: 100vh;
-  overflow: hidden;
+  min-height: 900px;
+  height: max(100vh, 900px);
+  overflow: clip;
   background: #000;
 }
 
-.site-home-hero__stream {
-  position: absolute;
-  bottom: 0;
-  z-index: 0;
-  width: 39.5%;
-  height: 85%;
+.site-home-hero__poster {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
   background: #080808;
 }
 
-.site-home-hero__stream--left {
-  left: 0;
-}
-
-.site-home-hero__stream--right {
-  right: 0;
-}
-
-.site-home-hero__stream::after {
+.site-home-hero__poster::after {
   position: absolute;
+  z-index: 1;
   inset: 0;
   content: "";
-  background: rgba(0, 0, 0, 0.18);
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.16));
   pointer-events: none;
 }
 
-.site-home-hero__slide {
+.site-home-hero__poster-image {
+  display: block;
   position: absolute;
   inset: 0;
+  z-index: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  opacity: 0;
-  animation: siteHomeHeroSlide 20s ease-in-out infinite;
-  animation-delay: var(--site-home-hero-delay, 0s);
+  object-fit: contain;
+  object-position: center;
+  animation: siteHomeHeroPosterEnter 720ms cubic-bezier(0.2, 0.8, 0.2, 1);
   will-change: opacity, transform;
 }
 
-.site-home-hero__stream--left .site-home-hero__slide {
-  transform-origin: 24% 50%;
+.site-home-hero__poster-image--leaving {
+  animation: siteHomeHeroPosterLeave 720ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
 }
 
-.site-home-hero__stream--right .site-home-hero__slide {
-  transform-origin: 76% 50%;
-}
-
-.site-home-hero__center {
+.site-home-hero__poster-pager {
   position: absolute;
-  inset: 0;
   z-index: 2;
+  right: clamp(20px, 3vw, 44px);
+  bottom: clamp(20px, 3vw, 42px);
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.44);
+  backdrop-filter: blur(10px);
+}
+
+.site-home-hero__poster-dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.38);
+  cursor: pointer;
+  transition: transform 180ms ease, background-color 180ms ease;
+}
+
+.site-home-hero__poster-dot:hover,
+.site-home-hero__poster-dot:focus-visible {
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.site-home-hero__poster-dot--active {
+  background: #fff;
+  transform: scale(1.32);
+}
+
+.site-home-hero__content {
+  position: relative;
+  z-index: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
   justify-content: center;
-  padding: 88px 32px 0;
+  padding: clamp(64px, 7vw, 104px) clamp(32px, 5vw, 96px) clamp(36px, 4vw, 64px);
   color: #fff;
-  text-align: center;
-  pointer-events: none;
+  background:
+    radial-gradient(circle at 80% 22%, rgba(213, 161, 30, 0.17), transparent 36%),
+    #050505;
+  text-align: left;
 }
 
 .site-home-hero__logo {
   display: block;
-  width: min(100%, 720px);
-  max-height: 520px;
+  width: min(100%, 600px);
+  max-height: 600px;
   object-fit: contain;
   filter: drop-shadow(0 10px 28px rgba(0, 0, 0, 0.56));
 }
 
 .site-home-hero__details {
-  width: min(100%, 1360px);
-  margin-top: 48px;
+  width: min(100%, 620px);
+  margin-top: clamp(18px, 2vw, 28px);
   text-shadow: 0 5px 18px rgba(0, 0, 0, 0.72);
 }
 
 .site-home-hero__details dl {
   display: grid;
-  gap: 20px;
+  gap: 14px;
   margin: 0;
 }
 
 .site-home-hero__details dl > div {
   display: flex;
   align-items: baseline;
-  justify-content: center;
+  justify-content: flex-start;
   flex-wrap: wrap;
   gap: 14px 24px;
 }
@@ -4033,42 +4059,102 @@ body {
 .site-home-hero__details dd {
   margin: 0;
   color: #fff;
-  font-size: 5.1rem;
+  font-size: clamp(2rem, 3.1vw, 3.7rem);
   font-weight: 900;
   line-height: 0.92;
+  white-space: nowrap;
 }
 
-@keyframes siteHomeHeroSlide {
+.site-home-hero__countdown-wrap {
+  margin-top: clamp(20px, 3vw, 34px);
+}
+
+.site-home-hero__countdown-wrap > p {
+  margin: 0 0 12px;
+  color: #d7a11e;
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.site-home-hero__countdown {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(6px, 1vw, 14px);
+  max-width: 620px;
+}
+
+.site-home-hero__countdown-unit {
+  display: grid;
+  gap: 8px;
+  text-align: center;
+}
+
+.site-home-hero__countdown-value {
+  display: grid;
+  min-height: clamp(52px, 5vw, 86px);
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 7px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08) 49%, rgba(0, 0, 0, 0.5) 50%),
+    #090909;
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.12), 0 10px 24px rgba(0, 0, 0, 0.24);
+  color: #fff;
+  font-size: clamp(1.65rem, 3.1vw, 3.45rem);
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  line-height: 1;
+  transform-style: preserve-3d;
+  animation: siteHomeCountdownFlip 480ms cubic-bezier(0.15, 0.76, 0.25, 1);
+}
+
+.site-home-hero__countdown-label {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+@keyframes siteHomeHeroPosterEnter {
+  from {
+    opacity: 0;
+    transform: scale(1.035);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes siteHomeHeroPosterLeave {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(1.015);
+  }
+}
+
+@keyframes siteHomeCountdownFlip {
   0% {
     opacity: 0;
-    transform: scale(1.06) translate3d(0, 0, 0);
+    transform: perspective(320px) rotateX(-76deg);
   }
 
-  5%,
-  25% {
-    opacity: 1;
-    transform: scale(1) translate3d(0, 0, 0);
-  }
-
-  30%,
   100% {
-    opacity: 0;
-    transform: scale(1.025) translate3d(0, 0, 0);
+    opacity: 1;
+    transform: perspective(320px) rotateX(0deg);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .site-home-hero__slide {
+  .site-home-hero__poster-image,
+  .site-home-hero__countdown-value {
     animation: none;
-  }
-
-  .site-home-hero__slide:not(:first-child) {
-    display: none;
-  }
-
-  .site-home-hero__slide:first-child {
-    opacity: 1;
-    transform: none;
   }
 }
 
@@ -4866,21 +4952,24 @@ body {
   }
 
   .site-home-hero__stage {
-    min-height: 560px;
+    grid-template-columns: 1fr;
+    min-height: 0;
+    height: auto;
   }
 
-  .site-home-hero__stream {
-    width: 36%;
-    height: 85%;
+  .site-home-hero__poster {
+    aspect-ratio: 16 / 10;
+    min-height: 420px;
   }
 
-  .site-home-hero__center {
-    padding: 72px 24px 0;
+  .site-home-hero__content {
+    min-height: 520px;
+    padding: 70px max(24px, 7vw) 58px;
   }
 
   .site-home-hero__logo {
-    width: min(100%, 520px);
-    max-height: 360px;
+    width: min(100%, 460px);
+    max-height: 260px;
   }
 
   .site-home-hero__details {
@@ -4907,21 +4996,22 @@ body {
 
 @media (max-width: 640px) {
   .site-home-hero__stage {
-    min-height: max(560px, 100svh);
+    min-height: 0;
   }
 
-  .site-home-hero__stream {
-    width: 34%;
-    height: 85%;
+  .site-home-hero__poster {
+    aspect-ratio: 4 / 5;
+    min-height: 0;
   }
 
-  .site-home-hero__center {
-    padding: 84px 18px 0;
+  .site-home-hero__content {
+    min-height: 0;
+    padding: 48px 24px 44px;
   }
 
   .site-home-hero__logo {
-    width: min(100%, 360px);
-    max-height: 250px;
+    width: min(100%, 330px);
+    max-height: 200px;
   }
 
   .site-home-hero__details {
@@ -4929,11 +5019,27 @@ body {
   }
 
   .site-home-hero__details dl > div {
-    gap: 8px 12px;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
   }
 
   .site-home-hero__details dd {
-    font-size: 1.7rem;
+    font-size: clamp(1.65rem, 8vw, 2.25rem);
+  }
+
+  .site-home-hero__poster-pager {
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .site-home-hero__countdown {
+    gap: 5px;
+  }
+
+  .site-home-hero__countdown-value {
+    min-height: 50px;
+    font-size: clamp(1.35rem, 7vw, 1.85rem);
   }
 
   .site-home-benefits-modal {

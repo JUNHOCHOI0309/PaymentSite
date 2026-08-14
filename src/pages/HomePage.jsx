@@ -9,8 +9,8 @@ import { getApplicationDisciplineTitleByImageKey } from "../data/applicationDisc
 import { buildApiUrl } from "../lib/applicationApi";
 
 const homeUpImageKeys = Array.from({ length: 13 }, (_, index) => `home/home_up_${index + 1}.png`);
-const homeHeroLeftImageKeys = ["home/main_1.webp", "home/main_3.webp", "home/main_5.webp", "home/main_7.webp"];
-const homeHeroRightImageKeys = ["home/main_2.webp", "home/main_4.webp", "home/main_6.webp", "home/main_8.webp"];
+const homeHeroPosterImageKeys = Array.from({ length: 7 }, (_, index) => `home/main_${index + 1}.webp`);
+const registrationDeadline = new Date("2026-10-19T00:00:00+09:00");
 const participantBenefitsDismissalStorageKey = "mmkorea-home-participant-benefits-dismissed-date";
 const sponsorLogos = [
   { key: "home/logo_1.png", href: "https://www.xn--2i4b21aq3g7vaq7vn4ifle.com/" },
@@ -257,6 +257,40 @@ function getLocalDateKey() {
   return `${year}-${month}-${day}`;
 }
 
+function getRegistrationCountdown(now = Date.now()) {
+  const remainingMilliseconds = Math.max(0, registrationDeadline.getTime() - now);
+  const totalSeconds = Math.floor(remainingMilliseconds / 1000);
+
+  return {
+    days: Math.floor(totalSeconds / 86_400),
+    hours: Math.floor((totalSeconds % 86_400) / 3_600),
+    minutes: Math.floor((totalSeconds % 3_600) / 60),
+    seconds: totalSeconds % 60,
+  };
+}
+
+function HomeHeroCountdown({ locale, countdown }) {
+  const units = [
+    { key: "days", label: locale === "ko" ? "일" : "Days", value: countdown.days },
+    { key: "hours", label: locale === "ko" ? "시간" : "Hours", value: countdown.hours },
+    { key: "minutes", label: locale === "ko" ? "분" : "Minutes", value: countdown.minutes },
+    { key: "seconds", label: locale === "ko" ? "초" : "Seconds", value: countdown.seconds },
+  ];
+
+  return (
+    <div className="site-home-hero__countdown" aria-label={locale === "ko" ? "참가 신청 마감까지 남은 시간" : "Time remaining until registration closes"}>
+      {units.map((unit) => (
+        <div className="site-home-hero__countdown-unit" key={unit.key}>
+          <span className="site-home-hero__countdown-value" key={`${unit.key}-${unit.value}`}>
+            {String(unit.value).padStart(2, "0")}
+          </span>
+          <span className="site-home-hero__countdown-label">{unit.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function getShowcaseGuide(locale, imageKey) {
   const detail = getApplicationAdditionalInfo(locale, imageKey);
   const sections = detail?.sections || [];
@@ -306,6 +340,9 @@ function useNearViewport(ref) {
 
 export function HomePage() {
   const { locale, t } = useLanguage();
+  const [activeHeroPosterIndex, setActiveHeroPosterIndex] = useState(0);
+  const [previousHeroPosterKey, setPreviousHeroPosterKey] = useState(null);
+  const [registrationCountdown, setRegistrationCountdown] = useState(() => getRegistrationCountdown());
   const [activeGroup, setActiveGroup] = useState("man");
   const [activeItemKey, setActiveItemKey] = useState(null);
   const [isMobileShowcaseGuideOpen, setIsMobileShowcaseGuideOpen] = useState(false);
@@ -314,6 +351,8 @@ export function HomePage() {
   const homeUpRef = useRef(null);
   const homeIntroRef = useRef(null);
   const homeSponsorsRef = useRef(null);
+  const heroPosterKeyRef = useRef(homeHeroPosterImageKeys[0]);
+  const heroPosterTransitionTimeoutRef = useRef(null);
 
   const competitionGroups = useMemo(() => getCompetitionGroups(locale), [locale]);
   const isHomeUpVisible = useNearViewport(homeUpRef);
@@ -360,6 +399,26 @@ export function HomePage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isSocialMenuOpen]);
 
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      const currentIndex = homeHeroPosterImageKeys.indexOf(heroPosterKeyRef.current);
+      selectHeroPoster((currentIndex + 1) % homeHeroPosterImageKeys.length);
+    }, 5_000);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.clearTimeout(heroPosterTransitionTimeoutRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setRegistrationCountdown(getRegistrationCountdown());
+    }, 1_000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
   const activeGroupData = competitionGroups[activeGroup] || competitionGroups.man || null;
   const activeItems = activeGroupData?.items || [];
   const activeItem = activeItems.find((item) => item.key === activeItemKey) || activeItems[0] || null;
@@ -367,6 +426,7 @@ export function HomePage() {
     ? getShowcaseGuide(locale, activeItem.registerKey)
     : null;
   const activeItemIndex = activeItem ? activeItems.findIndex((item) => item.key === activeItem.key) : -1;
+  const activeHeroPosterKey = homeHeroPosterImageKeys[activeHeroPosterIndex] || homeHeroPosterImageKeys[0];
   useEffect(() => {
     if (!activeGroupData) {
       return;
@@ -376,6 +436,24 @@ export function HomePage() {
       setActiveItemKey(activeGroupData.items[0]?.key || null);
     }
   }, [activeGroupData, activeItem, activeItemIndex]);
+
+  function selectHeroPoster(nextIndex) {
+    const nextPosterKey = homeHeroPosterImageKeys[nextIndex];
+    const currentPosterKey = heroPosterKeyRef.current;
+
+    if (!nextPosterKey || nextPosterKey === currentPosterKey) {
+      return;
+    }
+
+    setPreviousHeroPosterKey(currentPosterKey);
+    heroPosterKeyRef.current = nextPosterKey;
+    setActiveHeroPosterIndex(nextIndex);
+
+    window.clearTimeout(heroPosterTransitionTimeoutRef.current);
+    heroPosterTransitionTimeoutRef.current = window.setTimeout(() => {
+      setPreviousHeroPosterKey(null);
+    }, 720);
+  }
 
   function selectGroup(groupKey) {
     if (!competitionGroups[groupKey]) {
@@ -439,19 +517,39 @@ export function HomePage() {
           {locale === "ko" ? "2026 머슬마니아 코리아 내추럴 챔피언십" : "2026 Musclemania Korea Natural Championship"}
         </h1>
         <div className="site-home-hero__stage">
-          <div className="site-home-hero__stream site-home-hero__stream--left" aria-hidden="true">
-            {homeHeroLeftImageKeys.map((key, index) => (
+          <div className="site-home-hero__poster">
+            {previousHeroPosterKey ? (
               <img
-                className="site-home-hero__slide"
-                key={key}
-                src={getHomeImageUrl(key)}
+                className="site-home-hero__poster-image site-home-hero__poster-image--leaving"
+                src={getHomeImageUrl(previousHeroPosterKey)}
                 alt=""
-                style={{ "--site-home-hero-delay": `${index * 5}s` }}
+                aria-hidden="true"
               />
-            ))}
+            ) : null}
+            <img
+              className="site-home-hero__poster-image"
+              key={activeHeroPosterKey}
+              src={getHomeImageUrl(activeHeroPosterKey)}
+              alt={locale === "ko" ? `머슬마니아® 코리아 2026 포스터 ${activeHeroPosterIndex + 1}` : `Musclemania Korea 2026 poster ${activeHeroPosterIndex + 1}`}
+              decoding="async"
+              fetchPriority={activeHeroPosterIndex === 0 ? "high" : "auto"}
+            />
+            <div className="site-home-hero__poster-pager" role="tablist" aria-label={locale === "ko" ? "대회 포스터 선택" : "Competition poster selection"}>
+              {homeHeroPosterImageKeys.map((key, index) => (
+                <button
+                  className={index === activeHeroPosterIndex ? "site-home-hero__poster-dot site-home-hero__poster-dot--active" : "site-home-hero__poster-dot"}
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={index === activeHeroPosterIndex}
+                  aria-label={locale === "ko" ? `포스터 ${index + 1}` : `Poster ${index + 1}`}
+                  onClick={() => selectHeroPoster(index)}
+                />
+              ))}
+            </div>
           </div>
 
-          <div className="site-home-hero__center">
+          <div className="site-home-hero__content">
             <img
               className="site-home-hero__logo"
               src={getHomeImageUrl("home/muscle_mania.png")}
@@ -469,18 +567,10 @@ export function HomePage() {
                 </div>
               </dl>
             </div>
-          </div>
-
-          <div className="site-home-hero__stream site-home-hero__stream--right" aria-hidden="true">
-            {homeHeroRightImageKeys.map((key, index) => (
-              <img
-                className="site-home-hero__slide"
-                key={key}
-                src={getHomeImageUrl(key)}
-                alt=""
-                style={{ "--site-home-hero-delay": `${index * 5 + 0.65}s` }}
-              />
-            ))}
+            <div className="site-home-hero__countdown-wrap">
+              <p>{locale === "ko" ? "참가 신청 마감까지" : "Registration closes in"}</p>
+              <HomeHeroCountdown locale={locale} countdown={registrationCountdown} />
+            </div>
           </div>
         </div>
       </section>
