@@ -2203,6 +2203,19 @@ body,
   line-height: 1.6;
 }
 
+.site-completion-share-preview__copy-button--complete {
+  border-color: #23854a;
+  background: #23854a;
+  color: #fff;
+}
+
+.site-completion-share-preview__copy-button--complete:hover,
+.site-completion-share-preview__copy-button--complete:focus-visible {
+  border-color: #176c39;
+  background: #176c39;
+  color: #fff;
+}
+
 .site-completion-share-preview__post-url {
   display: grid;
   gap: 8px;

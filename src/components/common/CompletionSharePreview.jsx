@@ -263,8 +263,12 @@ export function CompletionSharePreview({
             <div className="site-completion-share-preview__hashtags">
               <h3>필수 해시태그</h3>
               <p>{hashtags}</p>
-              <Button onClick={handleCopyHashtags} variant="ghost">
-                {copied ? "복사" : "해시태그 복사"}
+              <Button
+                className={copied ? "site-completion-share-preview__copy-button--complete" : ""}
+                onClick={handleCopyHashtags}
+                variant="ghost"
+              >
+                {copied ? "복사 완료" : "해시태그 복사"}
               </Button>
             </div>
 
