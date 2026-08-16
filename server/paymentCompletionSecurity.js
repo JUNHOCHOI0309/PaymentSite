@@ -172,6 +172,108 @@ function validatePaymentResultAccess({ providedToken, orderId, secret, now = Dat
   return { ok: true };
 }
 
+function createParticipationCertificationAccessToken({
+  orderId,
+  targetType,
+  targetNumber,
+  secret,
+  ttlSeconds,
+  now = Date.now(),
+}) {
+  const normalizedOrderId = normalizeText(orderId);
+  const normalizedTargetType = normalizeText(targetType);
+  const normalizedTargetNumber = normalizeText(targetNumber);
+  const normalizedSecret = normalizeText(secret);
+  const normalizedTtlSeconds = Number(ttlSeconds);
+
+  if (
+    !normalizedOrderId ||
+    !normalizedTargetType ||
+    !normalizedTargetNumber ||
+    !normalizedSecret ||
+    !Number.isInteger(normalizedTtlSeconds) ||
+    normalizedTtlSeconds <= 0
+  ) {
+    throw new Error("Invalid participation certification token configuration");
+  }
+
+  const payload = Buffer.from(
+    JSON.stringify({
+      v: 1,
+      scope: "participation-certification",
+      oid: normalizedOrderId,
+      typ: normalizedTargetType,
+      tno: normalizedTargetNumber,
+      exp: Math.floor(now / 1000) + normalizedTtlSeconds,
+      nonce: crypto.randomBytes(16).toString("base64url"),
+    }),
+    "utf8"
+  ).toString("base64url");
+  const signature = crypto.createHmac("sha256", normalizedSecret).update(payload).digest("base64url");
+  return `${payload}.${signature}`;
+}
+
+function validateParticipationCertificationAccessToken({
+  providedToken,
+  orderId,
+  targetType,
+  targetNumber,
+  secret,
+  now = Date.now(),
+}) {
+  const normalizedToken = normalizeText(providedToken);
+  const normalizedOrderId = normalizeText(orderId);
+  const normalizedTargetType = normalizeText(targetType);
+  const normalizedTargetNumber = normalizeText(targetNumber);
+  const normalizedSecret = normalizeText(secret);
+
+  if (!normalizedToken || !normalizedOrderId || !normalizedTargetType || !normalizedTargetNumber || !normalizedSecret) {
+    return fail("PARTICIPATION_CERTIFICATION_ACCESS_DENIED", "참가 인증 입력 시간이 만료되었습니다. 신청 조회에서 본인 인증 후 다시 제출해 주세요.");
+  }
+
+  const [payload, providedSignature, ...extraParts] = normalizedToken.split(".");
+
+  if (!payload || !providedSignature || extraParts.length > 0) {
+    return fail("PARTICIPATION_CERTIFICATION_ACCESS_DENIED", "참가 인증 입력 시간이 만료되었습니다. 신청 조회에서 본인 인증 후 다시 제출해 주세요.");
+  }
+
+  const expectedSignature = crypto
+    .createHmac("sha256", normalizedSecret)
+    .update(payload)
+    .digest("base64url");
+  const providedBuffer = Buffer.from(providedSignature, "utf8");
+  const expectedBuffer = Buffer.from(expectedSignature, "utf8");
+
+  if (
+    providedBuffer.length !== expectedBuffer.length ||
+    !crypto.timingSafeEqual(providedBuffer, expectedBuffer)
+  ) {
+    return fail("PARTICIPATION_CERTIFICATION_ACCESS_DENIED", "참가 인증 입력 시간이 만료되었습니다. 신청 조회에서 본인 인증 후 다시 제출해 주세요.");
+  }
+
+  let decoded;
+
+  try {
+    decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+  } catch (_error) {
+    return fail("PARTICIPATION_CERTIFICATION_ACCESS_DENIED", "참가 인증 입력 시간이 만료되었습니다. 신청 조회에서 본인 인증 후 다시 제출해 주세요.");
+  }
+
+  if (
+    decoded?.v !== 1 ||
+    decoded?.scope !== "participation-certification" ||
+    decoded?.oid !== normalizedOrderId ||
+    decoded?.typ !== normalizedTargetType ||
+    decoded?.tno !== normalizedTargetNumber ||
+    !Number.isInteger(decoded?.exp) ||
+    decoded.exp <= Math.floor(now / 1000)
+  ) {
+    return fail("PARTICIPATION_CERTIFICATION_ACCESS_DENIED", "참가 인증 입력 시간이 만료되었습니다. 신청 조회에서 본인 인증 후 다시 제출해 주세요.");
+  }
+
+  return { ok: true };
+}
+
 function validateCompletionPaymentBinding({
   draft,
   order,
@@ -355,6 +457,7 @@ function validateKcpTestDraft(draft) {
 module.exports = {
   createDraftAccessToken,
   createPaymentResultAccessToken,
+  createParticipationCertificationAccessToken,
   resolveApplicationOrderDetails,
   validateKcpTestDraft,
   validateKcpApprovalResult,
@@ -362,4 +465,5 @@ module.exports = {
   validateDraftAccess,
   validateExistingPaymentReplay,
   validatePaymentResultAccess,
+  validateParticipationCertificationAccessToken,
 };

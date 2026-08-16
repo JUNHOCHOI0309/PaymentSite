@@ -16,7 +16,15 @@ export function SpectatorPaymentSuccessPage() {
     completeSpectatorOrder({ draftId: searchParams.get("draftId"), orderId: searchParams.get("orderId") })
       .then((response) => {
         dispatch({ type: "SET_FLOW_STEP", value: spectatorFlowSteps.COMPLETE });
-        navigate(`/apply/spectator/complete?spectatorOrderNumber=${encodeURIComponent(response.spectatorOrder.spectatorOrderNumber)}`, { replace: true });
+        navigate(
+          `/apply/spectator/complete?spectatorOrderNumber=${encodeURIComponent(response.spectatorOrder.spectatorOrderNumber)}`,
+          {
+            replace: true,
+            state: {
+              participationCertificationAccess: response.participationCertificationAccess || null,
+            },
+          },
+        );
       })
       .catch((error) => navigate(`/spectators/fail?message=${encodeURIComponent(error.message || "결제 완료 처리에 실패했습니다.")}`, { replace: true }));
   }, [dispatch, navigate, searchParams]);

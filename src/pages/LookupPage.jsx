@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "../components/common/Button";
+import { CompletionSharePreview } from "../components/common/CompletionSharePreview";
 import { Input } from "../components/common/Input";
 import { NoticeBox } from "../components/common/NoticeBox";
 import { PageShell } from "../components/layout/PageShell";
@@ -152,7 +153,80 @@ function formatPaymentCompletedAt(value, locale) {
   }).format(date);
 }
 
-export function LookupPage() {
+function createPreviewLookupData() {
+  const refundQuote = {
+    canAutoRefund: false,
+    refundPercent: 0,
+    refundAmount: 0,
+    matchedRuleLabel: "미리보기",
+    policyVersion: "preview",
+    message: "미리보기에서는 환불을 진행할 수 없습니다.",
+  };
+
+  return {
+    applications: [
+      {
+        applicationNumber: "APPL-2026-PREVIEW01",
+        status: "SUBMITTED",
+        paymentStatus: "DONE",
+        paymentAmount: 200000,
+        paymentCompletedAt: "2026-08-17T10:00:00+09:00",
+        name: "미리보기 참가자",
+        phone: "010-1234-5678",
+        email: "preview@mmkorea.com",
+        division: "man",
+        discipline: "Bodybuilding",
+        weightClass: "남자 오픈 -85kg",
+        refundQuote,
+        refundQuoteError: "",
+        stageServiceSummary: {
+          purchases: [
+            {
+              serviceOrderNumber: "STG-2026-PREVIEW01",
+              serviceType: "stage-photo",
+              serviceStatus: "SUBMITTED",
+              paymentStatus: "DONE",
+              totalAmount: 120000,
+              linkedApplications: [
+                { discipline: "Bodybuilding" },
+                { discipline: "Classic" },
+              ],
+            },
+          ],
+        },
+        stageServiceSummaryError: "",
+      },
+    ],
+    spectators: [
+      {
+        spectatorOrderNumber: "SPCT-2026-PREVIEW01",
+        name: "미리보기 참가자",
+        phone: "010-1234-5678",
+        email: "preview@mmkorea.com",
+        quantity: 1,
+        paymentStatus: "DONE",
+        paymentAmount: 15000,
+        totalAmount: 15000,
+        paymentCompletedAt: "2026-08-17T10:05:00+09:00",
+        admissionStatus: "READY",
+        refundQuote,
+        refundQuoteError: "",
+      },
+    ],
+    numberRecord: {
+      type: "application",
+      applicationNumber: "APPL-2026-PREVIEW01",
+      discipline: "Bodybuilding",
+      weightClass: "남자 오픈 -85kg",
+      paymentStatus: "DONE",
+      paymentAmount: 200000,
+      paymentCompletedAt: "2026-08-17T10:00:00+09:00",
+      status: "SUBMITTED",
+    },
+  };
+}
+
+export function LookupPage({ preview = false }) {
   const { locale, t } = useLanguage();
   const navigate = useNavigate();
   const [form, setForm] = useState({
@@ -169,6 +243,7 @@ export function LookupPage() {
   const [results, setResults] = useState([]);
   const [spectatorResults, setSpectatorResults] = useState([]);
   const [lookupResultAccessMethod, setLookupResultAccessMethod] = useState("");
+  const [lookupAccess, setLookupAccess] = useState(null);
   const [lookupResultTab, setLookupResultTab] = useState("applications");
   const [numberLookupResult, setNumberLookupResult] = useState(null);
   const [actionErrorMessage, setActionErrorMessage] = useState("");
@@ -543,6 +618,26 @@ export function LookupPage() {
   }
 
   async function handleLookup(session = null) {
+    if (preview) {
+      const previewData = createPreviewLookupData();
+      setResults(previewData.applications);
+      setSpectatorResults(previewData.spectators);
+      setLookupResultAccessMethod("email");
+      setLookupAccess({
+        name: "미리보기 참가자",
+        email: "preview@mmkorea.com",
+        phone: "",
+        verificationToken: "preview-lookup-token",
+      });
+      setLookupResultTab("applications");
+      setNumberLookupResult(null);
+      setVerificationToken("preview-lookup-token");
+      setPhoneVerificationToken("");
+      setActionErrorMessage("");
+      setVerificationMessage(locale === "ko" ? "미리보기 데이터를 표시했습니다." : "Preview data is displayed.");
+      return;
+    }
+
     const lookupName = session?.name || form.name;
     const lookupEmail = session?.email || form.email;
     const lookupVerificationToken = session?.verificationToken || verificationToken;
@@ -649,12 +744,19 @@ export function LookupPage() {
       );
       setSpectatorResults(spectatorsWithRefundQuotes);
       setLookupResultAccessMethod("email");
+      setLookupAccess({
+        name: lookupName,
+        email: lookupEmail,
+        phone: "",
+        verificationToken: lookupVerificationToken,
+      });
       setLookupResultTab("applications");
       setVerificationMessage(t("lookup.lookupDone"));
     } catch (error) {
       setResults([]);
       setSpectatorResults([]);
       setLookupResultAccessMethod("");
+      setLookupAccess(null);
       setActionErrorMessage(error.message || t("lookup.lookupFailed"));
     } finally {
       setIsSubmitting(false);
@@ -662,6 +764,26 @@ export function LookupPage() {
   }
 
   async function handlePhoneLookup(session = null) {
+    if (preview) {
+      const previewData = createPreviewLookupData();
+      setResults(previewData.applications);
+      setSpectatorResults(previewData.spectators);
+      setLookupResultAccessMethod("phone");
+      setLookupAccess({
+        name: "미리보기 참가자",
+        email: "",
+        phone: "010-1234-5678",
+        verificationToken: "preview-lookup-phone-token",
+      });
+      setLookupResultTab("applications");
+      setNumberLookupResult(null);
+      setVerificationToken("");
+      setPhoneVerificationToken("preview-lookup-phone-token");
+      setActionErrorMessage("");
+      setVerificationMessage(locale === "ko" ? "미리보기 데이터를 표시했습니다." : "Preview data is displayed.");
+      return;
+    }
+
     const lookupName = session?.name || form.name;
     const lookupPhone = session?.phone || form.phone;
     const lookupVerificationToken = session?.verificationToken || phoneVerificationToken;
@@ -767,6 +889,12 @@ export function LookupPage() {
       setResults(applicationsWithRefundQuotes);
       setSpectatorResults(spectatorsWithRefundQuotes);
       setLookupResultAccessMethod("phone");
+      setLookupAccess({
+        name: lookupName,
+        email: "",
+        phone: lookupPhone,
+        verificationToken: lookupVerificationToken,
+      });
       setLookupResultTab("applications");
       setVerificationMessage(
         locale === "ko"
@@ -777,6 +905,7 @@ export function LookupPage() {
       setResults([]);
       setSpectatorResults([]);
       setLookupResultAccessMethod("");
+      setLookupAccess(null);
       setActionErrorMessage(
         error.message ||
           (locale === "ko" ? "SMS 인증 신청 조회에 실패했습니다." : "Unable to look up applications with SMS verification.")
@@ -800,10 +929,23 @@ export function LookupPage() {
     setResults([]);
     setSpectatorResults([]);
     setLookupResultAccessMethod("");
+    setLookupAccess(null);
     setNumberLookupResult(null);
   }
 
   async function handleNumberLookup() {
+    if (preview) {
+      const previewData = createPreviewLookupData();
+      setActionErrorMessage("");
+      setVerificationMessage(locale === "ko" ? "미리보기 데이터를 표시했습니다." : "Preview data is displayed.");
+      setResults([]);
+      setSpectatorResults([]);
+      setLookupResultAccessMethod("");
+      setLookupAccess(null);
+      setNumberLookupResult(previewData.numberRecord);
+      return;
+    }
+
     const applicationNumber = form.applicationNumber.trim().toUpperCase();
 
     if (!applicationNumber) {
@@ -817,6 +959,7 @@ export function LookupPage() {
     setResults([]);
     setSpectatorResults([]);
     setLookupResultAccessMethod("");
+    setLookupAccess(null);
 
     try {
       const json = await lookupApplicationByNumber({ applicationNumber });
@@ -883,6 +1026,11 @@ export function LookupPage() {
 
   const hasStatusMessage = Boolean(actionErrorMessage || verificationMessage || devVerificationCode);
   function navigateToRefundRequest(type, id) {
+    if (preview) {
+      setActionErrorMessage(locale === "ko" ? "미리보기에서는 환불을 진행할 수 없습니다." : "Refund requests are unavailable in preview.");
+      return;
+    }
+
     const accessMethod = lookupResultAccessMethod;
     const session = accessMethod === "phone" ? getStoredLookupPhoneSession() : getStoredLookupSession();
 
@@ -910,6 +1058,30 @@ export function LookupPage() {
   const completedStageServicePurchases = stageServicePurchases.filter((purchase) => purchase.paymentStatus === "DONE");
   const completedSpectatorResults = spectatorResults.filter((result) => result.paymentStatus === "DONE");
   const hasLookupResults = results.length > 0 || stageServicePurchases.length > 0 || spectatorResults.length > 0;
+  const hasVerifiedLookupAccess = lookupMode !== "number" && Boolean(lookupAccess?.verificationToken);
+  const lookupShareAccess = lookupAccess;
+  const lookupCertificationTargets = lookupResultTab === "applications"
+    ? results.filter((result) => result.paymentStatus === "DONE").map((result) => ({
+        type: "application",
+        number: result.applicationNumber,
+        label: `${result.discipline || "종목"} · ${result.applicationNumber}`,
+      }))
+    : lookupResultTab === "stageServices"
+      ? stageServicePurchases.filter((purchase) => purchase.paymentStatus === "DONE").map((purchase) => ({
+          type: "stage-service",
+          number: purchase.serviceOrderNumber,
+          label: `${stageServiceTitles[purchase.serviceType] || purchase.serviceType} · ${purchase.serviceOrderNumber}`,
+        }))
+      : spectatorResults.filter((spectator) => spectator.paymentStatus === "DONE").map((spectator) => ({
+          type: "spectator",
+          number: spectator.spectatorOrderNumber,
+          label: `${locale === "ko" ? "참관객 신청" : "Spectator application"} · ${spectator.spectatorOrderNumber}`,
+        }));
+  const lookupShareType = lookupResultTab === "stageServices"
+    ? "stage"
+    : lookupResultTab === "spectators"
+      ? "spectator"
+      : "application";
   const totalPaidAmount = completedPaymentResults.reduce(
     (total, result) => total + Number(result.paymentAmount || 0),
     0,
@@ -1317,7 +1489,18 @@ export function LookupPage() {
 
           {hasLookupResults ? (
             <div className="site-result-card">
-              <h3>{t("lookup.resultTitle")}</h3>
+              <div className="site-result-card__header">
+                <h3>{t("lookup.resultTitle")}</h3>
+                {hasVerifiedLookupAccess && lookupCertificationTargets.length > 0 ? (
+                  <CompletionSharePreview
+                    certificationTargets={lookupCertificationTargets}
+                    iconOnly
+                    lookupAccess={lookupShareAccess}
+                    preview={preview}
+                    type={lookupShareType}
+                  />
+                ) : null}
+              </div>
               <div className="site-lookup-mode-grid site-lookup-result-tabs" role="tablist" aria-label={locale === "ko" ? "신청 내역 구분" : "Application history category"}>
                 {[
                   ["applications", lookupResultTabCopy.applications, results.length],

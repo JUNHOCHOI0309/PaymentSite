@@ -285,6 +285,30 @@ export async function lookupApplicationByPhone(payload) {
   return readJson(response);
 }
 
+export async function submitParticipationCertification(payload) {
+  const response = await apiFetch("/api/participation-certifications", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
+export async function getParticipationCertificationStatus(payload) {
+  const response = await apiFetch("/api/participation-certifications/status", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return readJson(response);
+}
+
 export async function sendLookupVerificationCode(payload) {
   const response = await apiFetch("/api/applications/lookup-verification/send", {
     method: "POST",

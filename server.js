@@ -11,6 +11,7 @@ const { Pool } = require("pg");
 const {
   createDraftAccessToken,
   createPaymentResultAccessToken,
+  createParticipationCertificationAccessToken,
   resolveApplicationOrderDetails,
   validateKcpTestDraft,
   validateKcpApprovalResult,
@@ -18,6 +19,7 @@ const {
   validateDraftAccess,
   validateExistingPaymentReplay,
   validatePaymentResultAccess,
+  validateParticipationCertificationAccessToken,
 } = require("./server/paymentCompletionSecurity");
 const {
   getPaymentMaintenanceMessage,
@@ -54,6 +56,7 @@ const applicationEmailVerificationCookieName = "mmk_application_email_verificati
 const stageServiceDraftCookieName = "mmk_stage_service_draft";
 const spectatorDraftCookieName = "mmk_spectator_draft";
 const paymentResultAccessTtlHours = 24;
+const participationCertificationAccessTtlMinutes = 15;
 const draftAccessTtlHours = 24;
 const paymentOrderTtlMinutes = Math.max(
   1,
@@ -1529,6 +1532,23 @@ function validateOrderPaymentResultAccess(req, order) {
   });
 }
 
+function issueParticipationCertificationAccess({ orderId, targetType, targetNumber }) {
+  const expiresAt = new Date(
+    Date.now() + participationCertificationAccessTtlMinutes * 60 * 1000
+  ).toISOString();
+
+  return {
+    token: createParticipationCertificationAccessToken({
+      orderId,
+      targetType,
+      targetNumber,
+      secret: paymentResultTokenSecret,
+      ttlSeconds: participationCertificationAccessTtlMinutes * 60,
+    }),
+    expiresAt,
+  };
+}
+
 function generateAdminSessionToken() {
   return crypto.randomBytes(32).toString("hex");
 }
@@ -2369,6 +2389,7 @@ function getEmailTransporter() {
 
 let lookupVerificationStoreReadyPromise = null;
 let lookupPhoneVerificationStoreReadyPromise = null;
+let participationCertificationStoreReadyPromise = null;
 
 async function ensureLookupVerificationStoreReady() {
   if (!lookupVerificationStoreReadyPromise) {
@@ -2410,6 +2431,27 @@ async function ensureLookupPhoneVerificationStoreReady() {
   }
 
   return lookupPhoneVerificationStoreReadyPromise;
+}
+
+async function ensureParticipationCertificationStoreReady() {
+  if (!participationCertificationStoreReadyPromise) {
+    participationCertificationStoreReadyPromise = (async function () {
+      const tableResult = await pool.query(
+        "SELECT to_regclass('public.participation_certifications') AS table_name"
+      );
+
+      if (!tableResult.rows[0]?.table_name) {
+        throw new Error(
+          "Participation certification database schema is not ready. Apply the participation certification migration."
+        );
+      }
+    })().catch((error) => {
+      participationCertificationStoreReadyPromise = null;
+      throw error;
+    });
+  }
+
+  return participationCertificationStoreReadyPromise;
 }
 
 async function purgeExpiredLookupVerifications() {
@@ -2715,6 +2757,30 @@ async function consumeCompletedRefundLookupAccess(client, access) {
   }
 }
 
+function normalizeParticipationCertificationUrl(value) {
+  const rawValue = normalizeText(value);
+
+  if (!rawValue || rawValue.length > 2000) {
+    return "";
+  }
+
+  try {
+    const parsedUrl = new URL(rawValue);
+    return ["http:", "https:"].includes(parsedUrl.protocol) ? parsedUrl.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+function getParticipationCertificationSourcePlatform(postUrl) {
+  const hostname = new URL(postUrl).hostname.toLowerCase();
+
+  if (hostname === "instagram.com" || hostname.endsWith(".instagram.com")) return "instagram";
+  if (hostname === "facebook.com" || hostname.endsWith(".facebook.com")) return "facebook";
+  if (hostname === "x.com" || hostname.endsWith(".x.com") || hostname === "twitter.com" || hostname.endsWith(".twitter.com")) return "x";
+  return "other";
+}
+
 async function findLookupOwnedApplication({ name, email, phone, applicationNumber }) {
   const isPhoneLookup = Boolean(phone);
   const result = await pool.query(
@@ -3014,6 +3080,50 @@ async function findLookupOwnedStageService({ name, email, phone, serviceOrderNum
   );
 
   return result.rows[0] || null;
+}
+
+async function findParticipationCertificationTarget({ targetType, targetNumber }) {
+  if (targetType === "application") {
+    const result = await pool.query(
+      `
+        SELECT application_number AS target_number, order_id, payment_status
+        FROM applications
+        WHERE application_number = $1
+          AND admin_deleted_at IS NULL
+        LIMIT 1
+      `,
+      [targetNumber]
+    );
+    return result.rows[0] || null;
+  }
+
+  if (targetType === "stage-service") {
+    const result = await pool.query(
+      `
+        SELECT service_order_number AS target_number, order_id, payment_status
+        FROM stage_service_orders
+        WHERE service_order_number = $1
+        LIMIT 1
+      `,
+      [targetNumber]
+    );
+    return result.rows[0] || null;
+  }
+
+  if (targetType === "spectator") {
+    const result = await pool.query(
+      `
+        SELECT spectator_order_number AS target_number, order_id, payment_status
+        FROM spectator_orders
+        WHERE spectator_order_number = $1
+        LIMIT 1
+      `,
+      [targetNumber]
+    );
+    return result.rows[0] || null;
+  }
+
+  return null;
 }
 
 function mapRefundRequestRow(row) {
@@ -12580,10 +12690,19 @@ app.post("/stage-services/complete", async function (req, res) {
       }
 
       await client.query("ROLLBACK");
+      const completedServiceOrder = mapStageServiceOrderRow(existingServiceOrderResult.rows[0]);
       return res.status(200).json({
         ok: true,
         idempotent: true,
-        serviceOrder: mapStageServiceOrderRow(existingServiceOrderResult.rows[0]),
+        serviceOrder: completedServiceOrder,
+        participationCertificationAccess:
+          completedServiceOrder.paymentStatus === "DONE"
+            ? issueParticipationCertificationAccess({
+                orderId,
+                targetType: "stage-service",
+                targetNumber: completedServiceOrder.serviceOrderNumber,
+              })
+            : null,
       });
     }
 
@@ -12804,10 +12923,19 @@ app.post("/stage-services/complete", async function (req, res) {
     );
 
     await client.query("COMMIT");
+    const completedServiceOrder = mapStageServiceOrderRow(serviceOrderInsertResult.rows[0]);
 
     return res.status(201).json({
       ok: true,
-      serviceOrder: mapStageServiceOrderRow(serviceOrderInsertResult.rows[0]),
+      serviceOrder: completedServiceOrder,
+      participationCertificationAccess:
+        completedServiceOrder.paymentStatus === "DONE"
+          ? issueParticipationCertificationAccess({
+              orderId,
+              targetType: "stage-service",
+              targetNumber: completedServiceOrder.serviceOrderNumber,
+            })
+          : null,
     });
   } catch (error) {
     await client.query("ROLLBACK");
@@ -13620,6 +13748,229 @@ app.post("/applications/lookup", async function (req, res) {
     return res.status(500).json({
       ok: false,
       message: "Failed to lookup application",
+    });
+  }
+});
+
+app.post("/participation-certifications/status", async function (req, res) {
+  try {
+    if (!hasTrustedWriteOrigin(req)) {
+      return res.status(403).json({ ok: false, message: "Untrusted request origin" });
+    }
+
+    await ensureLookupVerificationStoreReady();
+    await ensureParticipationCertificationStoreReady();
+
+    const targetType = normalizeText(req.body.targetType);
+    const targetNumber = normalizeText(req.body.targetNumber).toUpperCase();
+    const certificationAccessToken = normalizeText(req.body.certificationAccessToken);
+
+    if (!/^(application|stage-service|spectator)$/.test(targetType) || !targetNumber) {
+      return res.status(400).json({ ok: false, message: "인증할 신청 구분이 올바르지 않습니다." });
+    }
+
+    let target = null;
+
+    if (certificationAccessToken) {
+      target = await findParticipationCertificationTarget({ targetType, targetNumber });
+
+      if (!target) {
+        return res.status(404).json({ ok: false, message: "인증할 신청 내역을 찾을 수 없습니다." });
+      }
+
+      const completionAccess = validateParticipationCertificationAccessToken({
+        providedToken: certificationAccessToken,
+        orderId: target.order_id,
+        targetType,
+        targetNumber,
+        secret: paymentResultTokenSecret,
+      });
+
+      if (!completionAccess.ok) {
+        return res.status(403).json(completionAccess);
+      }
+    } else {
+      const access = await resolveLookupVerificationAccess({
+        name: req.body.name,
+        email: req.body.email,
+        phone: req.body.phone,
+        verificationToken: req.body.verificationToken,
+      });
+
+      if (!access.ok) {
+        return res.status(access.statusCode).json({ ok: false, message: access.message });
+      }
+
+      if (targetType === "application") {
+        target = await findLookupOwnedApplication({ ...access, applicationNumber: targetNumber });
+      } else if (targetType === "stage-service") {
+        target = await findLookupOwnedStageService({ ...access, serviceOrderNumber: targetNumber });
+      } else {
+        target = await findLookupOwnedSpectator({ ...access, spectatorOrderNumber: targetNumber });
+      }
+
+      if (!target) {
+        return res.status(404).json({ ok: false, message: "인증할 신청 내역을 찾을 수 없습니다." });
+      }
+    }
+
+    const certificationResult = await pool.query(
+      `
+        SELECT source_platform, updated_at
+        FROM participation_certifications
+        WHERE target_type = $1
+          AND target_number = $2
+        LIMIT 1
+      `,
+      [targetType, targetNumber]
+    );
+
+    return res.status(200).json({
+      ok: true,
+      completed: certificationResult.rowCount > 0,
+      certification: certificationResult.rowCount
+        ? {
+            sourcePlatform: certificationResult.rows[0].source_platform,
+            updatedAt: certificationResult.rows[0].updated_at,
+          }
+        : null,
+    });
+  } catch (error) {
+    console.error("Failed to load participation certification status:", error);
+    const isSchemaError = error?.message?.includes("Participation certification database schema");
+    return res.status(isSchemaError ? 503 : 500).json({
+      ok: false,
+      message: isSchemaError
+        ? "참가 인증 저장 기능 준비가 완료되지 않았습니다."
+        : "참가 인증 상태를 불러오지 못했습니다.",
+    });
+  }
+});
+
+app.post("/participation-certifications", async function (req, res) {
+  try {
+    if (!hasTrustedWriteOrigin(req)) {
+      return res.status(403).json({ ok: false, message: "Untrusted request origin" });
+    }
+
+    const rateLimitResult = consumeLookupVerificationRateLimit({
+      action: "participation-certification-submit",
+      ipAddress: getRequestIp(req),
+      limit: lookupNumberRateLimit,
+    });
+
+    if (!rateLimitResult.ok) {
+      res.setHeader("Retry-After", String(rateLimitResult.retryAfterSeconds));
+      return res.status(429).json({
+        ok: false,
+        message: "참가 인증 제출 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+      });
+    }
+
+    await ensureLookupVerificationStoreReady();
+    await ensureParticipationCertificationStoreReady();
+
+    const targetType = normalizeText(req.body.targetType);
+    const targetNumber = normalizeText(req.body.targetNumber).toUpperCase();
+    const postUrl = normalizeParticipationCertificationUrl(req.body.postUrl);
+    const certificationAccessToken = normalizeText(req.body.certificationAccessToken);
+
+    if (!postUrl) {
+      return res.status(400).json({ ok: false, message: "유효한 SNS 게시물 링크를 입력해 주세요." });
+    }
+
+    if (!/^(application|stage-service|spectator)$/.test(targetType)) {
+      return res.status(400).json({ ok: false, message: "인증할 신청 구분이 올바르지 않습니다." });
+    }
+
+    let target = null;
+    let verifiedVia = "";
+
+    if (certificationAccessToken) {
+      target = await findParticipationCertificationTarget({ targetType, targetNumber });
+
+      if (!target) {
+        return res.status(404).json({ ok: false, message: "인증할 신청 내역을 찾을 수 없습니다." });
+      }
+
+      const completionAccess = validateParticipationCertificationAccessToken({
+        providedToken: certificationAccessToken,
+        orderId: target.order_id,
+        targetType,
+        targetNumber,
+        secret: paymentResultTokenSecret,
+      });
+
+      if (!completionAccess.ok) {
+        return res.status(403).json(completionAccess);
+      }
+
+      verifiedVia = "completion";
+    } else {
+      const access = await resolveLookupVerificationAccess({
+        name: req.body.name,
+        email: req.body.email,
+        phone: req.body.phone,
+        verificationToken: req.body.verificationToken,
+      });
+
+      if (!access.ok) {
+        return res.status(access.statusCode).json({ ok: false, message: access.message });
+      }
+
+      if (targetType === "application") {
+        target = await findLookupOwnedApplication({ ...access, applicationNumber: targetNumber });
+      } else if (targetType === "stage-service") {
+        target = await findLookupOwnedStageService({ ...access, serviceOrderNumber: targetNumber });
+      } else {
+        target = await findLookupOwnedSpectator({ ...access, spectatorOrderNumber: targetNumber });
+      }
+
+      verifiedVia = access.method;
+    }
+
+    if (!target) {
+      return res.status(404).json({ ok: false, message: "인증할 신청 내역을 찾을 수 없습니다." });
+    }
+
+    if (target.payment_status !== "DONE") {
+      return res.status(409).json({ ok: false, message: "결제 완료된 신청 건만 참가 인증을 제출할 수 있습니다." });
+    }
+
+    const result = await pool.query(
+      `
+        INSERT INTO participation_certifications (
+          target_type,
+          target_number,
+          source_platform,
+          post_url,
+          verified_via
+        )
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (target_type, target_number)
+        DO UPDATE SET
+          source_platform = EXCLUDED.source_platform,
+          post_url = EXCLUDED.post_url,
+          verified_via = EXCLUDED.verified_via,
+          updated_at = NOW()
+        RETURNING id, target_type, target_number, source_platform, post_url, verified_via, created_at, updated_at
+      `,
+      [targetType, targetNumber, getParticipationCertificationSourcePlatform(postUrl), postUrl, verifiedVia]
+    );
+
+    return res.status(200).json({
+      ok: true,
+      message: "참가 인증 게시물 링크를 저장했습니다.",
+      certification: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Failed to submit participation certification:", error);
+    const isSchemaError = error?.message?.includes("Participation certification database schema");
+    return res.status(isSchemaError ? 503 : 500).json({
+      ok: false,
+      message: isSchemaError
+        ? "참가 인증 저장 기능 준비가 완료되지 않았습니다. 잠시 후 다시 시도해 주세요."
+        : "참가 인증 게시물 링크를 저장하지 못했습니다.",
     });
   }
 });
@@ -14796,7 +15147,18 @@ app.post("/spectators/complete", async function (req, res) {
     const access = validateOrderPaymentResultAccess(req, orderResult.rows[0]);
     if (!access.ok) return res.status(403).json(access);
     const result = await finalizePaidSpectatorOrder({ draftId, orderId });
-    return res.status(200).json({ ok: true, ...result });
+    return res.status(200).json({
+      ok: true,
+      ...result,
+      participationCertificationAccess:
+        result.spectatorOrder?.paymentStatus === "DONE"
+          ? issueParticipationCertificationAccess({
+              orderId,
+              targetType: "spectator",
+              targetNumber: result.spectatorOrder.spectatorOrderNumber,
+            })
+          : null,
+    });
   } catch (error) {
     console.error("Failed to complete spectator order:", error);
     return res.status(409).json({ ok: false, code: error.code || "SPECTATOR_COMPLETE_FAILED", message: error.message || "참관객 신청 완료 처리에 실패했습니다." });
@@ -15750,10 +16112,19 @@ app.post("/applications/complete", async function (req, res) {
       }
 
       await client.query("ROLLBACK");
+      const completedApplication = mapApplicationRow(existingApplicationResult.rows[0]);
       return res.status(200).json({
         ok: true,
         idempotent: true,
-        application: mapApplicationRow(existingApplicationResult.rows[0]),
+        application: completedApplication,
+        participationCertificationAccess:
+          completedApplication.paymentStatus === "DONE"
+            ? issueParticipationCertificationAccess({
+                orderId,
+                targetType: "application",
+                targetNumber: completedApplication.applicationNumber,
+              })
+            : null,
       });
     }
 
@@ -15974,10 +16345,19 @@ app.post("/applications/complete", async function (req, res) {
     );
 
     await client.query("COMMIT");
+    const completedApplication = mapApplicationRow(application);
 
     return res.status(201).json({
       ok: true,
-      application: mapApplicationRow(application),
+      application: completedApplication,
+      participationCertificationAccess:
+        completedApplication.paymentStatus === "DONE"
+          ? issueParticipationCertificationAccess({
+              orderId,
+              targetType: "application",
+              targetNumber: completedApplication.applicationNumber,
+            })
+          : null,
     });
   } catch (error) {
     await client.query("ROLLBACK");

@@ -31,7 +31,15 @@ export function PaymentSuccessPage() {
         type: "SET_FLOW_STEP",
         value: applicationFlowSteps.COMPLETE,
       });
-      navigate(`/apply/complete?applicationNumber=${encodeURIComponent(completeResult.application.applicationNumber)}`);
+      navigate(
+        `/apply/complete?applicationNumber=${encodeURIComponent(completeResult.application.applicationNumber)}`,
+        {
+          replace: true,
+          state: {
+            participationCertificationAccess: completeResult.participationCertificationAccess || null,
+          },
+        },
+      );
     }
 
     confirmAndComplete()

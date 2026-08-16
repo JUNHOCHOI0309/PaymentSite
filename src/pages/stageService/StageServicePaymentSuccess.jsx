@@ -35,6 +35,12 @@ export function StageServicePaymentSuccessPage() {
         `/apply/stage-services/complete?serviceOrderNumber=${encodeURIComponent(
           completeResult.serviceOrder.serviceOrderNumber,
         )}`,
+        {
+          replace: true,
+          state: {
+            participationCertificationAccess: completeResult.participationCertificationAccess || null,
+          },
+        },
       );
     }
 

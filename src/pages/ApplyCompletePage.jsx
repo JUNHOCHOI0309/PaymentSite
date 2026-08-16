@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { Button } from "../components/common/Button";
+import { CompletionSharePreview } from "../components/common/CompletionSharePreview";
 import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
 import { getApplicationByNumber, getApplicationByOrder } from "../lib/applicationApi";
@@ -17,6 +18,7 @@ const previewApplication = {
 
 export function ApplyCompletePage({ preview = false }) {
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const { locale, t } = useLanguage();
   const [application, setApplication] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
@@ -71,7 +73,22 @@ export function ApplyCompletePage({ preview = false }) {
     <PageShell>
       <section className="site-page site-page--narrow">
         <div className="site-complete-card site-apply-complete-card">
-          <p className="site-kicker">{t("common.kickerComplete")}</p>
+          <div className="site-complete-card__kicker-row">
+            <p className="site-kicker">{t("common.kickerComplete")}</p>
+            {application?.paymentStatus === "DONE" ? (
+              <CompletionSharePreview
+                certificationTargets={[{
+                  type: "application",
+                  number: application.applicationNumber,
+                  label: `${application.discipline || "종목"} · ${application.applicationNumber}`,
+                }]}
+                completionAccess={location.state?.participationCertificationAccess || null}
+                iconOnly
+                preview={preview}
+                type="application"
+              />
+            ) : null}
+          </div>
           <h1>{t("complete.title")}</h1>
           <p>{t("complete.description")}</p>
 

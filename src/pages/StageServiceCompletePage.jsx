@@ -1,20 +1,40 @@
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { Button } from "../components/common/Button";
+import { CompletionSharePreview } from "../components/common/CompletionSharePreview";
 import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
 import { formatStageServiceAmount, getStageServiceTitle } from "../data/stageServiceConfig";
 import { getStageServiceOrderByNumber, getStageServiceOrderByOrder } from "../lib/applicationApi";
 import { getCustomerPaymentStatus } from "../lib/customerPaymentStatus";
 
-export function StageServiceCompletePage() {
+const previewStageServiceOrder = {
+  serviceOrderNumber: "STAGE-2026-PREVIEW01",
+  serviceType: "stage-photo",
+  name: "홍길동",
+  phone: "010-1234-5678",
+  email: "preview@mmkorea.com",
+  totalAmount: 120000,
+  paymentStatus: "DONE",
+  serviceStatus: "SUBMITTED",
+  purchasedAt: "2026-08-16 14:30",
+};
+
+export function StageServiceCompletePage({ preview = false }) {
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const { locale, t } = useLanguage();
   const [serviceOrder, setServiceOrder] = useState(null);
   const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
     async function fetchStageServiceOrder() {
+      if (preview) {
+        setServiceOrder(previewStageServiceOrder);
+        setErrorMessage("");
+        return;
+      }
+
       const serviceOrderNumber = searchParams.get("serviceOrderNumber");
       const orderId = searchParams.get("orderId");
 
@@ -34,13 +54,28 @@ export function StageServiceCompletePage() {
     }
 
     fetchStageServiceOrder();
-  }, [searchParams, t]);
+  }, [preview, searchParams, t]);
 
   return (
     <PageShell>
       <section className="site-page site-page--stage-service">
         <div className="site-complete-card site-apply-complete-card">
-          <p className="site-kicker">{t("common.kickerComplete")}</p>
+          <div className="site-complete-card__kicker-row">
+            <p className="site-kicker">{t("common.kickerComplete")}</p>
+            {serviceOrder?.paymentStatus === "DONE" ? (
+              <CompletionSharePreview
+                certificationTargets={[{
+                  type: "stage-service",
+                  number: serviceOrder.serviceOrderNumber,
+                  label: `${getStageServiceTitle(serviceOrder.serviceType, locale) || "무대 서비스"} · ${serviceOrder.serviceOrderNumber}`,
+                }]}
+                completionAccess={location.state?.participationCertificationAccess || null}
+                iconOnly
+                preview={preview}
+                type="stage"
+              />
+            ) : null}
+          </div>
           <h1>{t("stageService.completeTitle")}</h1>
           <p>{t("stageService.completeDescription")}</p>
 
