@@ -204,6 +204,36 @@ function MetaCell({ primary, secondary }) {
   );
 }
 
+function getParticipationCertificationPlatformLabel(value) {
+  const labels = {
+    facebook: "Facebook",
+    instagram: "Instagram",
+    x: "X",
+  };
+
+  return labels[value] || "SNS";
+}
+
+function ParticipationCertificationCell({ certification }) {
+  if (!certification?.completed || !certification.postUrl) {
+    return <MetaCell primary="미제출" secondary="-" />;
+  }
+
+  return (
+    <div className="site-admin-certification">
+      <a
+        className="site-admin-certification__link"
+        href={certification.postUrl}
+        rel="noreferrer"
+        target="_blank"
+      >
+        제출 완료
+      </a>
+      <span>{`${getParticipationCertificationPlatformLabel(certification.sourcePlatform)} / ${formatDateTime(certification.updatedAt)}`}</span>
+    </div>
+  );
+}
+
 function SummaryCard({ label, value }) {
   return (
     <article className="site-admin-summary-card">
@@ -2242,6 +2272,33 @@ export function AdminDashboardPage() {
                       },
                       { key: "weightClass", label: "체급" },
                       { key: "paymentStatus", label: "결제상태" },
+                      {
+                        key: "participationCertification",
+                        label: "참가 인증 상태",
+                        getValue: (row) =>
+                          row.participationCertification?.completed ? "제출 완료" : "미제출",
+                      },
+                      {
+                        key: "participationCertificationPlatform",
+                        label: "참가 인증 SNS",
+                        getValue: (row) =>
+                          row.participationCertification?.completed
+                            ? getParticipationCertificationPlatformLabel(
+                                row.participationCertification.sourcePlatform,
+                              )
+                            : "-",
+                      },
+                      {
+                        key: "participationCertificationUrl",
+                        label: "참가 인증 링크",
+                        getValue: (row) => row.participationCertification?.postUrl || "-",
+                      },
+                      {
+                        key: "participationCertificationUpdatedAt",
+                        label: "참가 인증 수정일시",
+                        getValue: (row) =>
+                          formatDateTime(row.participationCertification?.updatedAt),
+                      },
                       { key: "documentOriginalFilename", label: "문서 파일" },
                       {
                         key: "submittedAt",
@@ -2332,6 +2389,16 @@ export function AdminDashboardPage() {
                       <MetaCell
                         primary={row.paymentStatus || "-"}
                         secondary={row.paymentAmount === null ? "-" : formatAmount(row.paymentAmount)}
+                      />
+                    ),
+                  },
+                  {
+                    key: "participationCertification",
+                    label: "참가 인증",
+                    sortable: false,
+                    render: (row) => (
+                      <ParticipationCertificationCell
+                        certification={row.participationCertification}
                       />
                     ),
                   },
@@ -2441,6 +2508,33 @@ export function AdminDashboardPage() {
                       { key: "totalAmount", label: "금액", getValue: (row) => formatAmount(row.totalAmount) },
                       { key: "paymentStatus", label: "결제상태" },
                       { key: "serviceStatus", label: "서비스상태" },
+                      {
+                        key: "participationCertification",
+                        label: "참가 인증 상태",
+                        getValue: (row) =>
+                          row.participationCertification?.completed ? "제출 완료" : "미제출",
+                      },
+                      {
+                        key: "participationCertificationPlatform",
+                        label: "참가 인증 SNS",
+                        getValue: (row) =>
+                          row.participationCertification?.completed
+                            ? getParticipationCertificationPlatformLabel(
+                                row.participationCertification.sourcePlatform,
+                              )
+                            : "-",
+                      },
+                      {
+                        key: "participationCertificationUrl",
+                        label: "참가 인증 링크",
+                        getValue: (row) => row.participationCertification?.postUrl || "-",
+                      },
+                      {
+                        key: "participationCertificationUpdatedAt",
+                        label: "참가 인증 수정일시",
+                        getValue: (row) =>
+                          formatDateTime(row.participationCertification?.updatedAt),
+                      },
                       { key: "purchasedAt", label: "구매일시", getValue: (row) => formatDateTime(row.purchasedAt) },
                     ],
                     exportResponse.stageServices || [],
@@ -2502,6 +2596,16 @@ export function AdminDashboardPage() {
                       <MetaCell
                         primary={`결제 ${row.paymentStatus || "-"}`}
                         secondary={`서비스 ${row.serviceStatus || "-"}`}
+                      />
+                    ),
+                  },
+                  {
+                    key: "participationCertification",
+                    label: "참가 인증",
+                    sortable: false,
+                    render: (row) => (
+                      <ParticipationCertificationCell
+                        certification={row.participationCertification}
                       />
                     ),
                   },
@@ -2579,6 +2683,33 @@ export function AdminDashboardPage() {
                       { key: "totalAmount", label: "결제금액", getValue: (row) => Number(row.totalAmount || 0) },
                       { key: "paymentStatus", label: "결제상태" },
                       { key: "admissionStatus", label: "입장상태" },
+                      {
+                        key: "participationCertification",
+                        label: "참가 인증 상태",
+                        getValue: (row) =>
+                          row.participationCertification?.completed ? "제출 완료" : "미제출",
+                      },
+                      {
+                        key: "participationCertificationPlatform",
+                        label: "참가 인증 SNS",
+                        getValue: (row) =>
+                          row.participationCertification?.completed
+                            ? getParticipationCertificationPlatformLabel(
+                                row.participationCertification.sourcePlatform,
+                              )
+                            : "-",
+                      },
+                      {
+                        key: "participationCertificationUrl",
+                        label: "참가 인증 링크",
+                        getValue: (row) => row.participationCertification?.postUrl || "-",
+                      },
+                      {
+                        key: "participationCertificationUpdatedAt",
+                        label: "참가 인증 수정일시",
+                        getValue: (row) =>
+                          formatDateTime(row.participationCertification?.updatedAt),
+                      },
                       { key: "orderId", label: "주문번호" },
                       { key: "paymentKey", label: "결제키" },
                       { key: "privacyConsent", label: "개인정보동의", getValue: (row) => row.consents?.privacy ? "Y" : "N" },
@@ -2624,6 +2755,16 @@ export function AdminDashboardPage() {
                     ),
                   },
                   { key: "admissionStatus", label: "입장 상태" },
+                  {
+                    key: "participationCertification",
+                    label: "참가 인증",
+                    sortable: false,
+                    render: (row) => (
+                      <ParticipationCertificationCell
+                        certification={row.participationCertification}
+                      />
+                    ),
+                  },
                   {
                     key: "consents",
                     label: "선택 동의",

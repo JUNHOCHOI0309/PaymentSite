@@ -8465,7 +8465,10 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
           a.payment_status,
           a.submitted_at,
           o.amount AS payment_amount,
-          document_files.files AS document_files
+          document_files.files AS document_files,
+          participation_certification.source_platform AS certification_source_platform,
+          participation_certification.post_url AS certification_post_url,
+          participation_certification.updated_at AS certification_updated_at
         FROM applications a
         LEFT JOIN orders o
           ON o.order_id = a.order_id
@@ -8481,6 +8484,13 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
           WHERE af.application_id = a.id
             AND lower(af.original_filename) NOT LIKE '%.mp3'
         ) document_files ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT source_platform, post_url, updated_at
+          FROM participation_certifications
+          WHERE target_type = 'application'
+            AND target_number = a.application_number
+          LIMIT 1
+        ) participation_certification ON TRUE
         WHERE ${whereClause}
         ORDER BY ${sortColumn} ${sortDirection} NULLS LAST, a.application_number DESC
         ${pageLimit}
@@ -8538,6 +8548,14 @@ app.get("/admin/applications", requireAdminAuth, async function (req, res) {
           paymentStatus: row.payment_status,
           paymentAmount: row.payment_amount === null ? null : Number(row.payment_amount),
           submittedAt: row.submitted_at,
+          participationCertification: row.certification_post_url
+            ? {
+                completed: true,
+                sourcePlatform: row.certification_source_platform,
+                postUrl: row.certification_post_url,
+                updatedAt: row.certification_updated_at,
+              }
+            : { completed: false, sourcePlatform: null, postUrl: null, updatedAt: null },
           documentFiles,
           documentOriginalFilename: documentFiles
             .map((file) => file.originalFilename)
@@ -8860,8 +8878,18 @@ app.get("/admin/stage-services", requireAdminAuth, async function (req, res) {
           payment_status,
           service_status,
           purchased_at,
-          updated_at
+          updated_at,
+          participation_certification.source_platform AS certification_source_platform,
+          participation_certification.post_url AS certification_post_url,
+          participation_certification.updated_at AS certification_updated_at
         FROM stage_service_orders
+        LEFT JOIN LATERAL (
+          SELECT source_platform, post_url, updated_at
+          FROM participation_certifications
+          WHERE target_type = 'stage-service'
+            AND target_number = stage_service_orders.service_order_number
+          LIMIT 1
+        ) participation_certification ON TRUE
         WHERE ${whereClause}
         ORDER BY ${sortColumn} ${sortDirection} NULLS LAST, service_order_number DESC
         ${pageLimit}
@@ -8920,6 +8948,14 @@ app.get("/admin/stage-services", requireAdminAuth, async function (req, res) {
           serviceStatus: row.service_status,
           purchasedAt: row.purchased_at,
           updatedAt: row.updated_at,
+          participationCertification: row.certification_post_url
+            ? {
+                completed: true,
+                sourcePlatform: row.certification_source_platform,
+                postUrl: row.certification_post_url,
+                updatedAt: row.certification_updated_at,
+              }
+            : { completed: false, sourcePlatform: null, postUrl: null, updatedAt: null },
         };
       }),
     });
@@ -9006,7 +9042,10 @@ app.get("/admin/spectators", requireAdminAuth, async function (req, res) {
           consents.privacy_consent,
           consents.refund_consent,
           consents.marketing_consent,
-          consents.photo_video_consent
+          consents.photo_video_consent,
+          participation_certification.source_platform AS certification_source_platform,
+          participation_certification.post_url AS certification_post_url,
+          participation_certification.updated_at AS certification_updated_at
         FROM spectator_orders
         LEFT JOIN payments
           ON payments.payment_key = spectator_orders.payment_key
@@ -9019,6 +9058,13 @@ app.get("/admin/spectators", requireAdminAuth, async function (req, res) {
           ORDER BY spectator_consents.consented_at DESC
           LIMIT 1
         ) AS consents ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT source_platform, post_url, updated_at
+          FROM participation_certifications
+          WHERE target_type = 'spectator'
+            AND target_number = spectator_orders.spectator_order_number
+          LIMIT 1
+        ) participation_certification ON TRUE
         WHERE ${whereClause}
         ORDER BY ${sortColumn} ${sortDirection} NULLS LAST,
           spectator_orders.spectator_order_number DESC
@@ -9048,6 +9094,14 @@ app.get("/admin/spectators", requireAdminAuth, async function (req, res) {
       spectators: result.rows.map((row) => ({
         ...mapSpectatorOrderRow(row, { maskPersonalInfo: false }),
         paymentCompletedAt: row.payment_completed_at,
+        participationCertification: row.certification_post_url
+          ? {
+              completed: true,
+              sourcePlatform: row.certification_source_platform,
+              postUrl: row.certification_post_url,
+              updatedAt: row.certification_updated_at,
+            }
+          : { completed: false, sourcePlatform: null, postUrl: null, updatedAt: null },
         consents: {
           privacy: row.privacy_consent === true,
           refund: row.refund_consent === true,

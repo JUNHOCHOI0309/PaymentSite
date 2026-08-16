@@ -3576,6 +3576,30 @@ body,
   overflow-wrap: anywhere;
 }
 
+.site-admin-certification {
+  display: grid;
+  gap: 4px;
+}
+
+.site-admin-certification__link {
+  color: #8fb8ff;
+  font-size: 0.94rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.site-admin-certification__link:hover,
+.site-admin-certification__link:focus-visible {
+  color: #bdd4ff;
+  text-decoration: underline;
+}
+
+.site-admin-certification span {
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
 .site-admin-table__json {
   max-width: 340px;
   color: rgba(255, 255, 255, 0.72);
