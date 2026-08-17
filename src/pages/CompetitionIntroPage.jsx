@@ -1,6 +1,6 @@
 import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
-import { buildApiUrl } from "../lib/applicationApi";
+import { buildPublicMediaUrl } from "../lib/applicationApi";
 
 const mmkIntroImageKeys = [
   "introduce/introduce_2.png",
@@ -30,7 +30,7 @@ const localizedIntroContent = {
 };
 
 export function getIntroduceImageUrl(key) {
-  return buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(key)}`);
+  return buildPublicMediaUrl(key);
 }
 
 export function IntroPageLayout({ title, bodyTitle, children }) {

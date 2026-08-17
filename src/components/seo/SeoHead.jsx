@@ -2,10 +2,23 @@ import { useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import seoPages from "../../data/seoPages.json";
 import structuredData from "../../data/seoStructuredData.json";
+import { buildPublicMediaUrl, hasPublicMediaBaseUrl } from "../../lib/applicationApi";
 
 const { defaultDescription, defaultTitle, pages, siteName, siteUrl } = seoPages;
 
 const pageByPath = new Map(pages.map((page) => [page.path, page]));
+const homepageStructuredData = hasPublicMediaBaseUrl()
+  ? {
+      organization: {
+        ...structuredData.organization,
+        logo: buildPublicMediaUrl("home/muscle_mania.png"),
+      },
+      event: {
+        ...structuredData.event,
+        image: [buildPublicMediaUrl("home/main_1.webp")],
+      },
+    }
+  : structuredData;
 
 const nonIndexablePrefixes = [
   "/admin",
@@ -113,8 +126,8 @@ export function SeoHead() {
     upsertCanonical(canonicalUrl);
 
     if (pathname === "/") {
-      upsertStructuredData("organization", structuredData.organization);
-      upsertStructuredData("event", structuredData.event);
+      upsertStructuredData("organization", homepageStructuredData.organization);
+      upsertStructuredData("event", homepageStructuredData.event);
     } else {
       removeStructuredData("organization");
       removeStructuredData("event");

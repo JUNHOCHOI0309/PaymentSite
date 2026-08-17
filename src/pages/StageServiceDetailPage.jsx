@@ -21,7 +21,7 @@ import {
 } from "../data/stageServiceConfig";
 import { getPaymentMaintenanceNotice } from "../data/paymentMaintenance";
 import {
-  buildApiUrl,
+  buildPublicMediaUrl,
   createStageServiceDraft,
   getEligibleStageServiceApplications,
   updateStageServiceDraft,
@@ -802,7 +802,7 @@ export function StageServiceDetailPage() {
           {serviceKey === "stage-photo" ? (
             <div className="site-stage-service-notice-images">
               <img
-                src={buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent("register/stagephoto_1.png")}`)}
+                src={buildPublicMediaUrl("register/stagephoto_1.png")}
                 alt="무대 사진 촬영 안내"
               />
             </div>
@@ -812,7 +812,7 @@ export function StageServiceDetailPage() {
               {["hairmakeup_1.png", "hairmakeup_2.png"].map((filename) => (
                 <img
                   key={filename}
-                  src={buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(`register/${filename}`)}`)}
+                  src={buildPublicMediaUrl(`register/${filename}`)}
                   alt=""
                 />
               ))}

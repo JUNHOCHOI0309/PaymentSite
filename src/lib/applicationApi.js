@@ -1,4 +1,5 @@
 const apiBaseUrl = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
+const publicMediaBaseUrl = normalizeApiBaseUrl(import.meta.env.VITE_PUBLIC_MEDIA_BASE_URL);
 
 function normalizeApiBaseUrl(value) {
   if (!value) {
@@ -15,6 +16,36 @@ export function buildApiUrl(path) {
 
   const resolvedPath = path.replace(/^\/api(?=\/)/, "");
   return `${apiBaseUrl}${resolvedPath}`;
+}
+
+function normalizePublicMediaKey(key) {
+  return String(key || "").replace(/^\/+/, "");
+}
+
+function encodePublicMediaKey(key) {
+  return normalizePublicMediaKey(key)
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => {
+      if (segment === ".") return "%2E";
+      if (segment === "..") return "%2E%2E";
+      return encodeURIComponent(segment);
+    })
+    .join("/");
+}
+
+export function buildPublicMediaUrl(key) {
+  const mediaKey = normalizePublicMediaKey(key);
+
+  if (!publicMediaBaseUrl) {
+    return buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(mediaKey)}`);
+  }
+
+  return `${publicMediaBaseUrl}/${encodePublicMediaKey(mediaKey)}`;
+}
+
+export function hasPublicMediaBaseUrl() {
+  return Boolean(publicMediaBaseUrl);
 }
 
 export async function apiFetch(path, options = {}) {
@@ -875,7 +906,7 @@ export async function getHomeGalleryImages() {
     images: (json.images || []).map((image) => ({
       ...image,
       src: image.key
-        ? buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(image.key)}`)
+        ? buildPublicMediaUrl(image.key)
         : image.src,
     })),
   };

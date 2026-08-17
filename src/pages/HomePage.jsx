@@ -6,7 +6,7 @@ import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
 import { getApplicationAdditionalInfo } from "../data/applicationAdditionalInfo";
 import { getApplicationDisciplineTitleByImageKey } from "../data/applicationDisciplines";
-import { buildApiUrl } from "../lib/applicationApi";
+import { buildPublicMediaUrl } from "../lib/applicationApi";
 
 const homeUpImageKeys = Array.from({ length: 13 }, (_, index) => `home/home_up_${index + 1}.png`);
 const homeHeroPosterImageKeys = Array.from({ length: 7 }, (_, index) => `home/main_${index + 1}.webp`);
@@ -246,7 +246,7 @@ function getCompetitionGroups(locale) {
 }
 
 function getHomeImageUrl(key) {
-  return buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(key)}`);
+  return buildPublicMediaUrl(key);
 }
 
 function getLocalDateKey() {

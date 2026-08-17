@@ -7,7 +7,7 @@ import {
   getParticipantGenderFromDivision,
   isCommonApplicationDiscipline,
 } from "../data/applicationDisciplines";
-import { buildApiUrl } from "../lib/applicationApi";
+import { buildPublicMediaUrl } from "../lib/applicationApi";
 
 const commonItems = [
   { key: "register/common_1.png" },
@@ -39,7 +39,7 @@ function getDisciplineGroups(t) {
 }
 
 function getRegisterImageUrl(key) {
-  return buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(key)}`);
+  return buildPublicMediaUrl(key);
 }
 
 export function ApplySelectPage() {

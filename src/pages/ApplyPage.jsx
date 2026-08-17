@@ -35,7 +35,7 @@ import {
   presetEmailDomains,
 } from "../lib/emailAddress";
 import {
-  buildApiUrl,
+  buildPublicMediaUrl,
   createDraft,
   getApplicationEmailVerificationStatus,
   sendApplicationEmailVerificationCode,
@@ -72,7 +72,7 @@ const imageFileInputAccept = ".jpg,.jpeg,.png,image/jpeg,image/png";
 const introductionMaxLength = 100;
 
 function getRegisterImageUrl(key) {
-  return buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(key)}`);
+  return buildPublicMediaUrl(key);
 }
 
 function formatPhoneNumber(value) {

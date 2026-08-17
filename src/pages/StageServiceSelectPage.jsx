@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
-import { buildApiUrl } from "../lib/applicationApi";
+import { buildPublicMediaUrl } from "../lib/applicationApi";
 import { buildStageServiceDetailPath } from "../lib/stageServiceFlowRoutes";
 
 const stageServiceItems = [
@@ -209,7 +209,7 @@ export function StageServiceSelectPage() {
               <div className="site-register-card__placeholder-media">
                 <img
                   alt={getStageServiceItemTitle(item, locale, t)}
-                  src={buildApiUrl(`/api/home/gallery-image?key=${encodeURIComponent(item.imageKey)}`)}
+                  src={buildPublicMediaUrl(item.imageKey)}
                 />
               </div>
               <strong className="site-register-card__placeholder-title">
