@@ -9,7 +9,7 @@ import { getApplicationDisciplineTitleByImageKey } from "../data/applicationDisc
 import { buildPublicMediaUrl } from "../lib/applicationApi";
 
 const homeUpImageKeys = Array.from({ length: 13 }, (_, index) => `home/home_up_${index + 1}.png`);
-const homeHeroPosterImageKeys = Array.from({ length: 7 }, (_, index) => `home/main_${index + 1}.webp`);
+const homeHeroPosterImageKeys = Array.from({ length: 10 }, (_, index) => `home/main_${index + 1}.webp`);
 const registrationDeadline = new Date("2026-10-19T00:00:00+09:00");
 const participantBenefitsDismissalStorageKey = "mmkorea-home-participant-benefits-dismissed-date";
 const participantBenefitsSecondaryDismissalStorageKey = "mmkorea-home-participant-benefits-secondary-dismissed-date";
