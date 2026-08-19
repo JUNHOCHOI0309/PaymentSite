@@ -9145,14 +9145,14 @@ app.get("/admin/stage-services", requireAdminAuth, async function (req, res) {
     const requestedSortKey = normalizeText(req.query.sortKey) || "purchasedAt";
     const sortDirection = normalizeText(req.query.sortDirection) === "asc" ? "ASC" : "DESC";
     const sortColumns = {
-      serviceOrderNumber: "service_order_number",
-      name: "name",
-      linkedApplicationNumber: "linked_application_number",
-      serviceType: "service_type",
-      totalAmount: "total_amount",
-      paymentStatus: "payment_status",
-      serviceStatus: "service_status",
-      purchasedAt: "purchased_at",
+      serviceOrderNumber: "sso.service_order_number",
+      name: "sso.name",
+      linkedApplicationNumber: "sso.linked_application_number",
+      serviceType: "sso.service_type",
+      totalAmount: "sso.total_amount",
+      paymentStatus: "sso.payment_status",
+      serviceStatus: "sso.service_status",
+      purchasedAt: "sso.purchased_at",
     };
     const sortColumn = sortColumns[requestedSortKey] || sortColumns.purchasedAt;
     const clauses = ["1 = 1"];
@@ -9164,15 +9164,15 @@ app.get("/admin/stage-services", requireAdminAuth, async function (req, res) {
     }
 
     if (serviceType) {
-      addFilter("service_type = ?", serviceType);
+      addFilter("sso.service_type = ?", serviceType);
     }
     if (search) {
       addFilter(
         `(
-          service_order_number ILIKE ? OR order_id ILIKE ? OR payment_key ILIKE ? OR
-          name ILIKE ? OR phone ILIKE ? OR email ILIKE ? OR
-          linked_application_number ILIKE ? OR linked_discipline ILIKE ? OR
-          linked_applications::text ILIKE ? OR service_type ILIKE ?
+          sso.service_order_number ILIKE ? OR sso.order_id ILIKE ? OR sso.payment_key ILIKE ? OR
+          sso.name ILIKE ? OR sso.phone ILIKE ? OR sso.email ILIKE ? OR
+          sso.linked_application_number ILIKE ? OR sso.linked_discipline ILIKE ? OR
+          sso.linked_applications::text ILIKE ? OR sso.service_type ILIKE ?
         )`,
         `%${search}%`
       );
@@ -9182,7 +9182,7 @@ app.get("/admin/stage-services", requireAdminAuth, async function (req, res) {
 
     const whereClause = clauses.join(" AND ");
     const totalResult = await pool.query(
-      `SELECT COUNT(*)::int AS count FROM stage_service_orders WHERE ${whereClause}`,
+      `SELECT COUNT(*)::int AS count FROM stage_service_orders sso WHERE ${whereClause}`,
       values
     );
     const totalCount = totalResult.rows[0]?.count || 0;
@@ -9196,42 +9196,42 @@ app.get("/admin/stage-services", requireAdminAuth, async function (req, res) {
     const result = await pool.query(
       `
         SELECT
-          service_order_number,
-          order_id,
-          payment_key,
-          service_type,
-          name,
-          phone,
-          email,
-          linked_application_number,
-          linked_discipline,
-          linked_applications,
-          photo_has_additional_discipline,
-          photo_additional_discipline,
-          video_type,
-          video_additional_discipline,
-          hair_participant_discipline,
-          hair_option,
-          hair_additional_discipline,
-          hair_optional_option,
-          total_amount,
-          payment_status,
-          service_status,
-          purchased_at,
-          updated_at,
+          sso.service_order_number,
+          sso.order_id,
+          sso.payment_key,
+          sso.service_type,
+          sso.name,
+          sso.phone,
+          sso.email,
+          sso.linked_application_number,
+          sso.linked_discipline,
+          sso.linked_applications,
+          sso.photo_has_additional_discipline,
+          sso.photo_additional_discipline,
+          sso.video_type,
+          sso.video_additional_discipline,
+          sso.hair_participant_discipline,
+          sso.hair_option,
+          sso.hair_additional_discipline,
+          sso.hair_optional_option,
+          sso.total_amount,
+          sso.payment_status,
+          sso.service_status,
+          sso.purchased_at,
+          sso.updated_at,
           participation_certification.source_platform AS certification_source_platform,
           participation_certification.post_url AS certification_post_url,
           participation_certification.updated_at AS certification_updated_at
-        FROM stage_service_orders
+        FROM stage_service_orders sso
         LEFT JOIN LATERAL (
           SELECT source_platform, post_url, updated_at
           FROM participation_certifications
           WHERE target_type = 'stage-service'
-            AND target_number = stage_service_orders.service_order_number
+            AND target_number = sso.service_order_number
           LIMIT 1
         ) participation_certification ON TRUE
         WHERE ${whereClause}
-        ORDER BY ${sortColumn} ${sortDirection} NULLS LAST, service_order_number DESC
+        ORDER BY ${sortColumn} ${sortDirection} NULLS LAST, sso.service_order_number DESC
         ${pageLimit}
       `,
       pageValues
