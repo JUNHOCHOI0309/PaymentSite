@@ -8368,6 +8368,346 @@ app.patch("/admin/users/:adminUserId", requireAdminAuth, requireSuperAdmin, asyn
   }
 });
 
+app.get("/admin/analytics", requireAdminAuth, async function (req, res) {
+  const requestedRange = normalizeText(req.query.range) || "30d";
+  const rangeDays = {
+    "7d": 7,
+    "30d": 30,
+    "90d": 90,
+    all: null,
+  };
+
+  if (!Object.prototype.hasOwnProperty.call(rangeDays, requestedRange)) {
+    return res.status(400).json({ ok: false, message: "Invalid analytics range" });
+  }
+
+  const days = rangeDays[requestedRange];
+  const startAt = days
+    ? new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+    : null;
+  const trendBucket = requestedRange === "all"
+    ? "month"
+    : requestedRange === "90d"
+      ? "week"
+      : "day";
+
+  try {
+    const [funnelResult, financialResult, refundResult, trendResult] = await Promise.all([
+      pool.query(
+        `
+          WITH payment_by_order AS (
+            SELECT
+              order_id,
+              MAX(approved_at) AS approved_at,
+              MAX(total_amount)::bigint AS total_amount
+            FROM payments
+            GROUP BY order_id
+          ), funnel AS (
+            SELECT
+              'applications'::text AS source,
+              COUNT(*)::int AS draft_count,
+              COUNT(*) FILTER (WHERE drafts.order_id IS NOT NULL)::int AS order_count,
+              COUNT(*) FILTER (WHERE payments.approved_at IS NOT NULL)::int AS completed_count,
+              COUNT(*) FILTER (WHERE orders.status = 'READY')::int AS ready_count,
+              COUNT(*) FILTER (WHERE orders.status = 'PAID')::int AS paid_count,
+              COUNT(*) FILTER (WHERE orders.status IN ('CANCELED', 'PARTIAL_CANCELED'))::int AS canceled_count,
+              COUNT(*) FILTER (WHERE orders.status = 'FAILED')::int AS failed_count
+            FROM application_drafts AS drafts
+            LEFT JOIN orders ON orders.order_id = drafts.order_id
+            LEFT JOIN payment_by_order AS payments ON payments.order_id = drafts.order_id
+            WHERE ($1::timestamptz IS NULL OR drafts.created_at >= $1)
+              AND COALESCE(UPPER(drafts.division), '') <> 'TEST'
+
+            UNION ALL
+
+            SELECT
+              'stageServices'::text AS source,
+              COUNT(*)::int AS draft_count,
+              COUNT(*) FILTER (WHERE drafts.order_id IS NOT NULL)::int AS order_count,
+              COUNT(*) FILTER (WHERE payments.approved_at IS NOT NULL)::int AS completed_count,
+              COUNT(*) FILTER (WHERE orders.status = 'READY')::int AS ready_count,
+              COUNT(*) FILTER (WHERE orders.status = 'PAID')::int AS paid_count,
+              COUNT(*) FILTER (WHERE orders.status IN ('CANCELED', 'PARTIAL_CANCELED'))::int AS canceled_count,
+              COUNT(*) FILTER (WHERE orders.status = 'FAILED')::int AS failed_count
+            FROM stage_service_drafts AS drafts
+            LEFT JOIN orders ON orders.order_id = drafts.order_id
+            LEFT JOIN payment_by_order AS payments ON payments.order_id = drafts.order_id
+            WHERE ($1::timestamptz IS NULL OR drafts.created_at >= $1)
+              AND COALESCE(drafts.total_amount, 0) <> 100
+
+            UNION ALL
+
+            SELECT
+              'spectators'::text AS source,
+              COUNT(*)::int AS draft_count,
+              COUNT(*) FILTER (WHERE drafts.order_id IS NOT NULL)::int AS order_count,
+              COUNT(*) FILTER (WHERE payments.approved_at IS NOT NULL)::int AS completed_count,
+              COUNT(*) FILTER (WHERE orders.status = 'READY')::int AS ready_count,
+              COUNT(*) FILTER (WHERE orders.status = 'PAID')::int AS paid_count,
+              COUNT(*) FILTER (WHERE orders.status IN ('CANCELED', 'PARTIAL_CANCELED'))::int AS canceled_count,
+              COUNT(*) FILTER (WHERE orders.status = 'FAILED')::int AS failed_count
+            FROM spectator_drafts AS drafts
+            LEFT JOIN orders ON orders.order_id = drafts.order_id
+            LEFT JOIN payment_by_order AS payments ON payments.order_id = drafts.order_id
+            WHERE ($1::timestamptz IS NULL OR drafts.created_at >= $1)
+              AND drafts.is_test = FALSE
+          )
+          SELECT * FROM funnel
+        `,
+        [startAt],
+      ),
+      pool.query(
+        `
+          WITH classified_payments AS (
+            SELECT DISTINCT ON (payments.order_id)
+              payments.order_id,
+              payments.total_amount,
+              payments.approved_at,
+              CASE
+                WHEN EXISTS (
+                  SELECT 1 FROM application_drafts AS drafts
+                  WHERE drafts.order_id = payments.order_id
+                    AND COALESCE(UPPER(drafts.division), '') <> 'TEST'
+                ) THEN 'applications'
+                WHEN EXISTS (
+                  SELECT 1 FROM stage_service_drafts AS drafts
+                  WHERE drafts.order_id = payments.order_id
+                    AND COALESCE(drafts.total_amount, 0) <> 100
+                ) THEN 'stageServices'
+                WHEN EXISTS (
+                  SELECT 1 FROM spectator_drafts AS drafts
+                  WHERE drafts.order_id = payments.order_id
+                    AND drafts.is_test = FALSE
+                ) THEN 'spectators'
+                ELSE NULL
+              END AS source
+            FROM payments
+            WHERE payments.approved_at IS NOT NULL
+              AND payments.total_amount <> 100
+              AND ($1::timestamptz IS NULL OR payments.approved_at >= $1)
+            ORDER BY payments.order_id, payments.updated_at DESC
+          )
+          SELECT
+            source,
+            COUNT(*)::int AS approval_count,
+            COALESCE(SUM(total_amount), 0)::bigint AS approved_amount
+          FROM classified_payments
+          WHERE source IS NOT NULL
+          GROUP BY source
+        `,
+        [startAt],
+      ),
+      pool.query(
+        `
+          WITH completed_refunds AS (
+            SELECT 'applications'::text AS source, refund_amount, COALESCE(processed_at, updated_at) AS completed_at
+            FROM application_refund_requests
+            WHERE request_status = 'COMPLETED' AND original_amount <> 100
+
+            UNION ALL
+
+            SELECT 'stageServices'::text AS source, refund_amount, COALESCE(processed_at, updated_at) AS completed_at
+            FROM stage_service_refund_requests
+            WHERE request_status = 'COMPLETED' AND original_amount <> 100
+
+            UNION ALL
+
+            SELECT 'spectators'::text AS source, refund_amount, COALESCE(processed_at, updated_at) AS completed_at
+            FROM spectator_refund_requests
+            WHERE request_status = 'COMPLETED' AND original_amount <> 100
+          )
+          SELECT
+            source,
+            COUNT(*)::int AS refund_count,
+            COALESCE(SUM(refund_amount), 0)::bigint AS refunded_amount
+          FROM completed_refunds
+          WHERE ($1::timestamptz IS NULL OR completed_at >= $1)
+          GROUP BY source
+        `,
+        [startAt],
+      ),
+      pool.query(
+        `
+          WITH approval_events AS (
+            SELECT DISTINCT ON (payments.order_id)
+              payments.order_id,
+              payments.approved_at AS occurred_at,
+              payments.total_amount
+            FROM payments
+            WHERE payments.approved_at IS NOT NULL
+              AND payments.total_amount <> 100
+              AND ($1::timestamptz IS NULL OR payments.approved_at >= $1)
+              AND (
+                EXISTS (
+                  SELECT 1 FROM application_drafts AS drafts
+                  WHERE drafts.order_id = payments.order_id
+                    AND COALESCE(UPPER(drafts.division), '') <> 'TEST'
+                )
+                OR EXISTS (
+                  SELECT 1 FROM stage_service_drafts AS drafts
+                  WHERE drafts.order_id = payments.order_id
+                    AND COALESCE(drafts.total_amount, 0) <> 100
+                )
+                OR EXISTS (
+                  SELECT 1 FROM spectator_drafts AS drafts
+                  WHERE drafts.order_id = payments.order_id
+                    AND drafts.is_test = FALSE
+                )
+              )
+            ORDER BY payments.order_id, payments.updated_at DESC
+          ), refund_events AS (
+            SELECT refund_amount, COALESCE(processed_at, updated_at) AS occurred_at
+            FROM application_refund_requests
+            WHERE request_status = 'COMPLETED' AND original_amount <> 100
+
+            UNION ALL
+
+            SELECT refund_amount, COALESCE(processed_at, updated_at) AS occurred_at
+            FROM stage_service_refund_requests
+            WHERE request_status = 'COMPLETED' AND original_amount <> 100
+
+            UNION ALL
+
+            SELECT refund_amount, COALESCE(processed_at, updated_at) AS occurred_at
+            FROM spectator_refund_requests
+            WHERE request_status = 'COMPLETED' AND original_amount <> 100
+          ), approvals AS (
+            SELECT
+              date_trunc('${trendBucket}', occurred_at) AS period_start,
+              COUNT(*)::int AS approval_count,
+              COALESCE(SUM(total_amount), 0)::bigint AS approved_amount
+            FROM approval_events
+            GROUP BY period_start
+          ), refunds AS (
+            SELECT
+              date_trunc('${trendBucket}', occurred_at) AS period_start,
+              COUNT(*)::int AS refund_count,
+              COALESCE(SUM(refund_amount), 0)::bigint AS refunded_amount
+            FROM refund_events
+            WHERE ($1::timestamptz IS NULL OR occurred_at >= $1)
+            GROUP BY period_start
+          )
+          SELECT
+            COALESCE(approvals.period_start, refunds.period_start) AS period_start,
+            COALESCE(approvals.approval_count, 0)::int AS approval_count,
+            COALESCE(approvals.approved_amount, 0)::bigint AS approved_amount,
+            COALESCE(refunds.refund_count, 0)::int AS refund_count,
+            COALESCE(refunds.refunded_amount, 0)::bigint AS refunded_amount
+          FROM approvals
+          FULL OUTER JOIN refunds ON refunds.period_start = approvals.period_start
+          ORDER BY period_start ASC
+        `,
+        [startAt],
+      ),
+    ]);
+
+    const financialBySource = new Map(
+      financialResult.rows.map((row) => [row.source, row]),
+    );
+    const refundsBySource = new Map(
+      refundResult.rows.map((row) => [row.source, row]),
+    );
+    const sourceLabels = {
+      applications: "대회 신청",
+      stageServices: "무대 서비스",
+      spectators: "참관객 신청",
+    };
+
+    const sources = funnelResult.rows.map((row) => {
+      const financial = financialBySource.get(row.source) || {};
+      const refunds = refundsBySource.get(row.source) || {};
+      const draftCount = Number(row.draft_count || 0);
+      const completedCount = Number(row.completed_count || 0);
+      const approvedAmount = Number(financial.approved_amount || 0);
+      const refundedAmount = Number(refunds.refunded_amount || 0);
+
+      return {
+        id: row.source,
+        label: sourceLabels[row.source] || row.source,
+        draftCount,
+        orderCount: Number(row.order_count || 0),
+        completedCount,
+        readyCount: Number(row.ready_count || 0),
+        paidCount: Number(row.paid_count || 0),
+        canceledCount: Number(row.canceled_count || 0),
+        failedCount: Number(row.failed_count || 0),
+        conversionRate: draftCount > 0
+          ? Math.round((completedCount / draftCount) * 1000) / 10
+          : 0,
+        approvalCount: Number(financial.approval_count || 0),
+        approvedAmount,
+        refundCount: Number(refunds.refund_count || 0),
+        refundedAmount,
+        netAmount: approvedAmount - refundedAmount,
+      };
+    });
+
+    const totals = sources.reduce(
+      (summary, source) => ({
+        draftCount: summary.draftCount + source.draftCount,
+        orderCount: summary.orderCount + source.orderCount,
+        completedCount: summary.completedCount + source.completedCount,
+        readyCount: summary.readyCount + source.readyCount,
+        paidCount: summary.paidCount + source.paidCount,
+        canceledCount: summary.canceledCount + source.canceledCount,
+        failedCount: summary.failedCount + source.failedCount,
+        approvalCount: summary.approvalCount + source.approvalCount,
+        approvedAmount: summary.approvedAmount + source.approvedAmount,
+        refundCount: summary.refundCount + source.refundCount,
+        refundedAmount: summary.refundedAmount + source.refundedAmount,
+        netAmount: summary.netAmount + source.netAmount,
+      }),
+      {
+        draftCount: 0,
+        orderCount: 0,
+        completedCount: 0,
+        readyCount: 0,
+        paidCount: 0,
+        canceledCount: 0,
+        failedCount: 0,
+        approvalCount: 0,
+        approvedAmount: 0,
+        refundCount: 0,
+        refundedAmount: 0,
+        netAmount: 0,
+      },
+    );
+    totals.conversionRate = totals.draftCount > 0
+      ? Math.round((totals.completedCount / totals.draftCount) * 1000) / 10
+      : 0;
+
+    await writeAdminAuditLog({
+      adminUserId: req.adminUser.id,
+      action: "ADMIN_VIEW_ANALYTICS",
+      targetType: "analytics",
+      ipAddress: getRequestIp(req),
+      userAgent: getRequestUserAgent(req),
+      metadata: { range: requestedRange },
+    });
+
+    return res.status(200).json({
+      ok: true,
+      range: requestedRange,
+      startAt,
+      generatedAt: new Date().toISOString(),
+      trendBucket,
+      totals,
+      sources,
+      trend: trendResult.rows.map((row) => ({
+        periodStart: row.period_start,
+        approvalCount: Number(row.approval_count || 0),
+        approvedAmount: Number(row.approved_amount || 0),
+        refundCount: Number(row.refund_count || 0),
+        refundedAmount: Number(row.refunded_amount || 0),
+        netAmount: Number(row.approved_amount || 0) - Number(row.refunded_amount || 0),
+      })),
+    });
+  } catch (error) {
+    console.error("Failed to fetch admin analytics:", error);
+    return res.status(500).json({ ok: false, message: "Failed to fetch admin analytics" });
+  }
+});
+
 app.get("/admin/applications", requireAdminAuth, async function (req, res) {
   try {
     const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);

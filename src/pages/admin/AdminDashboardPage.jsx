@@ -21,6 +21,7 @@ import {
   createAdminUser,
   deleteAdminSmsMarketingOptOut,
   deleteAdminApplication,
+  getAdminAnalytics,
   getAdminApplications,
   getAdminAuditLogs,
   getAdminCanceledPayments,
@@ -240,6 +241,102 @@ function SummaryCard({ label, value }) {
       <span>{label}</span>
       <strong>{value}</strong>
     </article>
+  );
+}
+
+function formatAnalyticsPeriod(value, bucket) {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  if (bucket === "month") {
+    return new Intl.DateTimeFormat("ko-KR", { year: "2-digit", month: "2-digit" }).format(date);
+  }
+
+  return new Intl.DateTimeFormat("ko-KR", { month: "2-digit", day: "2-digit" }).format(date);
+}
+
+function AnalyticsFunnelCard({ source }) {
+  const draftCount = Math.max(0, Number(source.draftCount) || 0);
+  const orderCount = Math.max(0, Number(source.orderCount) || 0);
+  const completedCount = Math.max(0, Number(source.completedCount) || 0);
+  const orderWidth = draftCount > 0 ? Math.max(3, (orderCount / draftCount) * 100) : 0;
+  const completedWidth = draftCount > 0 ? Math.max(3, (completedCount / draftCount) * 100) : 0;
+
+  return (
+    <article className="site-admin-analytics-funnel">
+      <div className="site-admin-analytics-funnel__header">
+        <div>
+          <span>신청 유형</span>
+          <h3>{source.label}</h3>
+        </div>
+        <strong>{`${source.conversionRate}%`}</strong>
+      </div>
+      <div className="site-admin-analytics-funnel__steps">
+        <div className="site-admin-analytics-funnel__step">
+          <span style={{ width: draftCount ? "100%" : "0%" }} />
+          <p><b>초안 생성</b><strong>{draftCount.toLocaleString("ko-KR")}</strong></p>
+        </div>
+        <div className="site-admin-analytics-funnel__step">
+          <span style={{ width: `${orderWidth}%` }} />
+          <p><b>주문 생성</b><strong>{orderCount.toLocaleString("ko-KR")}</strong></p>
+        </div>
+        <div className="site-admin-analytics-funnel__step site-admin-analytics-funnel__step--completed">
+          <span style={{ width: `${completedWidth}%` }} />
+          <p><b>결제 승인</b><strong>{completedCount.toLocaleString("ko-KR")}</strong></p>
+        </div>
+      </div>
+      <dl className="site-admin-analytics-funnel__details">
+        <div><dt>현재 결제 유지</dt><dd>{source.paidCount.toLocaleString("ko-KR")}</dd></div>
+        <div><dt>결제 대기</dt><dd>{source.readyCount.toLocaleString("ko-KR")}</dd></div>
+        <div><dt>취소 / 실패</dt><dd>{(source.canceledCount + source.failedCount).toLocaleString("ko-KR")}</dd></div>
+        <div><dt>완료 환불</dt><dd>{source.refundCount.toLocaleString("ko-KR")}</dd></div>
+        <div><dt>결제 승인액</dt><dd>{formatAmount(source.approvedAmount)}</dd></div>
+        <div><dt>기간 순결제액</dt><dd>{formatAmount(source.netAmount)}</dd></div>
+      </dl>
+    </article>
+  );
+}
+
+function AnalyticsTrendChart({ rows, bucket }) {
+  const maxAmount = Math.max(1, ...rows.map((row) => Number(row.approvedAmount) || 0));
+
+  if (!rows.length) {
+    return <div className="site-admin-loading">선택한 기간의 결제 또는 환불 데이터가 없습니다.</div>;
+  }
+
+  return (
+    <div className="site-admin-analytics-trend" role="img" aria-label="기간별 결제 승인액과 환불액 추이">
+      <div className="site-admin-analytics-trend__legend" aria-hidden="true">
+        <span><i className="site-admin-analytics-trend__key site-admin-analytics-trend__key--sales" />결제 승인액</span>
+        <span><i className="site-admin-analytics-trend__key site-admin-analytics-trend__key--refund" />환불 완료액</span>
+      </div>
+      <div className="site-admin-analytics-trend__viewport">
+        <div className="site-admin-analytics-trend__plot">
+          {rows.map((row) => {
+            const approvedAmount = Number(row.approvedAmount) || 0;
+            const refundedAmount = Number(row.refundedAmount) || 0;
+            const approvedHeight = approvedAmount > 0 ? Math.max(4, (approvedAmount / maxAmount) * 100) : 0;
+            const refundedHeight = refundedAmount > 0 ? Math.max(4, (refundedAmount / maxAmount) * 100) : 0;
+
+            return (
+              <div className="site-admin-analytics-trend__item" key={row.periodStart}>
+                <div className="site-admin-analytics-trend__bars" title={`승인 ${formatAmount(approvedAmount)} / 환불 ${formatAmount(refundedAmount)}`}>
+                  <span className="site-admin-analytics-trend__bar site-admin-analytics-trend__bar--sales" style={{ height: `${approvedHeight}%` }} />
+                  <span className="site-admin-analytics-trend__bar site-admin-analytics-trend__bar--refund" style={{ height: `${refundedHeight}%` }} />
+                </div>
+                <span className="site-admin-analytics-trend__label">{formatAnalyticsPeriod(row.periodStart, bucket)}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -872,6 +969,9 @@ export function AdminDashboardPage() {
   const [refunds, setRefunds] = useState([]);
   const [adminUsers, setAdminUsers] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
+  const [analyticsRange, setAnalyticsRange] = useState("30d");
+  const [analytics, setAnalytics] = useState(null);
+  const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(false);
   const [smsCampaigns, setSmsCampaigns] = useState([]);
   const [smsMarketingOptOuts, setSmsMarketingOptOuts] = useState([]);
   const [smsCampaignForm, setSmsCampaignForm] = useState({
@@ -1158,6 +1258,17 @@ export function AdminDashboardPage() {
     });
   }, [auditQuery]);
 
+  const loadAnalytics = useCallback(async () => {
+    setIsAnalyticsLoading(true);
+
+    try {
+      const response = await getAdminAnalytics(analyticsRange);
+      setAnalytics(response);
+    } finally {
+      setIsAnalyticsLoading(false);
+    }
+  }, [analyticsRange]);
+
   const loadRefundRequests = useCallback(async () => {
     const response = await getAdminRefundRequests(refundRequestQuery);
     setRefundRequests(response.refundRequests || []);
@@ -1324,6 +1435,27 @@ export function AdminDashboardPage() {
     hasInitializedAdminDataRef.current = true;
     loadAdminData();
   }, [loadAdminData]);
+
+  useEffect(() => {
+    if (!isInitialAdminDataLoaded || activeSection !== "analytics") {
+      return undefined;
+    }
+
+    loadAnalytics().catch((error) => {
+      if (
+        error.code === "ADMIN_AUTH_REQUIRED"
+        || error.code === "ADMIN_SESSION_EXPIRED"
+        || error.code === "ADMIN_SESSION_IDLE_EXPIRED"
+      ) {
+        forceAdminLogout();
+        return;
+      }
+
+      setErrorMessage(error.message || "분석 지표를 불러오지 못했습니다.");
+    });
+
+    return undefined;
+  }, [activeSection, forceAdminLogout, isInitialAdminDataLoaded, loadAnalytics]);
 
   useEffect(() => {
     if (!isInitialAdminDataLoaded) {
@@ -1725,6 +1857,7 @@ export function AdminDashboardPage() {
 
   const dashboardSections = [
     { id: "overview", label: "개요" },
+    { id: "analytics", label: "분석 지표" },
     { id: "applications", label: "등록 현황" },
     { id: "stageServices", label: "무대 서비스 관리" },
     { id: "spectators", label: "참관객 신청 장부" },
@@ -2191,6 +2324,66 @@ export function AdminDashboardPage() {
                 )}
               </section>
             </div>
+          ) : null}
+
+          {activeSection === "analytics" ? (
+            <section className="site-admin-analytics">
+              <div className="site-admin-analytics__header">
+                <div>
+                  <p className="site-kicker">Conversion Analytics</p>
+                  <h2>신청 및 결제 분석</h2>
+                  <p>서버에 저장된 초안, 주문, 결제 승인, 환불 완료 기록을 기준으로 집계합니다.</p>
+                </div>
+                <label className="site-admin-analytics__range">
+                  <span>조회 기간</span>
+                  <select value={analyticsRange} onChange={(event) => setAnalyticsRange(event.target.value)}>
+                    <option value="7d">최근 7일</option>
+                    <option value="30d">최근 30일</option>
+                    <option value="90d">최근 90일</option>
+                    <option value="all">전체 기간</option>
+                  </select>
+                </label>
+              </div>
+
+              {isAnalyticsLoading ? (
+                <div className="site-admin-loading">분석 지표를 집계하는 중입니다.</div>
+              ) : analytics ? (
+                <>
+                  <div className="site-admin-mini-summary site-admin-analytics__summary">
+                    <SummaryCard label="초안 생성" value={analytics.totals.draftCount.toLocaleString("ko-KR")} />
+                    <SummaryCard label="주문 생성" value={analytics.totals.orderCount.toLocaleString("ko-KR")} />
+                    <SummaryCard label="결제 승인" value={analytics.totals.completedCount.toLocaleString("ko-KR")} />
+                    <SummaryCard label="초안 대비 승인율" value={`${analytics.totals.conversionRate}%`} />
+                    <SummaryCard label="결제 승인액" value={formatAmount(analytics.totals.approvedAmount)} />
+                    <SummaryCard label="환불 완료액" value={formatAmount(analytics.totals.refundedAmount)} />
+                    <SummaryCard label="기간 순결제액" value={formatAmount(analytics.totals.netAmount)} />
+                    <SummaryCard label="현재 결제 대기" value={analytics.totals.readyCount.toLocaleString("ko-KR")} />
+                  </div>
+
+                  <div className="site-admin-analytics__notice">
+                    <strong>집계 기준</strong>
+                    <span>결제 승인액은 해당 기간 승인 건, 환불 완료액은 해당 기간 환불 완료 건을 기준으로 계산합니다.</span>
+                    <span>페이지 방문 수는 현재 서버에 저장하지 않으므로 초안 작성 이전의 유입·이탈은 포함되지 않습니다.</span>
+                  </div>
+
+                  <div className="site-admin-analytics__funnels">
+                    {(analytics.sources || []).map((source) => (
+                      <AnalyticsFunnelCard key={source.id} source={source} />
+                    ))}
+                  </div>
+
+                  <section className="site-admin-analytics__trend-card">
+                    <div className="site-admin-section__header">
+                      <h2>결제·환불 추이</h2>
+                      <p>{analytics.trendBucket === "month" ? "월별" : analytics.trendBucket === "week" ? "주별" : "일별"} 승인액과 환불 완료액입니다.</p>
+                    </div>
+                    <AnalyticsTrendChart rows={analytics.trend || []} bucket={analytics.trendBucket} />
+                  </section>
+                </>
+              ) : (
+                <div className="site-admin-loading">표시할 분석 데이터가 없습니다.</div>
+              )}
+            </section>
           ) : null}
 
           {activeSection === "applications" ? (

@@ -699,6 +699,12 @@ export async function getAdminApplications(params = {}) {
   return readJson(response);
 }
 
+export async function getAdminAnalytics(range = "30d") {
+  const query = new URLSearchParams({ range });
+  const response = await adminApiFetch(`/api/admin/analytics?${query.toString()}`);
+  return readJson(response);
+}
+
 export async function updateAdminApplication(applicationNumber, payload) {
   const response = await adminApiFetch(
     `/api/admin/applications/${encodeURIComponent(applicationNumber)}`,

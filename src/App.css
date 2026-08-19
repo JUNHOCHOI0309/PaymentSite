@@ -3157,6 +3157,274 @@ body,
   line-height: 1.45;
 }
 
+.site-admin-analytics {
+  display: grid;
+  gap: 24px;
+}
+
+.site-admin-analytics__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.site-admin-analytics__header h2 {
+  margin: 8px 0 6px;
+  font-size: 1.55rem;
+  font-weight: 900;
+}
+
+.site-admin-analytics__header > div > p:last-child,
+.site-admin-analytics__trend-card .site-admin-section__header p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.site-admin-analytics__range {
+  display: grid;
+  flex: 0 0 180px;
+  gap: 7px;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.site-admin-analytics__range select {
+  min-height: 44px;
+  padding: 0 38px 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  background: #12151b;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.site-admin-analytics__summary {
+  margin-bottom: 0;
+}
+
+.site-admin-analytics__summary .site-admin-summary-card strong {
+  font-size: clamp(1.35rem, 2vw, 1.8rem);
+  overflow-wrap: anywhere;
+}
+
+.site-admin-analytics__notice {
+  display: grid;
+  gap: 5px;
+  padding: 16px 18px;
+  border-left: 3px solid #4b86c5;
+  background: rgba(75, 134, 197, 0.08);
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.site-admin-analytics__notice strong {
+  color: #c8deff;
+  font-size: 0.88rem;
+}
+
+.site-admin-analytics__funnels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.site-admin-analytics-funnel,
+.site-admin-analytics__trend-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.site-admin-analytics-funnel {
+  display: grid;
+  gap: 20px;
+  padding: 20px;
+}
+
+.site-admin-analytics-funnel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.site-admin-analytics-funnel__header span {
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.site-admin-analytics-funnel__header h3 {
+  margin: 5px 0 0;
+  font-size: 1.08rem;
+  font-weight: 900;
+}
+
+.site-admin-analytics-funnel__header > strong {
+  color: #9bc3ff;
+  font-size: 1.4rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.site-admin-analytics-funnel__steps {
+  display: grid;
+  gap: 13px;
+}
+
+.site-admin-analytics-funnel__step {
+  position: relative;
+  min-height: 38px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.site-admin-analytics-funnel__step > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  max-width: 100%;
+  background: rgba(75, 134, 197, 0.24);
+}
+
+.site-admin-analytics-funnel__step--completed > span {
+  background: rgba(65, 178, 123, 0.24);
+}
+
+.site-admin-analytics-funnel__step p {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+  margin: 0;
+  padding: 0 11px;
+  font-size: 0.78rem;
+}
+
+.site-admin-analytics-funnel__step b {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.site-admin-analytics-funnel__step strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.site-admin-analytics-funnel__details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin: 0;
+}
+
+.site-admin-analytics-funnel__details div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 0.76rem;
+}
+
+.site-admin-analytics-funnel__details dt {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.site-admin-analytics-funnel__details dd {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.86);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.site-admin-analytics__trend-card {
+  padding: 22px;
+}
+
+.site-admin-analytics-trend__legend {
+  display: flex;
+  justify-content: flex-end;
+  gap: 18px;
+  margin-bottom: 16px;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 0.76rem;
+}
+
+.site-admin-analytics-trend__legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.site-admin-analytics-trend__key {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+.site-admin-analytics-trend__key--sales,
+.site-admin-analytics-trend__bar--sales {
+  background: #4b86c5;
+}
+
+.site-admin-analytics-trend__key--refund,
+.site-admin-analytics-trend__bar--refund {
+  background: #d46b72;
+}
+
+.site-admin-analytics-trend__viewport {
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.site-admin-analytics-trend__plot {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  min-width: max-content;
+  height: 230px;
+  padding: 14px 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.055) 1px, transparent 1px);
+  background-size: 100% 25%;
+}
+
+.site-admin-analytics-trend__item {
+  display: grid;
+  grid-template-rows: 1fr 28px;
+  width: 44px;
+  min-width: 44px;
+}
+
+.site-admin-analytics-trend__bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
+  min-height: 0;
+}
+
+.site-admin-analytics-trend__bar {
+  width: 12px;
+  max-height: 100%;
+  border-radius: 3px 3px 0 0;
+}
+
+.site-admin-analytics-trend__label {
+  align-self: end;
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 0.66rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .site-admin-section__header {
   margin-bottom: 18px;
 }
@@ -3816,6 +4084,10 @@ body,
     grid-template-columns: 1fr;
   }
 
+  .site-admin-analytics__funnels {
+    grid-template-columns: 1fr;
+  }
+
   .site-admin-sms__grid {
     grid-template-columns: 1fr;
   }
@@ -3851,6 +4123,19 @@ body,
   }
 
   .site-admin-mini-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .site-admin-analytics__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .site-admin-analytics__range {
+    flex-basis: auto;
+  }
+
+  .site-admin-analytics-funnel__details {
     grid-template-columns: 1fr;
   }
 
