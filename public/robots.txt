@@ -6,3 +6,5 @@ Allow: /
 
 # 거래·관리자·신청 조회 경로는 robots 메타 태그와 X-Robots-Tag 헤더로 검색 제외합니다.
 Sitemap: https://www.mmkorea.com/sitemap.xml
+
+#DaumWebMasterTool:86d4de3d48a43e3dbc52c85395518da515a4b7863c22cf379368407a9b23eb32:qTPjCWjQR4PJJHuvkeuxRA==
