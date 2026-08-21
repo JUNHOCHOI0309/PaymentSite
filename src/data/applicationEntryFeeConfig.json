@@ -12,7 +12,15 @@
       "displayOriginalAmount": 300000,
       "amount": 200000,
       "disciplineAmounts": {
-        "register/common_3.png": 200000
+        "register/common_3.png": 200000,
+        "register/common_4.png": 200000
+      },
+      "disciplineWeightClassAmounts": {
+        "register/common_1.png": {
+          "스포츠모델 노비스": 200000,
+          "커머셜모델 노비스": 200000,
+          "시니어": 200000
+        }
       }
     },
     {
@@ -24,7 +32,15 @@
       "displayOriginalAmount": 300000,
       "amount": 250000,
       "disciplineAmounts": {
-        "register/common_3.png": 200000
+        "register/common_3.png": 200000,
+        "register/common_4.png": 200000
+      },
+      "disciplineWeightClassAmounts": {
+        "register/common_1.png": {
+          "스포츠모델 노비스": 200000,
+          "커머셜모델 노비스": 200000,
+          "시니어": 200000
+        }
       }
     },
     {
@@ -35,7 +51,15 @@
       "endDate": "2026-10-18",
       "amount": 300000,
       "disciplineAmounts": {
-        "register/common_3.png": 200000
+        "register/common_3.png": 200000,
+        "register/common_4.png": 200000
+      },
+      "disciplineWeightClassAmounts": {
+        "register/common_1.png": {
+          "스포츠모델 노비스": 200000,
+          "커머셜모델 노비스": 200000,
+          "시니어": 200000
+        }
       }
     }
   ],
@@ -73,7 +97,7 @@
     {
       "imageKey": "register/common_4.png",
       "title": "Transformation",
-      "amount": 300000
+      "amount": 200000
     },
     {
       "imageKey": "register/woman_1.png",

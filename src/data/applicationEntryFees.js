@@ -35,11 +35,18 @@ function getScheduleForDate(date) {
   );
 }
 
-export function getApplicationEntryFeePricing(imageKey, date = new Date()) {
+export function getApplicationEntryFeePricing(
+  imageKey,
+  weightClass = "",
+  date = new Date(),
+) {
   const itemAmount = entryFeeMap.get(imageKey) ?? defaultAmount;
   const schedule = getScheduleForDate(date);
   const scheduledAmount = Number(
-    schedule?.disciplineAmounts?.[imageKey] ?? schedule?.amount ?? itemAmount,
+    schedule?.disciplineWeightClassAmounts?.[imageKey]?.[weightClass]
+      ?? schedule?.disciplineAmounts?.[imageKey]
+      ?? schedule?.amount
+      ?? itemAmount,
   );
   const amount = Number.isFinite(scheduledAmount) && scheduledAmount > 0
     ? scheduledAmount
@@ -57,8 +64,8 @@ export function getApplicationEntryFeePricing(imageKey, date = new Date()) {
   };
 }
 
-export function getApplicationEntryFee(imageKey) {
-  return getApplicationEntryFeePricing(imageKey).amount;
+export function getApplicationEntryFee(imageKey, weightClass = "") {
+  return getApplicationEntryFeePricing(imageKey, weightClass).amount;
 }
 
 export function formatApplicationEntryFee(value, locale = "ko") {

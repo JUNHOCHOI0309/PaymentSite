@@ -6494,6 +6494,48 @@ body {
   color: #fff;
 }
 
+.site-apply-detail__fee-table-heading {
+  max-width: 760px;
+  margin: 28px auto 12px;
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 800;
+  text-align: left;
+}
+
+.site-apply-detail__fee-table-heading--first {
+  margin-top: 0;
+}
+
+.site-apply-detail__fixed-fee-description {
+  max-width: 760px;
+  margin: 0 auto 12px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  text-align: left;
+}
+
+.site-apply-detail__fee-table--fixed {
+  min-width: 560px;
+}
+
+.site-apply-detail__fee-table--model {
+  min-width: 680px;
+}
+
+.site-apply-detail__fee-table--model td:first-child {
+  min-width: 220px;
+}
+
+.site-apply-detail__fee-table--model small {
+  display: block;
+  margin-top: 6px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
 .site-apply-detail__fee-note {
   max-width: 760px;
   margin: 22px auto 0;

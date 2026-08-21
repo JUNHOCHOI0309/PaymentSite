@@ -90,7 +90,10 @@ export function ApplyReviewPage() {
     discipline: selectedDiscipline,
   });
   const participantGender = reviewDraft?.participantGender || state.selection.participantGender;
-  const fallbackEntryFeePricing = getApplicationEntryFeePricing(selectedImageKey);
+  const fallbackEntryFeePricing = getApplicationEntryFeePricing(
+    selectedImageKey,
+    reviewDraft?.weightClass || state.applicantInfo.weightClass,
+  );
   const entryFeePricing = draftSnapshot?.pricing || fallbackEntryFeePricing;
   const entryFeeAmount = entryFeePricing.amount;
   const isRegistrationOpen = entryFeePricing.isRegistrationOpen !== false;

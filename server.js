@@ -1294,7 +1294,7 @@ function getPositiveInteger(value, fallback = 0) {
   return Number.isInteger(amount) && amount > 0 ? amount : fallback;
 }
 
-function resolveApplicationBaseFee(imageKey, date = new Date()) {
+function resolveApplicationBaseFee(imageKey, weightClass = "", date = new Date()) {
   const defaultAmount = getPositiveInteger(applicationEntryFeeConfig.defaultAmount);
   const entryFeeItems = Array.isArray(applicationEntryFeeConfig.items)
     ? applicationEntryFeeConfig.items
@@ -1310,7 +1310,9 @@ function resolveApplicationBaseFee(imageKey, date = new Date()) {
       (candidate) => dateKey >= candidate.startDate && dateKey <= candidate.endDate
     ) || null;
   const scheduledAmount = getPositiveInteger(
-    schedule?.disciplineAmounts?.[imageKey] ?? schedule?.amount,
+    schedule?.disciplineWeightClassAmounts?.[imageKey]?.[weightClass] ??
+      schedule?.disciplineAmounts?.[imageKey] ??
+      schedule?.amount,
     itemAmount
   );
   const originalAmount = getPositiveInteger(schedule?.displayOriginalAmount);
@@ -1338,7 +1340,14 @@ function getSpectatorSalesStatus(date = new Date()) {
   };
 }
 
-async function getApplicationEntryFeeQuote({ queryable = pool, name, phone, email, imageKey }) {
+async function getApplicationEntryFeeQuote({
+  queryable = pool,
+  name,
+  phone,
+  email,
+  imageKey,
+  weightClass = "",
+}) {
   const completedApplicationResult = await queryable.query(
     `
       SELECT COUNT(*)::int AS count
@@ -1353,7 +1362,7 @@ async function getApplicationEntryFeeQuote({ queryable = pool, name, phone, emai
     [name, phone, email]
   );
   const completedApplicationCount = completedApplicationResult.rows[0]?.count || 0;
-  const baseFee = resolveApplicationBaseFee(imageKey);
+  const baseFee = resolveApplicationBaseFee(imageKey, weightClass);
   const additionalAmount = getPositiveInteger(
     applicationEntryFeeConfig.additionalDisciplineAmount
   );
@@ -6694,6 +6703,7 @@ app.post("/kcp/trade/register", async function (req, res) {
         phone: applicationDraft.phone,
         email: applicationDraft.email,
         imageKey: applicationDraft.image_key,
+        weightClass: applicationDraft.weight_class,
       });
       const orderDetails = resolveApplicationOrderDetails({
         draft: applicationDraft,
@@ -12066,6 +12076,7 @@ app.get("/applications/draft/:draftId", async function (req, res) {
       phone: draft.phone,
       email: draft.email,
       imageKey: draft.image_key,
+      weightClass: draft.weight_class,
     });
 
     return res.status(200).json({
@@ -17114,6 +17125,7 @@ app.post("/orders", async function (req,res) {
       phone: draft.phone,
       email: draft.email,
       imageKey: draft.image_key,
+      weightClass: draft.weight_class,
     });
     const orderDetails = resolveApplicationOrderDetails({ draft, pricing });
 

@@ -96,6 +96,15 @@ function splitDisplayTitle(title) {
     .filter(Boolean);
 }
 
+function getScheduledWeightClassFee(period, imageKey, weightClass) {
+  return Number(
+    period?.disciplineWeightClassAmounts?.[imageKey]?.[weightClass] ??
+      period?.disciplineAmounts?.[imageKey] ??
+      period?.amount ??
+      0,
+  );
+}
+
 function getInitialFieldErrors() {
   return {
     name: "",
@@ -231,7 +240,15 @@ export function ApplyPage() {
   const additionalInfo = getApplicationAdditionalInfo(locale, selectedImageKey);
   const weightClassOptions = getWeightClassOptions(selectedImageKey);
   const hasWeightClassOptions = weightClassOptions.length > 0;
-  const entryFeePricing = getApplicationEntryFeePricing(selectedImageKey);
+  const isModelDiscipline = selectedImageKey === "register/common_1.png";
+  const isFixedEntryFeeDiscipline = [
+    "register/common_3.png",
+    "register/common_4.png",
+  ].includes(selectedImageKey);
+  const entryFeePricing = getApplicationEntryFeePricing(
+    selectedImageKey,
+    state.applicantInfo.weightClass,
+  );
   const additionalDisciplineFee = getApplicationAdditionalDisciplineFee();
   const entryFeeSchedule = getApplicationEntryFeeSchedule();
   const entryFeeCopy =
@@ -262,6 +279,75 @@ export function ApplyPage() {
           consent:
             "Save your application details in this step, then review the privacy, refund policy, and participation terms consents in the next step.",
         };
+  const modelFeeTableCopy =
+    locale === "ko"
+      ? {
+          title: "모델 체급별 참가비",
+          class: "구분",
+          earlyBird: "얼리버드",
+          firstRegistration: "1차 참가접수",
+          finalRegistration: "최종 참가접수",
+          open: "오픈",
+          openDescription: "스포츠모델 오픈 / 커머셜모델 오픈",
+          noviceAndSenior: "노비스 · 시니어",
+          noviceAndSeniorDescription: "스포츠모델 노비스 / 커머셜모델 노비스 / 시니어",
+        }
+      : {
+          title: "Model class entry fees",
+          class: "Class",
+          earlyBird: "Early bird",
+          firstRegistration: "First registration",
+          finalRegistration: "Final registration",
+          open: "Open",
+          openDescription: "Sports Model Open / Commercial Model Open",
+          noviceAndSenior: "Novice / Senior",
+          noviceAndSeniorDescription:
+            "Sports Model Novice / Commercial Model Novice / Senior",
+        };
+  const fixedEntryFeeCopy =
+    locale === "ko"
+      ? {
+          title: `${competitionName} 고정 참가비 안내`,
+          description: "모든 참가 접수 기간에 아래 참가비가 동일하게 적용됩니다.",
+          period: "적용 기간",
+          allPeriods: "모든 참가 접수 기간",
+          firstDiscipline: "첫 종목 참가비",
+          additionalDiscipline: "추가 종목 참가비",
+        }
+      : {
+          title: `${competitionName} fixed entry fee`,
+          description: "The following entry fees apply throughout every registration period.",
+          period: "Applicable period",
+          allPeriods: "All registration periods",
+          firstDiscipline: "First discipline fee",
+          additionalDiscipline: "Additional discipline fee",
+        };
+  const modelFeeTableRows = [
+    {
+      id: "open",
+      label: modelFeeTableCopy.open,
+      description: modelFeeTableCopy.openDescription,
+      weightClass: "스포츠모델 오픈",
+    },
+    {
+      id: "novice-senior",
+      label: modelFeeTableCopy.noviceAndSenior,
+      description: modelFeeTableCopy.noviceAndSeniorDescription,
+      weightClass: "스포츠모델 노비스",
+    },
+  ];
+  const getModelPeriodLabel = (period) => {
+    switch (period.id) {
+      case "2026-early-bird":
+        return modelFeeTableCopy.earlyBird;
+      case "2026-first-registration":
+        return modelFeeTableCopy.firstRegistration;
+      case "2026-final-registration":
+        return modelFeeTableCopy.finalRegistration;
+      default:
+        return locale === "ko" ? period.label : period.labelEn || period.label;
+    }
+  };
   const emailVerificationCopy =
     locale === "ko"
       ? {
@@ -1305,17 +1391,47 @@ export function ApplyPage() {
         </div>
 
         <NoticeBox title={t("apply.noticeTitle")}>
-          <div className="site-apply-detail__fee-table-wrap">
-            <table className="site-apply-detail__fee-table">
-              <thead>
-                <tr>
-                  <th>{entryFeeNoticeCopy.period}</th>
-                  <th>{entryFeeNoticeCopy.firstDiscipline}</th>
-                  <th>{entryFeeNoticeCopy.additionalDiscipline}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entryFeeSchedule.map((period) => (
+          {isFixedEntryFeeDiscipline ? (
+            <>
+              <h3 className="site-apply-detail__fee-table-heading site-apply-detail__fee-table-heading--first">
+                {fixedEntryFeeCopy.title}
+              </h3>
+              <p className="site-apply-detail__fixed-fee-description">
+                {fixedEntryFeeCopy.description}
+              </p>
+              <div className="site-apply-detail__fee-table-wrap">
+                <table className="site-apply-detail__fee-table site-apply-detail__fee-table--fixed">
+                  <thead>
+                    <tr>
+                      <th>{fixedEntryFeeCopy.period}</th>
+                      <th>{fixedEntryFeeCopy.firstDiscipline}</th>
+                      <th>{fixedEntryFeeCopy.additionalDiscipline}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>{fixedEntryFeeCopy.allPeriods}</td>
+                      <td>
+                        <strong>{formatApplicationEntryFee(entryFeePricing.amount, locale)}</strong>
+                      </td>
+                      <td>{formatApplicationEntryFee(additionalDisciplineFee, locale)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <div className="site-apply-detail__fee-table-wrap">
+              <table className="site-apply-detail__fee-table">
+                <thead>
+                  <tr>
+                    <th>{entryFeeNoticeCopy.period}</th>
+                    <th>{entryFeeNoticeCopy.firstDiscipline}</th>
+                    <th>{entryFeeNoticeCopy.additionalDiscipline}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entryFeeSchedule.map((period) => (
                   <tr key={period.id}>
                     <td>{locale === "ko" ? period.label : period.labelEn || period.label}</td>
                     <td>
@@ -1323,10 +1439,54 @@ export function ApplyPage() {
                     </td>
                     <td>{formatApplicationEntryFee(additionalDisciplineFee, locale)}</td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {isModelDiscipline ? (
+            <>
+              <h3 className="site-apply-detail__fee-table-heading">
+                {modelFeeTableCopy.title}
+              </h3>
+              <div className="site-apply-detail__fee-table-wrap">
+                <table className="site-apply-detail__fee-table site-apply-detail__fee-table--model">
+                  <thead>
+                    <tr>
+                      <th>{modelFeeTableCopy.class}</th>
+                      {entryFeeSchedule.map((period) => (
+                        <th key={period.id}>{getModelPeriodLabel(period)}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {modelFeeTableRows.map((row) => (
+                      <tr key={row.id}>
+                        <td>
+                          <strong>{row.label}</strong>
+                          <small>{row.description}</small>
+                        </td>
+                        {entryFeeSchedule.map((period) => (
+                          <td key={period.id}>
+                            <strong>
+                              {formatApplicationEntryFee(
+                                getScheduledWeightClassFee(
+                                  period,
+                                  selectedImageKey,
+                                  row.weightClass,
+                                ),
+                                locale,
+                              )}
+                            </strong>
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : null}
           <p className="site-apply-detail__fee-note">{entryFeeNoticeCopy.consent}</p>
           <p className="site-apply-detail__fee-note">{getPaymentMaintenanceNotice(locale)}</p>
           <Link className="site-notice__link" to="/apply/guide">
