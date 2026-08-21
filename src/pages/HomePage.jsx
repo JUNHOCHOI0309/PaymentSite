@@ -19,6 +19,7 @@ const sponsorLogos = [
   { key: "home/logo_3.png", href: "https://www.iwillmedia.co.kr/" },
   { key: "home/logo_4.png" },
   { key: "home/logo_5.png", href: "http://modelline.org/?mCode=about/who" },
+  { key: "home/logo_6.png", href: "https://www.silver-itv.co.kr/" },
 ];
 
 const localizedHomeItems = {
