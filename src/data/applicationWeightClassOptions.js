@@ -4,6 +4,7 @@ const weightClassOptionsByImageKey = {
     "스포츠모델 노비스",
     "커머셜모델 오픈",
     "커머셜모델 노비스",
+    "시니어",
   ],
   "register/common_2.png": [
     "여자 노비스",

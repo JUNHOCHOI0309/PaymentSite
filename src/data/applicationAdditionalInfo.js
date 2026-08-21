@@ -202,7 +202,7 @@ const localizedAdditionalInfo = {
             title: "종목 소개",
             body: `모델 부문은 선수분들의 패션센스와 우월한 신체를 뽐낼 수 있는 최고의 무대입니다.
 
-스포츠모델 / 커머셜모델 부문으로 나눠져 있으며, 오픈 3라운드, 노비스 1라운드로 진행됩니다.
+스포츠모델 / 커머셜모델 / 시니어 부문으로 나눠져 있으며, 오픈은 3라운드, 노비스와 시니어는 1라운드로 진행됩니다.
 
 스포츠모델 오픈과 커머셜모델 오픈의 중복출전은 불가하며, 이 외의 경우는 노비스를 포함하여 모두 중복출전이 가능합니다.`,
           },
@@ -215,6 +215,8 @@ const localizedAdditionalInfo = {
             body: `스포츠모델 오픈 & 노비스 (쇼트, 미디움, 톨)
 
 커머셜모델 오픈 & 노비스 (쇼트, 미디움, 톨)
+
+시니어 (쇼트, 미디움, 톨)
 
 - 체급 신장 계측 후 균등 분배`,
           },
@@ -241,6 +243,12 @@ const localizedAdditionalInfo = {
 > 단체 하프턴(180도) 심사 후 퇴장
 
 - 무대 중앙 워킹 & 자유포즈 약 30초
+
+시니어 1라운드
+
+▷ 1라운드 클럽웨어
+개인선수입장 > 무대중앙포즈 & 하프턴 > 개인선수퇴장 > 단체라인업재입장
+> 단체 하프턴(180도) 심사 후 퇴장
 
 노비스 1라운드
 
@@ -739,7 +747,7 @@ Excessive color cream or oil may result in point deductions.`,
             title: "Overview",
             body: `The Model division is a standout stage where competitors can show fashion sense and an outstanding physique.
 
-It is divided into Sports Model and Commercial Model, with Open running 3 rounds and Novice 1 round.
+It is divided into Sports Model, Commercial Model, and Senior. Open runs 3 rounds, while Novice and Senior run 1 round.
 
 Sports Model Open and Commercial Model Open cannot be entered together, but other combinations including Novice may be allowed.`,
           },
@@ -752,6 +760,8 @@ Sports Model Open and Commercial Model Open cannot be entered together, but othe
             body: `Sports Model Open & Novice (Short, Medium, Tall)
 
 Commercial Model Open & Novice (Short, Medium, Tall)
+
+Senior (Short, Medium, Tall)
 
 - Class distribution is balanced after height measurement.`,
           },
@@ -778,6 +788,12 @@ Individual entrance > center-stage pose & half turn > individual exit > group li
 > group half-turn judging > exit
 
 - Center-stage walk and free posing time is about 30 seconds.
+
+Senior - 1 Round
+
+Round 1 Clubwear
+Individual entrance > center-stage pose & half turn > individual exit > group lineup re-entry
+> group half-turn judging > exit
 
 Novice - 1 Round
 

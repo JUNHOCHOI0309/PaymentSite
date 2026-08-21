@@ -31,7 +31,7 @@ const localizedHomeItems = {
         displayLabel: "MODEL",
         detailTitle: "Model",
         detailDescription:
-          "모델 (MODEL)\n\n모델 부문은 선수분들의 패션센스와 우월한 신체를 뽐낼 수 있는 최고의 무대입니다.\n\n스포츠모델 / 커머셜모델 부문으로 나눠져 있으며, 오픈 3라운드, 노비스 1라운드로 진행됩니다.\n\n스포츠모델 오픈과 커머셜모델 오픈의 중복출전은 불가하며, 이 외의 경우는 노비스를 포함하여 모두 중복출전이 가능합니다.\n\n□ 모델 출전자격\n대회일 기준 만 16세 이상의 남녀",
+          "모델 (MODEL)\n\n모델 부문은 선수분들의 패션센스와 우월한 신체를 뽐낼 수 있는 최고의 무대입니다.\n\n스포츠모델 / 커머셜모델 / 시니어 부문으로 나눠져 있으며, 오픈은 3라운드, 노비스와 시니어는 1라운드로 진행됩니다.\n\n스포츠모델 오픈과 커머셜모델 오픈의 중복출전은 불가하며, 이 외의 경우는 노비스를 포함하여 모두 중복출전이 가능합니다.\n\n□ 모델 출전자격\n대회일 기준 만 16세 이상의 남녀",
       },
       {
         key: "home/common_2.png",
@@ -128,7 +128,7 @@ const localizedHomeItems = {
         displayLabel: "MODEL",
         detailTitle: "Model",
         detailDescription:
-          "MODEL\n\nThe Model division is a premium stage for competitors who want to showcase both fashion sense and an outstanding physique.\n\nIt is divided into Sports Model and Commercial Model. Open runs 3 rounds, while Novice runs 1 round.\n\nSports Model Open and Commercial Model Open cannot be entered together. Other combinations may be allowed, including Novice.\n\n□ Eligibility\nMen and women aged 16 or older as of the event date.",
+          "MODEL\n\nThe Model division is a premium stage for competitors who want to showcase both fashion sense and an outstanding physique.\n\nIt is divided into Sports Model, Commercial Model, and Senior. Open runs 3 rounds, while Novice and Senior run 1 round.\n\nSports Model Open and Commercial Model Open cannot be entered together. Other combinations may be allowed, including Novice.\n\n□ Eligibility\nMen and women aged 16 or older as of the event date.",
       },
       {
         key: "home/common_2.png",
