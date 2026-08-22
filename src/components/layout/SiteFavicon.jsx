@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { buildPublicMediaUrl } from "../../lib/applicationApi";
 
-const faviconHref = buildPublicMediaUrl("favicon/favicon.ico");
+const faviconHref = buildPublicMediaUrl("favicon/favicon_favicon.ico");
 
 export function SiteFavicon() {
   useEffect(() => {
