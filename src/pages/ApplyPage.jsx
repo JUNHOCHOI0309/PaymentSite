@@ -38,6 +38,7 @@ import {
   buildPublicMediaUrl,
   createDraft,
   getApplicationEmailVerificationStatus,
+  removeUploadedFile,
   sendApplicationEmailVerificationCode,
   updateDraft,
   uploadFile,
@@ -391,13 +392,24 @@ export function ApplyPage() {
   const snsPlatformOptions = getSnsPlatformOptions(locale);
   const [additionalInfoTitlePrimary, additionalInfoTitleSecondary] =
     splitDisplayTitle(additionalInfo.title);
-  const selectedDocumentFilenames = selectedFiles.length
-    ? selectedFiles.map((file) => file.name)
-    : state.uploadedFileMetas?.length
-      ? state.uploadedFileMetas.map((file) => file.originalFilename)
-      : state.uploadedFileMeta.originalFilename
-        ? [state.uploadedFileMeta.originalFilename]
-        : [];
+  const uploadedDocumentMetas = state.uploadedFileMetas?.filter((file) => file.storedFilename)?.length
+    ? state.uploadedFileMetas.filter((file) => file.storedFilename)
+    : state.uploadedFileMeta.storedFilename
+      ? [state.uploadedFileMeta]
+      : [];
+  const selectedDocumentEntries = [
+    ...uploadedDocumentMetas.map((file) => ({
+      kind: "uploaded",
+      filename: file.originalFilename,
+      storedFilename: file.storedFilename,
+    })),
+    ...selectedFiles.map((file) => ({
+      kind: "pending",
+      filename: file.name,
+      file,
+    })),
+  ];
+  const selectedDocumentFilenames = selectedDocumentEntries.map((entry) => entry.filename);
   const selectedDocumentSummary = getSelectedDocumentSummary(selectedDocumentFilenames, locale);
 
   useEffect(() => {
@@ -736,7 +748,10 @@ export function ApplyPage() {
 
   function appendSelectedDocumentFiles(files) {
     const nextFiles = [...selectedFiles, ...files];
-    const validationMessage = validateSelectedDocumentFiles(nextFiles, locale, t);
+    const validationMessage =
+      uploadedDocumentMetas.length + nextFiles.length > maxDocumentUploadFiles
+        ? getDocumentFileCountMessage(locale)
+        : validateSelectedDocumentFiles(nextFiles, locale, t);
 
     if (validationMessage) {
       setFileError(validationMessage);
@@ -747,12 +762,15 @@ export function ApplyPage() {
     setSelectedFiles(nextFiles);
     dispatch({
       type: "SET_FILE_METAS",
-      payload: nextFiles.map((file) => ({
-        originalFilename: file.name,
-        storedFilename: "",
-        mimeType: file.type,
-        fileSize: file.size,
-      })),
+      payload: [
+        ...uploadedDocumentMetas,
+        ...nextFiles.map((file) => ({
+          originalFilename: file.name,
+          storedFilename: "",
+          mimeType: file.type,
+          fileSize: file.size,
+        })),
+      ],
     });
   }
 
@@ -762,19 +780,44 @@ export function ApplyPage() {
     appendSelectedDocumentFiles(files);
   }
 
-  function handleRemoveSelectedDocumentFile(fileIndex) {
-    const nextFiles = selectedFiles.filter((_, index) => index !== fileIndex);
-
+  async function handleRemoveSelectedDocumentFile(entry) {
     setFileError("");
+
+    if (entry.kind === "uploaded") {
+      if (!state.draftId || !entry.storedFilename) {
+        return;
+      }
+
+      try {
+        await removeUploadedFile({
+          draftId: state.draftId,
+          storedFilename: entry.storedFilename,
+        });
+        dispatch({
+          type: "SET_FILE_METAS",
+          payload: uploadedDocumentMetas.filter(
+            (file) => file.storedFilename !== entry.storedFilename
+          ),
+        });
+      } catch (error) {
+        setFileError(error.message || t("apply.saveDraftError"));
+      }
+      return;
+    }
+
+    const nextFiles = selectedFiles.filter((file) => file !== entry.file);
     setSelectedFiles(nextFiles);
     dispatch({
       type: "SET_FILE_METAS",
-      payload: nextFiles.map((file) => ({
-        originalFilename: file.name,
-        storedFilename: "",
-        mimeType: file.type,
-        fileSize: file.size,
-      })),
+      payload: [
+        ...uploadedDocumentMetas,
+        ...nextFiles.map((file) => ({
+          originalFilename: file.name,
+          storedFilename: "",
+          mimeType: file.type,
+          fileSize: file.size,
+        })),
+      ],
     });
   }
 
@@ -908,7 +951,7 @@ export function ApplyPage() {
       dispatch({ type: "SET_DRAFT_ID", value: draftId });
 
       if (selectedFiles.length) {
-        const uploadedFileMetas = [];
+        const uploadedFileMetas = [...uploadedDocumentMetas];
 
         for (const selectedFile of selectedFiles) {
           const fileResponse = await uploadFile({
@@ -1331,24 +1374,22 @@ export function ApplyPage() {
                 ) : null}
                 {selectedDocumentFilenames.length ? (
                   <ul className="site-file-picker__selected-list">
-                    {selectedDocumentFilenames.map((filename, index) => (
-                      <li key={`${filename}-${index}`}>
-                        {selectedFiles.length ? (
-                          <button
-                            className="site-file-picker__remove"
-                            type="button"
-                            onClick={() => handleRemoveSelectedDocumentFile(index)}
-                            aria-label={
-                              locale === "ko"
-                                ? `${filename} 삭제`
-                                : `Remove ${filename}`
-                            }
-                            title={locale === "ko" ? "파일 삭제" : "Remove file"}
-                          >
-                            ×
-                          </button>
-                        ) : null}
-                        <span title={filename}>{getCompactFilename(filename)}</span>
+                    {selectedDocumentEntries.map((entry, index) => (
+                      <li key={`${entry.kind}-${entry.storedFilename || entry.filename}-${index}`}>
+                        <button
+                          className="site-file-picker__remove"
+                          type="button"
+                          onClick={() => handleRemoveSelectedDocumentFile(entry)}
+                          aria-label={
+                            locale === "ko"
+                              ? `${entry.filename} 삭제`
+                              : `Remove ${entry.filename}`
+                          }
+                          title={locale === "ko" ? "파일 삭제" : "Remove file"}
+                        >
+                          ×
+                        </button>
+                        <span title={entry.filename}>{getCompactFilename(entry.filename)}</span>
                       </li>
                     ))}
                   </ul>

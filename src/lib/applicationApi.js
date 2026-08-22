@@ -316,6 +316,21 @@ export async function lookupApplicationByPhone(payload) {
   return readJson(response);
 }
 
+export async function removeUploadedFile(payload) {
+  const response = await apiFetch("/api/files/upload", {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      draftId: payload.draftId,
+      storedFilename: payload.storedFilename,
+    }),
+  });
+
+  return readJson(response);
+}
+
 export async function submitParticipationCertification(payload) {
   const response = await apiFetch("/api/participation-certifications", {
     method: "POST",

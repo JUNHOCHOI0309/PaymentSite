@@ -28,6 +28,8 @@ const {
 } = require("./server/paymentMaintenance");
 const { getRefundStatusBlock } = require("./server/refundStatusEligibility");
 const {
+  CopyObjectCommand,
+  DeleteObjectCommand,
   GetObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
@@ -120,6 +122,18 @@ const lookupNumberRateLimit = Math.max(
 
 const maxUploadBytes = 10 * 1024 * 1024;
 const maxDocumentUploadFiles = 5;
+const maxDraftDocumentUploadBytes = Math.max(
+  maxUploadBytes,
+  Number(process.env.MAX_DRAFT_DOCUMENT_UPLOAD_BYTES || 30 * 1024 * 1024)
+);
+const abandonedApplicationDraftTtlHours = Math.max(
+  1,
+  Number(process.env.ABANDONED_APPLICATION_DRAFT_TTL_HOURS || 48)
+);
+const abandonedApplicationCleanupIntervalMs = Math.max(
+  60 * 60 * 1000,
+  Number(process.env.ABANDONED_APPLICATION_CLEANUP_INTERVAL_MS || 6 * 60 * 60 * 1000)
+);
 const allowedDocumentUploadMimeTypes = new Set([
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -151,6 +165,12 @@ const r2AccountId = process.env.R2_ACCOUNT_ID;
 const r2AccessKeyId = process.env.R2_ACCESS_KEY_ID;
 const r2SecretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
 const r2BucketName = process.env.R2_BUCKET_NAME;
+const r2ApplicationTempPrefix = normalizeR2Prefix(
+  process.env.R2_APPLICATION_TEMP_PREFIX || "application-temp/"
+);
+const r2ApplicationPermanentPrefix = normalizeR2Prefix(
+  process.env.R2_APPLICATION_PERMANENT_PREFIX || "applications/"
+);
 const r2HomeImagePrefix = normalizeR2Prefix(process.env.R2_HOME_IMAGE_PREFIX || "home/");
 const r2ReadableImagePrefixes = [r2HomeImagePrefix, "register/", "favicon/", "introduce/"].filter(Boolean);
 const r2Endpoint =
@@ -1787,6 +1807,110 @@ async function cleanupExpiredAdminSessions() {
       WHERE expires_at <= NOW()
     `
   );
+}
+
+async function cleanupAbandonedApplicationDraftFiles() {
+  if (!ensureR2UploadReady()) {
+    return;
+  }
+
+  const staleFilesResult = await pool.query(
+    `
+      SELECT af.id, af.stored_filename
+      FROM application_files AS af
+      INNER JOIN application_drafts AS drafts ON drafts.id = af.draft_id
+      LEFT JOIN orders AS draft_orders ON draft_orders.order_id = drafts.order_id
+      WHERE af.application_id IS NULL
+        AND drafts.status <> 'COMPLETED'
+        AND drafts.updated_at < NOW() - ($1::text || ' hours')::interval
+        AND COALESCE(draft_orders.status, '') NOT IN ('PAID')
+      ORDER BY af.uploaded_at ASC
+      LIMIT 200
+    `,
+    [abandonedApplicationDraftTtlHours]
+  );
+
+  const deletedFileIds = [];
+
+  for (const file of staleFilesResult.rows) {
+    try {
+      await r2Client.send(
+        new DeleteObjectCommand({
+          Bucket: r2BucketName,
+          Key: file.stored_filename,
+        })
+      );
+      deletedFileIds.push(file.id);
+    } catch (error) {
+      console.error("Failed to remove abandoned application upload:", {
+        fileId: file.id,
+        storedFilename: file.stored_filename,
+        message: error.message,
+      });
+    }
+  }
+
+  if (deletedFileIds.length > 0) {
+    await pool.query(
+      `
+        DELETE FROM application_files
+        WHERE id = ANY($1::bigint[])
+          AND application_id IS NULL
+      `,
+      [deletedFileIds]
+    );
+  }
+
+  await pool.query(
+    `
+      DELETE FROM application_consents AS consents
+      USING application_drafts AS drafts
+      WHERE consents.draft_id = drafts.draft_id
+        AND consents.application_id IS NULL
+        AND drafts.status <> 'COMPLETED'
+        AND drafts.updated_at < NOW() - ($1::text || ' hours')::interval
+        AND NOT EXISTS (
+          SELECT 1
+          FROM application_files AS files
+          WHERE files.draft_id = drafts.id
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM orders AS draft_orders
+          WHERE draft_orders.order_id = drafts.order_id
+            AND draft_orders.status = 'PAID'
+        )
+    `,
+    [abandonedApplicationDraftTtlHours]
+  );
+
+  const deletedDraftsResult = await pool.query(
+    `
+      DELETE FROM application_drafts AS drafts
+      WHERE drafts.status <> 'COMPLETED'
+        AND drafts.updated_at < NOW() - ($1::text || ' hours')::interval
+        AND NOT EXISTS (
+          SELECT 1
+          FROM application_files AS files
+          WHERE files.draft_id = drafts.id
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM orders AS draft_orders
+          WHERE draft_orders.order_id = drafts.order_id
+            AND draft_orders.status = 'PAID'
+        )
+      RETURNING drafts.draft_id
+    `,
+    [abandonedApplicationDraftTtlHours]
+  );
+
+  if (deletedDraftsResult.rowCount > 0 || deletedFileIds.length > 0) {
+    console.log("Cleaned abandoned application drafts", {
+      files: deletedFileIds.length,
+      drafts: deletedDraftsResult.rowCount,
+    });
+  }
 }
 
 async function ensureAdminBootstrapReady() {
@@ -3785,9 +3909,32 @@ function buildUploadObjectKey(draftId, originalFilename) {
   const extension = getUploadExtension(originalFilename);
   const safeStem = sanitizeFilenameStem(originalFilename);
 
-  return `applications/${draftId}/document/${Date.now()}_${crypto
+  return `${r2ApplicationTempPrefix}${draftId}/document/${Date.now()}_${crypto
     .randomBytes(8)
     .toString("hex")}_${safeStem}${extension}`;
+}
+
+function buildApplicationFileObjectKey(applicationNumber, originalFilename) {
+  const extension = getUploadExtension(originalFilename);
+  const safeStem = sanitizeFilenameStem(originalFilename);
+
+  return `${r2ApplicationPermanentPrefix}${applicationNumber}/document/${Date.now()}_${crypto
+    .randomBytes(8)
+    .toString("hex")}_${safeStem}${extension}`;
+}
+
+function isTemporaryApplicationUploadKey(key) {
+  return String(key || "").startsWith(r2ApplicationTempPrefix);
+}
+
+function buildR2CopySource(key) {
+  const encodedKey = String(key || "")
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+
+  return `${encodeURIComponent(r2BucketName)}/${encodedKey}`;
 }
 
 function ensureR2UploadReady() {
@@ -7006,6 +7153,8 @@ app.post("/stage-services/orders/:orderId/cancel", async function (req, res) {
 
 async function finalizePaidApplicationOrder({ draftId, orderId }) {
   const client = await pool.connect();
+  const temporaryObjectKeysToDelete = [];
+  const permanentObjectKeysToDeleteOnRollback = [];
 
   try {
     await client.query("BEGIN");
@@ -7107,6 +7256,51 @@ async function finalizePaidApplicationOrder({ draftId, orderId }) {
     );
     const application = applicationResult.rows[0];
 
+    const pendingFileResult = await client.query(
+      `
+        SELECT id, stored_filename, original_filename
+        FROM application_files
+        WHERE draft_id = $1
+          AND application_id IS NULL
+        FOR UPDATE
+      `,
+      [draft.id]
+    );
+
+    for (const file of pendingFileResult.rows) {
+      if (!isTemporaryApplicationUploadKey(file.stored_filename)) {
+        continue;
+      }
+
+      if (!ensureR2UploadReady()) {
+        throw new Error("R2 upload is not configured");
+      }
+
+      const permanentStoredFilename = buildApplicationFileObjectKey(
+        application.application_number,
+        file.original_filename
+      );
+
+      await r2Client.send(
+        new CopyObjectCommand({
+          Bucket: r2BucketName,
+          Key: permanentStoredFilename,
+          CopySource: buildR2CopySource(file.stored_filename),
+        })
+      );
+      permanentObjectKeysToDeleteOnRollback.push(permanentStoredFilename);
+
+      await client.query(
+        `
+          UPDATE application_files
+          SET stored_filename = $2
+          WHERE id = $1
+        `,
+        [file.id, permanentStoredFilename]
+      );
+      temporaryObjectKeysToDelete.push(file.stored_filename);
+    }
+
     await client.query(
       `UPDATE application_drafts SET status = 'COMPLETED', updated_at = NOW() WHERE draft_id = $1`,
       [draftId]
@@ -7120,10 +7314,38 @@ async function finalizePaidApplicationOrder({ draftId, orderId }) {
       [draft.id, application.id]
     );
     await client.query("COMMIT");
+    permanentObjectKeysToDeleteOnRollback.length = 0;
+
+    for (const temporaryObjectKey of temporaryObjectKeysToDelete) {
+      try {
+        await r2Client.send(
+          new DeleteObjectCommand({
+            Bucket: r2BucketName,
+            Key: temporaryObjectKey,
+          })
+        );
+      } catch (error) {
+        // The completed application now references the permanent copy. A later R2 lifecycle rule can remove this leftover.
+        console.error("Failed to remove promoted temporary application upload:", {
+          storedFilename: temporaryObjectKey,
+          message: error.message,
+        });
+      }
+    }
 
     return { application: mapApplicationRow(application), idempotent: false };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
+    for (const permanentObjectKey of permanentObjectKeysToDeleteOnRollback) {
+      await r2Client
+        ?.send(
+          new DeleteObjectCommand({
+            Bucket: r2BucketName,
+            Key: permanentObjectKey,
+          })
+        )
+        .catch(() => undefined);
+    }
     throw error;
   } finally {
     client.release();
@@ -11435,6 +11657,14 @@ async function startServer() {
     await ensureLookupVerificationStoreReady();
     await ensureAdminBootstrapReady();
     console.log("PostgreSQL connected");
+    cleanupAbandonedApplicationDraftFiles().catch((error) => {
+      console.error("Failed to clean abandoned application drafts on startup:", error);
+    });
+    setInterval(() => {
+      cleanupAbandonedApplicationDraftFiles().catch((error) => {
+        console.error("Failed to clean abandoned application drafts:", error);
+      });
+    }, abandonedApplicationCleanupIntervalMs).unref();
     const server = app.listen(port, host, () =>
       console.log(`http://${host}:${port} 으로 샘플 앱이 실행되었습니다.`),
     );
@@ -13875,6 +14105,8 @@ app.post("/stage-services/refund/request", async function (req, res) {
 
 // 업로드 정보 저장
 app.post("/files/upload", async function (req, res) {
+  let uploadedObjectKey = "";
+
   try {
     if (!ensureR2UploadReady()) {
       return res.status(500).json({
@@ -13951,9 +14183,12 @@ app.post("/files/upload", async function (req, res) {
 
     const documentCountResult = await pool.query(
       `
-        SELECT COUNT(*)::int AS count
+        SELECT
+          COUNT(*)::int AS count,
+          COALESCE(SUM(file_size), 0)::bigint AS total_size
         FROM application_files
         WHERE draft_id = $1
+          AND application_id IS NULL
           AND lower(original_filename) NOT LIKE '%.mp3'
       `,
       [draftResult.rows[0].id]
@@ -13963,6 +14198,13 @@ app.post("/files/upload", async function (req, res) {
       return res.status(400).json({
         ok: false,
         message: `A maximum of ${maxDocumentUploadFiles} document files can be uploaded`,
+      });
+    }
+
+    if (Number(documentCountResult.rows[0].total_size) + uploadedFile.size > maxDraftDocumentUploadBytes) {
+      return res.status(400).json({
+        ok: false,
+        message: `The total document upload size must be ${Math.floor(maxDraftDocumentUploadBytes / (1024 * 1024))}MB or smaller`,
       });
     }
 
@@ -13977,6 +14219,7 @@ app.post("/files/upload", async function (req, res) {
         ContentType: uploadedFile.mimetype,
       })
     );
+    uploadedObjectKey = storedFilename;
 
     const fileResult = await pool.query(
       `
@@ -14006,11 +14249,31 @@ app.post("/files/upload", async function (req, res) {
       ]
     );
 
+    await pool.query(
+      `
+        UPDATE application_drafts
+        SET updated_at = NOW()
+        WHERE id = $1
+      `,
+      [draftResult.rows[0].id]
+    );
+    uploadedObjectKey = "";
+
     return res.status(201).json({
       ok: true,
       file: fileResult.rows[0],
     });
   } catch (error) {
+    if (uploadedObjectKey) {
+      await r2Client
+        ?.send(
+          new DeleteObjectCommand({
+            Bucket: r2BucketName,
+            Key: uploadedObjectKey,
+          })
+        )
+        .catch(() => undefined);
+    }
     if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
       return res.status(400).json({
         ok: false,
@@ -14023,6 +14286,96 @@ app.post("/files/upload", async function (req, res) {
       ok: false,
       message: "Failed to upload applicant file",
     });
+  }
+});
+
+app.delete("/files/upload", async function (req, res) {
+  let client;
+
+  try {
+    if (!ensureR2UploadReady()) {
+      return res.status(500).json({ ok: false, message: "R2 upload is not configured" });
+    }
+
+    if (!hasTrustedWriteOrigin(req)) {
+      return res.status(403).json({ ok: false, message: "Untrusted upload origin" });
+    }
+
+    const draftId = normalizeText(req.body?.draftId);
+    const storedFilename = normalizeText(req.body?.storedFilename);
+
+    if (!draftId || !storedFilename) {
+      return res.status(400).json({ ok: false, message: "Missing draftId or storedFilename" });
+    }
+
+    if (
+      !requireRequestDraftAccess(req, res, {
+        draftId,
+        draftType: "application",
+        cookieName: applicationDraftCookieName,
+      })
+    ) {
+      return;
+    }
+
+    client = await pool.connect();
+    await client.query("BEGIN");
+
+    const draftResult = await client.query(
+      `
+        SELECT id, status
+        FROM application_drafts
+        WHERE draft_id = $1
+        FOR UPDATE
+      `,
+      [draftId]
+    );
+
+    if (draftResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ ok: false, message: "Draft not found" });
+    }
+
+    if (draftResult.rows[0].status === "COMPLETED") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ ok: false, message: "Completed application files cannot be removed" });
+    }
+
+    const fileResult = await client.query(
+      `
+        SELECT id, stored_filename
+        FROM application_files
+        WHERE draft_id = $1
+          AND stored_filename = $2
+          AND application_id IS NULL
+        FOR UPDATE
+      `,
+      [draftResult.rows[0].id, storedFilename]
+    );
+
+    if (fileResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ ok: false, message: "Uploaded file not found" });
+    }
+
+    await r2Client.send(
+      new DeleteObjectCommand({
+        Bucket: r2BucketName,
+        Key: fileResult.rows[0].stored_filename,
+      })
+    );
+
+    await client.query(`DELETE FROM application_files WHERE id = $1`, [fileResult.rows[0].id]);
+    await client.query(`UPDATE application_drafts SET updated_at = NOW() WHERE id = $1`, [draftResult.rows[0].id]);
+    await client.query("COMMIT");
+
+    return res.status(200).json({ ok: true, storedFilename });
+  } catch (error) {
+    await client?.query("ROLLBACK").catch(() => undefined);
+    console.error("Failed to remove applicant file:", error);
+    return res.status(500).json({ ok: false, message: "Failed to remove applicant file" });
+  } finally {
+    client?.release();
   }
 });
 
