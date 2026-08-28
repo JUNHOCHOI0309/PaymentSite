@@ -4451,7 +4451,7 @@ body {
 }
 
 .site-home-benefits-modal__panel {
-  width: min(400px, calc(100vw - 48px));
+  width: min(400px, calc((100vw - 80px) / 3));
   max-height: calc(100vh - 112px);
   overflow: auto;
   border: 1px solid rgba(15, 23, 42, 0.22);
@@ -5523,25 +5523,17 @@ body {
   }
 
   .site-home-benefits-modal {
-    display: block;
+    display: grid;
     width: min(400px, calc(100vw - 32px));
   }
 
   .site-home-benefits-modal__panel {
-    width: 100%;
-  }
-
-  .site-home-benefits-modal__panel--secondary {
-    position: absolute;
-    z-index: 1;
-    top: 12px;
-    left: 12px;
-    width: calc(100% - 12px);
-  }
-
-  .site-home-benefits-modal--secondary-only .site-home-benefits-modal__panel--secondary {
-    position: static;
-    width: 100%;
+    grid-area: 1 / 1;
+    width: calc(100% - var(--site-home-benefits-stack-offset, 0px));
+    transform: translate(
+      var(--site-home-benefits-stack-offset, 0px),
+      var(--site-home-benefits-stack-offset, 0px)
+    );
   }
 
   .site-home-hero {
@@ -5659,7 +5651,7 @@ body {
   }
 
   .site-home-benefits-modal__panel {
-    max-height: calc(100vh - 100px);
+    max-height: calc(100vh - 116px);
   }
 
   .site-home-benefits-modal__actions button {

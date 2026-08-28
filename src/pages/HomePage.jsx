@@ -13,6 +13,7 @@ const homeHeroPosterImageKeys = Array.from({ length: 11 }, (_, index) => `home/m
 const registrationDeadline = new Date("2026-10-19T00:00:00+09:00");
 const participantBenefitsDismissalStorageKey = "mmkorea-home-participant-benefits-dismissed-date";
 const participantBenefitsSecondaryDismissalStorageKey = "mmkorea-home-participant-benefits-secondary-dismissed-date";
+const participantBenefitsTertiaryDismissalStorageKey = "mmkorea-home-participant-benefits-tertiary-dismissed-date";
 const sponsorLogos = [
   { key: "home/logo_1.png", href: "https://www.xn--2i4b21aq3g7vaq7vn4ifle.com/" },
   { key: "home/logo_2.png", href: "https://www.ihq.co.kr/" },
@@ -351,6 +352,7 @@ export function HomePage() {
   const [isMobileShowcaseGuideOpen, setIsMobileShowcaseGuideOpen] = useState(false);
   const [isParticipantBenefitsOpen, setIsParticipantBenefitsOpen] = useState(false);
   const [isParticipantBenefitsSecondaryOpen, setIsParticipantBenefitsSecondaryOpen] = useState(false);
+  const [isParticipantBenefitsTertiaryOpen, setIsParticipantBenefitsTertiaryOpen] = useState(false);
   const [isSocialMenuOpen, setIsSocialMenuOpen] = useState(false);
   const homeUpRef = useRef(null);
   const homeIntroRef = useRef(null);
@@ -371,14 +373,18 @@ export function HomePage() {
       setIsParticipantBenefitsSecondaryOpen(
         window.localStorage.getItem(participantBenefitsSecondaryDismissalStorageKey) !== getLocalDateKey(),
       );
+      setIsParticipantBenefitsTertiaryOpen(
+        window.localStorage.getItem(participantBenefitsTertiaryDismissalStorageKey) !== getLocalDateKey(),
+      );
     } catch {
       setIsParticipantBenefitsOpen(true);
       setIsParticipantBenefitsSecondaryOpen(true);
+      setIsParticipantBenefitsTertiaryOpen(true);
     }
   }, []);
 
   useEffect(() => {
-    if (!isParticipantBenefitsOpen && !isParticipantBenefitsSecondaryOpen) {
+    if (!isParticipantBenefitsOpen && !isParticipantBenefitsSecondaryOpen && !isParticipantBenefitsTertiaryOpen) {
       return undefined;
     }
 
@@ -386,12 +392,13 @@ export function HomePage() {
       if (event.key === "Escape") {
         setIsParticipantBenefitsOpen(false);
         setIsParticipantBenefitsSecondaryOpen(false);
+        setIsParticipantBenefitsTertiaryOpen(false);
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isParticipantBenefitsOpen, isParticipantBenefitsSecondaryOpen]);
+  }, [isParticipantBenefitsOpen, isParticipantBenefitsSecondaryOpen, isParticipantBenefitsTertiaryOpen]);
 
   useEffect(() => {
     if (!isSocialMenuOpen) {
@@ -486,9 +493,12 @@ export function HomePage() {
 
   function closeParticipantBenefits(panel, { hideForToday = false } = {}) {
     const isSecondary = panel === "secondary";
-    const dismissalStorageKey = isSecondary
-      ? participantBenefitsSecondaryDismissalStorageKey
-      : participantBenefitsDismissalStorageKey;
+    const isTertiary = panel === "tertiary";
+    const dismissalStorageKey = isTertiary
+      ? participantBenefitsTertiaryDismissalStorageKey
+      : isSecondary
+        ? participantBenefitsSecondaryDismissalStorageKey
+        : participantBenefitsDismissalStorageKey;
 
     if (hideForToday) {
       try {
@@ -503,59 +513,71 @@ export function HomePage() {
       return;
     }
 
+    if (isTertiary) {
+      setIsParticipantBenefitsTertiaryOpen(false);
+      return;
+    }
+
     setIsParticipantBenefitsOpen(false);
   }
 
+  const participantBenefitsPanels = [
+    isParticipantBenefitsOpen
+      ? {
+          id: "primary",
+          imageKey: "home/participant_benefits.webp",
+          alt: locale === "ko" ? "참가자 혜택 안내" : "Participant benefits",
+        }
+      : null,
+    isParticipantBenefitsSecondaryOpen
+      ? {
+          id: "secondary",
+          imageKey: "home/participant_benefits_2.webp",
+          alt: locale === "ko" ? "추가 참가자 혜택 안내" : "Additional participant benefits",
+        }
+      : null,
+    isParticipantBenefitsTertiaryOpen
+      ? {
+          id: "tertiary",
+          imageKey: "home/participant_benefits_3.webp",
+          alt: locale === "ko" ? "세 번째 참가자 혜택 안내" : "Third participant benefits",
+        }
+      : null,
+  ].filter(Boolean);
+
   return (
     <PageShell hero className="site-shell--home">
-      {isParticipantBenefitsOpen || isParticipantBenefitsSecondaryOpen ? (
+      {participantBenefitsPanels.length ? (
         <aside
-          className={`site-home-benefits-modal ${
-            !isParticipantBenefitsOpen ? "site-home-benefits-modal--secondary-only" : ""
-          }`.trim()}
+          className="site-home-benefits-modal"
           aria-labelledby="participant-benefits-title"
         >
           <h1 className="sr-only" id="participant-benefits-title">
             {locale === "ko" ? "참가자 혜택 안내" : "Participant benefits"}
           </h1>
-          {isParticipantBenefitsOpen ? (
-            <div className="site-home-benefits-modal__panel">
+          {participantBenefitsPanels.map((panel, index) => (
+            <div
+              className={`site-home-benefits-modal__panel site-home-benefits-modal__panel--${panel.id}`}
+              key={panel.id}
+              style={{ "--site-home-benefits-stack-offset": `${index * 12}px`, zIndex: index + 1 }}
+            >
               <img
                 className="site-home-benefits-modal__image"
-                src={getHomeImageUrl("home/participant_benefits.webp")}
-                alt={locale === "ko" ? "참가자 혜택 안내" : "Participant benefits"}
+                src={getHomeImageUrl(panel.imageKey)}
+                alt={panel.alt}
                 decoding="async"
-                fetchPriority="high"
+                fetchPriority={index === participantBenefitsPanels.length - 1 ? "high" : "auto"}
               />
               <div className="site-home-benefits-modal__actions">
-                <button type="button" onClick={() => closeParticipantBenefits("primary", { hideForToday: true })}>
+                <button type="button" onClick={() => closeParticipantBenefits(panel.id, { hideForToday: true })}>
                   {locale === "ko" ? "오늘 하루 열지 않기" : "Do not show again today"}
                 </button>
-                <button type="button" onClick={() => closeParticipantBenefits("primary")}>
+                <button type="button" onClick={() => closeParticipantBenefits(panel.id)}>
                   {locale === "ko" ? "닫기" : "Close"}
                 </button>
               </div>
             </div>
-          ) : null}
-          {isParticipantBenefitsSecondaryOpen ? (
-            <div className="site-home-benefits-modal__panel site-home-benefits-modal__panel--secondary">
-              <img
-                className="site-home-benefits-modal__image"
-                src={getHomeImageUrl("home/participant_benefits_2.webp")}
-                alt={locale === "ko" ? "추가 참가자 혜택 안내" : "Additional participant benefits"}
-                decoding="async"
-                fetchPriority="high"
-              />
-              <div className="site-home-benefits-modal__actions">
-                <button type="button" onClick={() => closeParticipantBenefits("secondary", { hideForToday: true })}>
-                  {locale === "ko" ? "오늘 하루 열지 않기" : "Do not show again today"}
-                </button>
-                <button type="button" onClick={() => closeParticipantBenefits("secondary")}>
-                  {locale === "ko" ? "닫기" : "Close"}
-                </button>
-              </div>
-            </div>
-          ) : null}
+          ))}
         </aside>
       ) : null}
 
