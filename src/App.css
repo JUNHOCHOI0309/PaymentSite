@@ -30,6 +30,22 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: "NationalMuseumFoundationClassic";
+  src: url("./assets/fonts/NationalMuseumFoundationClassic-M.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "NationalMuseumFoundationClassic";
+  src: url("./assets/fonts/NationalMuseumFoundationClassic-B.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
 :root {
   --font-sans: "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic",
     "Segoe UI", Arial, sans-serif;
@@ -7724,6 +7740,102 @@ body {
   letter-spacing: 0;
 }
 
+.site-committee-greeting {
+  padding: clamp(34px, 5vw, 68px);
+  border-top: 4px solid #c99020;
+  background: #fbfaf7;
+  color: #24211c;
+  font-family: "NationalMuseumFoundationClassic", "Pretendard", "Noto Serif KR", serif;
+}
+
+.site-committee-greeting__header {
+  max-width: 920px;
+  margin-bottom: clamp(34px, 5vw, 56px);
+  padding-bottom: clamp(28px, 4vw, 42px);
+  border-bottom: 1px solid #d8d3c9;
+}
+
+.site-committee-greeting__header > span {
+  display: block;
+  margin-bottom: 14px;
+  color: #a76f08;
+  font-family: "Pretendard", sans-serif;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+.site-committee-greeting__header h3 {
+  margin: 0;
+  color: #171511;
+  font-size: clamp(2.3rem, 4vw, 3.7rem);
+  font-weight: 700;
+  line-height: 1.16;
+  letter-spacing: 0;
+}
+
+.site-committee-greeting__header p {
+  max-width: 850px;
+  margin: 22px 0 0;
+  color: #4c453a;
+  font-size: clamp(1.15rem, 2vw, 1.45rem);
+  font-weight: 500;
+  line-height: 1.65;
+  word-break: keep-all;
+}
+
+.site-committee-greeting__body {
+  display: flow-root;
+}
+
+.site-committee-greeting__portrait {
+  float: left;
+  width: clamp(240px, 31%, 330px);
+  aspect-ratio: 4 / 5;
+  margin: 4px clamp(28px, 4vw, 48px) 28px 0;
+  border: 1px solid #d7d2c8;
+  background: #ece9e2;
+  box-shadow: 0 16px 36px rgba(40, 33, 22, 0.1);
+}
+
+.site-committee-greeting__body > p {
+  margin: 0;
+  color: #302c25;
+  font-size: clamp(1.02rem, 1.6vw, 1.14rem);
+  font-weight: 500;
+  line-height: 2.05;
+  text-align: justify;
+  word-break: keep-all;
+}
+
+.site-committee-greeting__body > p + p {
+  margin-top: 22px;
+}
+
+.site-committee-greeting__signature {
+  clear: both;
+  padding-top: clamp(36px, 5vw, 58px);
+  text-align: right;
+}
+
+.site-committee-greeting__signature p {
+  margin: 0;
+  color: #302c25;
+  font-size: clamp(1rem, 1.6vw, 1.13rem);
+  line-height: 1.8;
+  word-break: keep-all;
+}
+
+.site-committee-greeting__signature p + p {
+  margin-top: 8px;
+}
+
+.site-committee-greeting__signature strong {
+  color: #171511;
+  font-size: 1.12em;
+  font-weight: 700;
+}
+
 .site-organization-chart {
   overflow: hidden;
   padding: clamp(32px, 5vw, 72px) clamp(20px, 4vw, 56px);
@@ -7988,6 +8100,39 @@ body {
   .site-introduce-page {
     width: min(100%, calc(100% - 32px));
     padding-top: 32px;
+  }
+
+  .site-committee-greeting {
+    padding: 32px 20px 38px;
+  }
+
+  .site-committee-greeting__header {
+    margin-bottom: 30px;
+    padding-bottom: 28px;
+  }
+
+  .site-committee-greeting__header h3 {
+    font-size: clamp(2rem, 10vw, 2.7rem);
+  }
+
+  .site-committee-greeting__header p {
+    font-size: 1.08rem;
+  }
+
+  .site-committee-greeting__portrait {
+    float: none;
+    width: min(76%, 280px);
+    margin: 0 auto 30px;
+  }
+
+  .site-committee-greeting__body > p {
+    font-size: 1rem;
+    line-height: 1.9;
+    text-align: left;
+  }
+
+  .site-committee-greeting__signature {
+    padding-top: 38px;
   }
 
   .site-apply-detail__summary {
