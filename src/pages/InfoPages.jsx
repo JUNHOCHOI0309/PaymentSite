@@ -34,6 +34,32 @@ export function OrganizationCommitteePage() {
     "조직위원회는 출전하는 모든 선수가 자신의 기량을 안전하고 공정하게 펼칠 수 있도록 대회 환경 조성과 심사 체계의 전문성 강화에 총력을 기울이고 있습니다. 부상 없이 건강하게 훈련을 마무리하고 최고의 컨디션으로 무대에 오를 수 있도록 세심한 지원을 아끼지 않겠습니다.",
     "자신의 한계를 뛰어넘기 위해 모든 것을 쏟아붓고 있는 선수들에게 가장 큰 힘이 되는 것은 바로 여러분의 따뜻한 관심과 격려입니다. 건강관리 세대별 헬시플레저, 웰에이징 피트니스대회, 열정과 감동이 살아 숨 쉴 ‘머슬마니아 코리아 챔피언십 2026’의 무대를 함께 지켜봐 주시고, 건강한 도전에 나서는 모든 주인공에게 아낌없는 응원의 박수를 보내주시길 부탁드립니다.",
   ];
+  const careerHistory = [
+    "現 서울이화스포츠마취통증의학과 대표원장",
+    "前 노원진통증의학과 대표원장",
+    "마취통증의학과 전문의",
+    "한성과학고 조기졸업, KAIST 입학",
+    "이화여자대학교 의과대학 졸업",
+    "이화여자대학교 의과대학 의학과 석사 취득",
+    "이화여자대학교 목동병원 인턴",
+    "이화여자대학교병원 마취통증의학과 전공의",
+    "서울대학교병원 촉탁교수",
+  ];
+  const academicActivities = [
+    "대한마취통증의학회 정회원",
+    "대한마취통증의학과의사회 정회원",
+    "대한통증학회 정회원",
+    "대한척추통증학회 정회원",
+    "대한IMS학회 정회원",
+    "대한근골격계초음파학회 정회원",
+    "대한밸런스의학회 정회원",
+    "대한도수의학회 정회원",
+    "대한항노화학회 정회원",
+    "대한정주학회 정회원",
+    "대한신경외과의사회 TPI교육 이수",
+    "대한루지협회 집행부 이사 및 팀닥터",
+    "대한여자축구협회 이사",
+  ];
 
   return (
     <InfoPage
@@ -65,6 +91,26 @@ export function OrganizationCommitteePage() {
               머슬마니아 코리아 챔피언십 2026 조직위원장 <strong>이인화</strong> 올림
             </p>
           </footer>
+
+          <section className="site-committee-greeting__history" aria-label="조직위원장 이력">
+            <div className="site-committee-greeting__history-column">
+              <h4>약력</h4>
+              <ul>
+                {careerHistory.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="site-committee-greeting__history-column">
+              <h4>학회 및 활동</h4>
+              <ul>
+                {academicActivities.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          </section>
         </div>
       </article>
     </InfoPage>

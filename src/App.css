@@ -7839,6 +7839,51 @@ body {
   font-weight: 700;
 }
 
+.site-committee-greeting__history {
+  display: grid;
+  clear: both;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(34px, 6vw, 76px);
+  margin-top: clamp(34px, 5vw, 54px);
+  padding-top: clamp(30px, 4vw, 44px);
+  border-top: 1px solid #c9c2b6;
+}
+
+.site-committee-greeting__history-column h4 {
+  margin: 0 0 22px;
+  color: #174f91;
+  font-family: "NationalMuseumFoundationClassic", "Pretendard", sans-serif;
+  font-size: clamp(1.18rem, 2vw, 1.42rem);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.site-committee-greeting__history-column ul {
+  display: grid;
+  gap: 13px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site-committee-greeting__history-column li {
+  position: relative;
+  padding-left: 16px;
+  color: #3a352e;
+  font-size: clamp(0.95rem, 1.45vw, 1.05rem);
+  font-weight: 500;
+  line-height: 1.65;
+  word-break: keep-all;
+}
+
+.site-committee-greeting__history-column li::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: #174f91;
+  content: "·";
+}
+
 .site-organization-chart {
   overflow: hidden;
   padding: clamp(32px, 5vw, 72px) clamp(20px, 4vw, 56px);
@@ -8136,6 +8181,21 @@ body {
 
   .site-committee-greeting__signature {
     padding-top: 38px;
+  }
+
+  .site-committee-greeting__history {
+    grid-template-columns: 1fr;
+    gap: 36px;
+    margin-top: 34px;
+    padding-top: 30px;
+  }
+
+  .site-committee-greeting__history-column h4 {
+    margin-bottom: 18px;
+  }
+
+  .site-committee-greeting__history-column ul {
+    gap: 11px;
   }
 
   .site-apply-detail__summary {
