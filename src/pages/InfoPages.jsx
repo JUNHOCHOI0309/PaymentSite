@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { useLanguage } from "../context/LanguageContext";
-import { IntroPageLayout } from "./CompetitionIntroPage";
+import { getIntroduceImageUrl, IntroPageLayout } from "./CompetitionIntroPage";
 
 function InfoPage({ title, bodyTitle, body, children }) {
   return (
@@ -50,7 +50,11 @@ export function OrganizationCommitteePage() {
         </header>
 
         <div className="site-committee-greeting__body">
-          <div className="site-committee-greeting__portrait" role="img" aria-label="조직위원장 사진 영역" />
+          <img
+            className="site-committee-greeting__portrait"
+            src={getIntroduceImageUrl("introduce/committee_main.webp")}
+            alt="머슬마니아 코리아 챔피언십 2026 조직위원장 이인화"
+          />
           {greetingParagraphs.map((paragraph) => (
             <p key={paragraph}>{paragraph}</p>
           ))}

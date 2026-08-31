@@ -7789,6 +7789,7 @@ body {
 }
 
 .site-committee-greeting__portrait {
+  display: block;
   float: left;
   width: clamp(240px, 31%, 330px);
   aspect-ratio: 4 / 5;
@@ -7796,6 +7797,8 @@ body {
   border: 1px solid #d7d2c8;
   background: #ece9e2;
   box-shadow: 0 16px 36px rgba(40, 33, 22, 0.1);
+  object-fit: cover;
+  object-position: center top;
 }
 
 .site-committee-greeting__body > p {
