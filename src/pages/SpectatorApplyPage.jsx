@@ -167,7 +167,7 @@ export function SpectatorApplyPage() {
   return (
     <PageShell>
       <section className="site-page site-page--stage-service site-page--spectator">
-        <ApplicationFlowStepper currentStep={1} type="spectator" variant="grid-header" />
+        <ApplicationFlowStepper currentStep={1} type="spectator" variant="grid-header" lightCurrent />
         <aside className="site-apply-detail__summary site-spectator-summary">
           <p className="site-kicker">SPECTATOR</p>
           <h1>참관객 신청</h1>

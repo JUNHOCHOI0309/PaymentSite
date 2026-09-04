@@ -988,7 +988,7 @@ export function ApplyPage() {
   return (
     <PageShell>
       <section className="site-apply-detail">
-        <ApplicationFlowStepper currentStep={1} type="application" />
+        <ApplicationFlowStepper currentStep={1} type="application" lightCurrent />
         <div className="site-apply-detail__layout">
           <aside className="site-apply-detail__summary">
             <Link className="site-apply-detail__back-link" to="/apply">

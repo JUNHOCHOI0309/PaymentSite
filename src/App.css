@@ -8944,6 +8944,13 @@ body {
   box-shadow: 0 0 0 4px rgba(214, 155, 54, 0.16);
 }
 
+.site-application-flow--light-current .site-application-flow__steps li.is-current .site-application-flow__marker {
+  border-color: #fff;
+  background: #fff;
+  color: #11151d;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.14);
+}
+
 .site-application-flow__steps li.is-complete,
 .site-application-flow__steps li.is-current {
   color: #f5f7fa;

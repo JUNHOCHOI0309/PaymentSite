@@ -40,7 +40,12 @@ const flowDefinitions = {
   },
 };
 
-export function ApplicationFlowStepper({ currentStep, type = "application", variant = "default" }) {
+export function ApplicationFlowStepper({
+  currentStep,
+  type = "application",
+  variant = "default",
+  lightCurrent = false,
+}) {
   const { locale } = useLanguage();
   const definition = flowDefinitions[type] || flowDefinitions.application;
   const copy = definition[locale === "en" ? "en" : "ko"];
@@ -49,7 +54,7 @@ export function ApplicationFlowStepper({ currentStep, type = "application", vari
   return (
     <nav
       aria-label={locale === "en" ? "Application progress" : "신청 진행 단계"}
-      className={`site-application-flow site-application-flow--${variant}`}
+      className={`site-application-flow site-application-flow--${variant}${lightCurrent ? " site-application-flow--light-current" : ""}`}
     >
       <div className="site-application-flow__heading">
         <div>

@@ -516,7 +516,7 @@ export function StageServiceDetailPage() {
   return (
     <PageShell>
       <section className="site-page site-page--stage-service">
-        <ApplicationFlowStepper currentStep={2} type="stage-service" />
+        <ApplicationFlowStepper currentStep={2} type="stage-service" lightCurrent />
         <div className="site-apply-detail site-stage-service-detail">
           <div className="site-apply-detail__layout">
             <aside className="site-apply-detail__summary site-stage-service-detail__summary">
