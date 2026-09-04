@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PageShell } from "../components/layout/PageShell";
-import { ApplicationFlowStepper } from "../components/common/ApplicationFlowStepper";
 import { useLanguage } from "../context/LanguageContext";
 import { buildPublicMediaUrl } from "../lib/applicationApi";
 import { buildStageServiceDetailPath } from "../lib/stageServiceFlowRoutes";
@@ -160,7 +159,6 @@ export function StageServiceSelectPage() {
   return (
     <PageShell className="site-shell--register-select">
       <section className="site-register-select site-register-select--service" aria-labelledby="stage-service-select-title">
-        <ApplicationFlowStepper currentStep={1} type="stage-service" variant="dark" />
         {canScrollLeft ? (
           <button
             aria-label={t("applySelect.prevCards")}

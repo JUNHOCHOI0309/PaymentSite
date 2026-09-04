@@ -181,17 +181,6 @@ export function SpectatorApplyPage() {
           <div className="site-review-card__header">
             <p className="site-kicker">01 / 05 · 신청 정보</p>
             <h1>참관객 정보 입력</h1>
-            <p>본인 확인과 입장 안내를 위해 정확한 정보를 입력해 주세요.</p>
-          </div>
-          <div className="site-application-form__summary">
-            <div className="site-application-form__summary-copy">
-              <span>신청 상품</span>
-              <strong>2026 MUSCLEMANIA® 참관객 입장권</strong>
-              <div className="site-application-form__tags">
-                <em>1매</em>
-                <em>{formatAmount(TICKET_PRICE)}</em>
-              </div>
-            </div>
           </div>
           <div className="site-form-grid">
             <div className="site-flow-form-section-heading site-field--full">

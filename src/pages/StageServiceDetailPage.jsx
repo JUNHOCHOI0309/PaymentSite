@@ -533,20 +533,6 @@ export function StageServiceDetailPage() {
                   {locale === "ko" ? "02 / 05 · 신청 정보" : "02 / 05 · APPLICATION INFORMATION"}
                 </p>
                 <h1>{t("stageService.detailTitle")}</h1>
-                <p>{t("stageService.detailDescription")}</p>
-              </div>
-
-              <div className="site-application-form__summary">
-                <div className="site-application-form__summary-copy">
-                  <span>{locale === "ko" ? "선택 서비스" : "Selected service"}</span>
-                  <strong>{getStageServiceTitle(serviceKey, locale)}</strong>
-                  <div className="site-application-form__tags">
-                    <em>{formatStageServiceAmount(totalAmount, locale)}</em>
-                  </div>
-                </div>
-                <Link className="site-application-form__change-link" to="/apply/stage-services">
-                  {locale === "ko" ? "서비스 변경" : "Change"}
-                </Link>
               </div>
 
               <form className="site-form-grid" onSubmit={handleSubmit}>
