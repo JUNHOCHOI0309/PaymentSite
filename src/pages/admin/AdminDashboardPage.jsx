@@ -205,6 +205,139 @@ function MetaCell({ primary, secondary }) {
   );
 }
 
+function maskAdminPhone(value) {
+  const normalized = String(value || "").trim();
+
+  if (!normalized) {
+    return "-";
+  }
+
+  const digits = normalized.replace(/\D/g, "");
+  if (digits.length < 7) {
+    return normalized;
+  }
+
+  return `${digits.slice(0, 3)}-****-${digits.slice(-4)}`;
+}
+
+function maskAdminEmail(value) {
+  const normalized = String(value || "").trim();
+  const separatorIndex = normalized.indexOf("@");
+
+  if (!normalized || separatorIndex < 1) {
+    return normalized || "-";
+  }
+
+  const localPart = normalized.slice(0, separatorIndex);
+  const domain = normalized.slice(separatorIndex + 1);
+  return `${localPart.slice(0, Math.min(2, localPart.length))}***@${domain}`;
+}
+
+function getShortIdentifier(value) {
+  const normalized = String(value || "").trim();
+
+  if (!normalized || normalized.length <= 18) {
+    return normalized || "-";
+  }
+
+  const prefix = normalized.includes("-") ? normalized.split("-").slice(0, 2).join("-") : normalized.slice(0, 8);
+  return `${prefix}...${normalized.slice(-6)}`;
+}
+
+function getPaymentStatusMeta(value) {
+  const status = String(value || "").toUpperCase();
+  const statusMap = {
+    DONE: { label: "결제 완료", tone: "success" },
+    READY: { label: "결제 대기", tone: "warning" },
+    CANCELED: { label: "환불 완료", tone: "refund" },
+    PARTIAL_CANCELED: { label: "부분 환불", tone: "refund" },
+    FAILED: { label: "결제 실패", tone: "danger" },
+  };
+
+  return statusMap[status] || { label: value || "상태 없음", tone: "neutral" };
+}
+
+function getServiceStatusMeta(value) {
+  const status = String(value || "").toUpperCase();
+  const statusMap = {
+    READY: { label: "서비스 준비", tone: "warning" },
+    PROCESSING: { label: "처리 중", tone: "info" },
+    COMPLETED: { label: "서비스 완료", tone: "success" },
+    CANCELED: { label: "서비스 취소", tone: "neutral" },
+    REFUNDED: { label: "환불 완료", tone: "refund" },
+  };
+
+  return statusMap[status] || { label: value || "상태 없음", tone: "neutral" };
+}
+
+function getAdmissionStatusMeta(value) {
+  const status = String(value || "").toUpperCase();
+  const statusMap = {
+    READY: { label: "입장 대기", tone: "warning" },
+    ADMITTED: { label: "입장 완료", tone: "success" },
+    REFUNDED: { label: "환불 완료", tone: "refund" },
+    PARTIAL_REFUNDED: { label: "부분 환불", tone: "refund" },
+  };
+
+  return statusMap[status] || { label: value || "상태 없음", tone: "neutral" };
+}
+
+function StatusBadge({ meta }) {
+  return (
+    <span className={`site-admin-status-badge site-admin-status-badge--${meta.tone}`}>
+      {meta.label}
+    </span>
+  );
+}
+
+function IdentifierCell({ value }) {
+  const [isCopied, setIsCopied] = useState(false);
+
+  async function handleCopy() {
+    if (!value) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(value);
+      setIsCopied(true);
+      window.setTimeout(() => setIsCopied(false), 1400);
+    } catch (_error) {
+      setIsCopied(false);
+    }
+  }
+
+  return (
+    <div className="site-admin-identifier">
+      <strong title={value || undefined}>{getShortIdentifier(value)}</strong>
+      <button onClick={handleCopy} type="button">{isCopied ? "복사됨" : "복사"}</button>
+    </div>
+  );
+}
+
+function PaymentStatusCell({ amount, status }) {
+  return (
+    <div className="site-admin-status-cell">
+      <StatusBadge meta={getPaymentStatusMeta(status)} />
+      <span>{amount == null ? "-" : formatAmount(amount)}</span>
+    </div>
+  );
+}
+
+function DocumentStatusCell({ files = [] }) {
+  const count = files.length;
+  const meta = count
+    ? { label: `${count}개 제출`, tone: "success" }
+    : { label: "미제출", tone: "neutral" };
+
+  return (
+    <div className="site-admin-status-cell">
+      <StatusBadge meta={meta} />
+      <span>{count ? "파일 확인 가능" : "첨부 없음"}</span>
+    </div>
+  );
+}
+
 function getParticipationCertificationPlatformLabel(value) {
   const labels = {
     facebook: "Facebook",
@@ -217,7 +350,7 @@ function getParticipationCertificationPlatformLabel(value) {
 
 function ParticipationCertificationCell({ certification }) {
   if (!certification?.completed || !certification.postUrl) {
-    return <MetaCell primary="미제출" secondary="-" />;
+    return <StatusBadge meta={{ label: "인증 미제출", tone: "warning" }} />;
   }
 
   return (
@@ -228,9 +361,197 @@ function ParticipationCertificationCell({ certification }) {
         rel="noreferrer"
         target="_blank"
       >
-        제출 완료
+        <StatusBadge meta={{ label: "인증 완료", tone: "info" }} />
       </a>
-      <span>{`${getParticipationCertificationPlatformLabel(certification.sourcePlatform)} / ${formatDateTime(certification.updatedAt)}`}</span>
+      <span>{getParticipationCertificationPlatformLabel(certification.sourcePlatform)}</span>
+    </div>
+  );
+}
+
+function DetailField({ label, value, wide = false }) {
+  return (
+    <div className={`site-admin-detail-drawer__field${wide ? " site-admin-detail-drawer__field--wide" : ""}`}>
+      <dt>{label}</dt>
+      <dd>{value || "-"}</dd>
+    </div>
+  );
+}
+
+function DetailSection({ children, title }) {
+  return (
+    <section className="site-admin-detail-drawer__section">
+      <h3>{title}</h3>
+      <dl className="site-admin-detail-drawer__grid">{children}</dl>
+    </section>
+  );
+}
+
+function AdminRecordDetailDrawer({ adminRole, detail, onClose, onDeleteApplication, onEditApplication }) {
+  const { record, type } = detail;
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+
+  const isApplication = type === "application";
+  const isStageService = type === "stage-service";
+  const identifier = isApplication
+    ? record.applicationNumber
+    : isStageService
+      ? record.serviceOrderNumber
+      : record.spectatorOrderNumber;
+  const paymentAmount = isApplication ? record.paymentAmount : record.totalAmount;
+  const participationMeta = record.participationCertification?.completed
+    ? { label: "인증 완료", tone: "info" }
+    : { label: "인증 미제출", tone: "warning" };
+
+  return (
+    <div className="site-admin-detail-drawer__backdrop" onMouseDown={onClose} role="presentation">
+      <aside
+        aria-label={`${record.name || "신청"} 상세 정보`}
+        aria-modal="true"
+        className="site-admin-detail-drawer"
+        onMouseDown={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        <header className="site-admin-detail-drawer__header">
+          <div>
+            <span>{isApplication ? "대회 신청" : isStageService ? "무대 서비스" : "참관객 신청"}</span>
+            <h2>{record.name || "신청 상세"}</h2>
+            <p>{identifier || "-"}</p>
+          </div>
+          <button aria-label="상세 패널 닫기" onClick={onClose} type="button">×</button>
+        </header>
+
+        <div className="site-admin-detail-drawer__status-row">
+          <StatusBadge meta={getPaymentStatusMeta(record.paymentStatus)} />
+          {isApplication ? (
+            <StatusBadge meta={record.documentFiles?.length
+              ? { label: `서류 ${record.documentFiles.length}개`, tone: "success" }
+              : { label: "서류 미제출", tone: "neutral" }} />
+          ) : null}
+          {isStageService ? <StatusBadge meta={getServiceStatusMeta(record.serviceStatus)} /> : null}
+          {!isApplication && !isStageService ? <StatusBadge meta={getAdmissionStatusMeta(record.admissionStatus)} /> : null}
+          <StatusBadge meta={participationMeta} />
+        </div>
+
+        <div className="site-admin-detail-drawer__body">
+          <DetailSection title="신청자 정보">
+            <DetailField label="이름" value={record.name} />
+            {isApplication ? <DetailField label="생년월일" value={formatBirthDate(record.birthDate)} /> : null}
+            <DetailField label="연락처" value={record.phone} />
+            <DetailField label="이메일" value={record.email} />
+            {isApplication ? <DetailField label="소속" value={record.organization || "없음"} /> : null}
+          </DetailSection>
+
+          {isApplication ? (
+            <>
+              <DetailSection title="참가 정보">
+                <DetailField label="부문" value={record.division} />
+                <DetailField label="종목" value={record.discipline} />
+                <DetailField label="성별" value={record.participantGender === "female" ? "여" : record.participantGender === "male" ? "남" : "-"} />
+                <DetailField label="체급" value={record.weightClass} />
+              </DetailSection>
+              <DetailSection title="SNS 및 소개">
+                <DetailField label="SNS" value={formatStoredSnsIdentity(record.snsIdentity || record.instagramId, "ko", "-")} wide />
+                <DetailField label="자기소개" value={record.introduction || "작성 내용 없음"} wide />
+              </DetailSection>
+              <section className="site-admin-detail-drawer__section">
+                <h3>{`제출 문서 ${record.documentFiles?.length || 0}개`}</h3>
+                <DocumentDownloadLinks applicationNumber={record.applicationNumber} files={record.documentFiles} />
+              </section>
+            </>
+          ) : null}
+
+          {isStageService ? (
+            <>
+              <DetailSection title="서비스 정보">
+                <DetailField label="서비스" value={getStageServiceMeta(record).primary} wide />
+                <DetailField label="상세 옵션" value={getStageServiceMeta(record).secondary} wide />
+                <DetailField label="서비스 상태" value={getServiceStatusMeta(record.serviceStatus).label} />
+                <DetailField label="구매 일시" value={formatDateTime(record.purchasedAt)} />
+              </DetailSection>
+              <DetailSection title="연동 신청">
+                <DetailField label="신청번호" value={getLinkedApplicationNumbers(record) || "연동 없음"} wide />
+                <DetailField label="종목" value={getLinkedDisciplines(record) || "-"} wide />
+              </DetailSection>
+            </>
+          ) : null}
+
+          {!isApplication && !isStageService ? (
+            <>
+              <DetailSection title="입장권 정보">
+                <DetailField label="수량" value={`${record.quantity || 1}매`} />
+                <DetailField label="단가" value={formatAmount(record.unitAmount)} />
+                <DetailField label="입장 상태" value={getAdmissionStatusMeta(record.admissionStatus).label} />
+                <DetailField label="테스트 결제" value={record.isTest ? "예" : "아니오"} />
+              </DetailSection>
+              <DetailSection title="동의 정보">
+                <DetailField label="개인정보" value={record.consents?.privacy ? "동의" : "미동의"} />
+                <DetailField label="환불 규정" value={record.consents?.refund ? "동의" : "미동의"} />
+                <DetailField label="마케팅 수신" value={record.consents?.marketing ? "동의" : "미동의"} />
+                <DetailField label="사진·영상" value={record.consents?.photoVideo ? "동의" : "미동의"} />
+              </DetailSection>
+            </>
+          ) : null}
+
+          <DetailSection title="결제 정보">
+            <DetailField label="결제 상태" value={getPaymentStatusMeta(record.paymentStatus).label} />
+            <DetailField label="결제 금액" value={formatAmount(paymentAmount)} />
+            <DetailField label="주문번호" value={record.orderId} wide />
+            {!isApplication ? <DetailField label="결제키" value={record.paymentKey} wide /> : null}
+            <DetailField label={isApplication ? "접수 일시" : "구매 일시"} value={formatDateTime(isApplication ? record.submittedAt : record.purchasedAt)} />
+            {!isApplication && !isStageService ? <DetailField label="결제 완료" value={formatDateTime(record.paymentCompletedAt)} /> : null}
+          </DetailSection>
+
+          <DetailSection title="참가 인증">
+            <DetailField label="상태" value={participationMeta.label} />
+            <DetailField label="SNS" value={record.participationCertification?.completed ? getParticipationCertificationPlatformLabel(record.participationCertification.sourcePlatform) : "-"} />
+            {record.participationCertification?.postUrl ? (
+              <DetailField
+                label="게시물"
+                value={<a href={record.participationCertification.postUrl} rel="noreferrer" target="_blank">게시물 열기</a>}
+                wide
+              />
+            ) : null}
+          </DetailSection>
+        </div>
+
+        <footer className="site-admin-detail-drawer__footer">
+          {isApplication && adminRole === "superadmin" ? (
+            <button
+              className="site-admin-action-button site-admin-action-button--danger"
+              disabled={record.paymentStatus === "DONE"}
+              onClick={() => onDeleteApplication(record)}
+              title={record.paymentStatus === "DONE" ? "결제 완료 건은 환불 절차를 사용해야 합니다." : undefined}
+              type="button"
+            >
+              신청 삭제
+            </button>
+          ) : <span />}
+          <div>
+            <button className="site-admin-action-button" onClick={onClose} type="button">닫기</button>
+            {isApplication ? (
+              <button className="site-admin-action-button site-admin-action-button--primary" onClick={() => onEditApplication(record)} type="button">
+                정보 수정
+              </button>
+            ) : null}
+          </div>
+        </footer>
+      </aside>
     </div>
   );
 }
@@ -582,6 +903,7 @@ function TableSection({
   columns,
   rows,
   emptyText,
+  tableClassName = "",
   pageSize = 20,
   defaultSortKey: preferredDefaultSortKey = "",
   defaultSortDirection = "desc",
@@ -701,11 +1023,11 @@ function TableSection({
         <h2>{title}</h2>
       </div>
       <div className="site-admin-table-wrap">
-        <table className="site-admin-table">
+        <table className={`site-admin-table ${tableClassName}`.trim()}>
           <thead>
             <tr>
               {columns.map((column) => (
-                <th key={column.key}>
+                <th className={column.className || undefined} key={column.key}>
                   {column.sortable === false ? (
                     column.label
                   ) : isColumnSortable(column) ? (
@@ -737,7 +1059,7 @@ function TableSection({
               pagedRows.map((row, index) => (
                 <tr key={`${row.refundTarget || ""}:${row.id || row.orderId || row.applicationNumber || index}`}>
                   {columns.map((column) => (
-                    <td key={`${column.key}-${index}`}>
+                    <td className={column.className || undefined} key={`${column.key}-${index}`}>
                       {column.render ? column.render(row) : row[column.key] || "-"}
                     </td>
                   ))}
@@ -1079,6 +1401,7 @@ export function AdminDashboardPage() {
   const [kcpReconcileMessage, setKcpReconcileMessage] = useState("");
   const [editingApplication, setEditingApplication] = useState(null);
   const [applicationForm, setApplicationForm] = useState(null);
+  const [recordDetail, setRecordDetail] = useState(null);
   const [editingAdminUser, setEditingAdminUser] = useState(null);
   const [adminUserForm, setAdminUserForm] = useState(null);
   const [isSavingApplication, setIsSavingApplication] = useState(false);
@@ -1796,7 +2119,7 @@ export function AdminDashboardPage() {
       Array.from(new Set(["DONE", "CANCELED", "FAILED", ...applications.map((item) => item.paymentStatus).filter(Boolean)])).map(
         (value) => ({
           value,
-          label: value,
+          label: getPaymentStatusMeta(value).label,
         }),
       ),
     [applications],
@@ -1822,11 +2145,17 @@ export function AdminDashboardPage() {
     [],
   );
   const spectatorPaymentStatusOptions = useMemo(
-    () => ["DONE", "CANCELED", "PARTIAL_CANCELED", "FAILED"].map((value) => ({ value, label: value })),
+    () => ["DONE", "CANCELED", "PARTIAL_CANCELED", "FAILED"].map((value) => ({
+      value,
+      label: getPaymentStatusMeta(value).label,
+    })),
     [],
   );
   const spectatorAdmissionStatusOptions = useMemo(
-    () => ["READY", "ADMITTED", "REFUNDED", "PARTIAL_REFUNDED"].map((value) => ({ value, label: value })),
+    () => ["READY", "ADMITTED", "REFUNDED", "PARTIAL_REFUNDED"].map((value) => ({
+      value,
+      label: getAdmissionStatusMeta(value).label,
+    })),
     [],
   );
   const refundRequestStatusOptions = useMemo(
@@ -1896,6 +2225,7 @@ export function AdminDashboardPage() {
     try {
       const keepAliveResponse = await keepAliveAdminSession();
       resetIdleTimersRef.current?.(keepAliveResponse.session?.lastSeenAt);
+      setRecordDetail(null);
       setActiveSection(sectionId);
     } catch (_error) {
       await forceAdminLogout();
@@ -2047,6 +2377,7 @@ export function AdminDashboardPage() {
   }
 
   function openApplicationEditor(application) {
+    setRecordDetail(null);
     setEditingApplication(application);
     setApplicationForm({
       name: application.name || "",
@@ -2097,6 +2428,7 @@ export function AdminDashboardPage() {
 
     try {
       await deleteAdminApplication(application.applicationNumber);
+      setRecordDetail(null);
       await loadAdminData({ silent: true });
     } catch (error) {
       setErrorMessage(error.message || "신청 삭제에 실패했습니다.");
@@ -2510,44 +2842,25 @@ export function AdminDashboardPage() {
                 columns={[
                   {
                     key: "applicationNumber",
-                    label: "신청 / 주문",
-                    render: (row) => (
-                      <MetaCell primary={row.applicationNumber} secondary={row.orderId} />
-                    ),
+                    label: "접수번호",
+                    className: "site-admin-table__cell--identifier",
+                    render: (row) => <IdentifierCell value={row.applicationNumber} />,
                   },
                   {
                     key: "name",
                     label: "신청자",
+                    className: "site-admin-table__cell--person",
                     render: (row) => (
                       <MetaCell
                         primary={row.name}
-                        secondary={`${row.phone || "-"} / ${row.email || "-"}`}
-                      />
-                    ),
-                  },
-                  {
-                    key: "profile",
-                    label: "기본 정보",
-                    render: (row) => (
-                      <MetaCell
-                        primary={`생년월일 ${formatBirthDate(row.birthDate)}`}
-                        secondary={`소속 ${row.organization || "-"}`}
-                      />
-                    ),
-                  },
-                  {
-                    key: "identity",
-                    label: "SNS / 소개",
-                    render: (row) => (
-                      <MetaCell
-                        primary={formatStoredSnsIdentity(row.snsIdentity || row.instagramId, "ko", "-")}
-                        secondary={row.introduction || "-"}
+                        secondary={`${maskAdminPhone(row.phone)} · ${maskAdminEmail(row.email)}`}
                       />
                     ),
                   },
                   {
                     key: "discipline",
-                    label: "부문 / 종목",
+                    label: "참가 부문",
+                    className: "site-admin-table__cell--category",
                     render: (row) => (
                       <MetaCell
                         primary={row.discipline}
@@ -2568,26 +2881,20 @@ export function AdminDashboardPage() {
                   {
                     key: "documentFile",
                     label: "제출 문서",
-                    render: (row) => (
-                      <DocumentDownloadLinks
-                        applicationNumber={row.applicationNumber}
-                        files={row.documentFiles}
-                      />
-                    ),
+                    className: "site-admin-table__cell--status",
+                    sortable: false,
+                    render: (row) => <DocumentStatusCell files={row.documentFiles} />,
                   },
                   {
                     key: "paymentStatus",
-                    label: "결제 상태 / 지불 금액",
-                    render: (row) => (
-                      <MetaCell
-                        primary={row.paymentStatus || "-"}
-                        secondary={row.paymentAmount === null ? "-" : formatAmount(row.paymentAmount)}
-                      />
-                    ),
+                    label: "결제",
+                    className: "site-admin-table__cell--status",
+                    render: (row) => <PaymentStatusCell amount={row.paymentAmount} status={row.paymentStatus} />,
                   },
                   {
                     key: "participationCertification",
                     label: "참가 인증",
+                    className: "site-admin-table__cell--status",
                     sortable: false,
                     render: (row) => (
                       <ParticipationCertificationCell
@@ -2598,32 +2905,23 @@ export function AdminDashboardPage() {
                   {
                     key: "submittedAt",
                     label: "접수 일시",
+                    className: "site-admin-table__cell--date",
                     render: (row) => formatDateTime(row.submittedAt),
                   },
                   {
                     key: "actions",
                     label: "관리",
+                    className: "site-admin-table__cell--actions",
                     sortable: false,
                     render: (row) => (
                       <div className="site-admin-table__actions">
                         <button
                           className="site-admin-action-button"
-                          onClick={() => openApplicationEditor(row)}
+                          onClick={() => setRecordDetail({ type: "application", record: row })}
                           type="button"
                         >
-                          수정
+                          상세
                         </button>
-                        {adminUser?.role === "superadmin" ? (
-                          <button
-                            className="site-admin-action-button site-admin-action-button--danger"
-                            disabled={row.paymentStatus === "DONE"}
-                            onClick={() => handleApplicationDelete(row)}
-                            title={row.paymentStatus === "DONE" ? "결제 완료 건은 환불 절차를 사용해야 합니다." : undefined}
-                            type="button"
-                          >
-                            삭제
-                          </button>
-                        ) : null}
                       </div>
                     ),
                   },
@@ -2639,6 +2937,7 @@ export function AdminDashboardPage() {
                   setApplicationSort(nextSort);
                   setApplicationPage(1);
                 }}
+                tableClassName="site-admin-table--records"
               />
             </>
           ) : null}
@@ -2741,60 +3040,59 @@ export function AdminDashboardPage() {
                 columns={[
                   {
                     key: "serviceOrderNumber",
-                    label: "주문 / 결제",
-                    render: (row) => (
-                      <MetaCell
-                        primary={row.serviceOrderNumber}
-                        secondary={`${row.orderId || "-"} / ${row.paymentKey || "-"}`}
-                      />
-                    ),
+                    label: "서비스 주문번호",
+                    className: "site-admin-table__cell--identifier",
+                    render: (row) => <IdentifierCell value={row.serviceOrderNumber} />,
                   },
                   {
                     key: "name",
                     label: "신청자",
+                    className: "site-admin-table__cell--person",
                     render: (row) => (
                       <MetaCell
                         primary={row.name}
-                        secondary={`${row.phone || "-"} / ${row.email || "-"}`}
+                        secondary={`${maskAdminPhone(row.phone)} · ${maskAdminEmail(row.email)}`}
                       />
                     ),
                   },
                   {
                     key: "linkedApplication",
                     label: "연동 신청",
+                    className: "site-admin-table__cell--category",
                     render: (row) => (
                       <MetaCell
-                        primary={getLinkedApplicationNumbers(row) || "-"}
-                        secondary={getLinkedDisciplines(row) || "-"}
+                        primary={getLinkedDisciplines(row) || "연동 없음"}
+                        secondary={`${getLinkedApplications(row).length}건 연동`}
                       />
                     ),
                   },
                   {
                     key: "serviceType",
                     label: "서비스 내용",
+                    className: "site-admin-table__cell--category",
                     render: (row) => {
                       const meta = getStageServiceMeta(row);
                       return <MetaCell primary={meta.primary} secondary={meta.secondary} />;
                     },
                   },
                   {
-                    key: "totalAmount",
-                    label: "금액",
-                    render: (row) => formatAmount(row.totalAmount),
+                    key: "paymentStatus",
+                    label: "결제",
+                    className: "site-admin-table__cell--status",
+                    render: (row) => <PaymentStatusCell amount={row.totalAmount} status={row.paymentStatus} />,
                   },
                   {
-                    key: "status",
-                    label: "상태",
+                    key: "serviceStatus",
+                    label: "서비스 상태",
+                    className: "site-admin-table__cell--status",
                     render: (row) => (
-                      <MetaCell
-                        primary={`결제 ${row.paymentStatus || "-"}`}
-                        secondary={`서비스 ${row.serviceStatus || "-"}`}
-                      />
+                      <StatusBadge meta={getServiceStatusMeta(row.serviceStatus)} />
                     ),
                   },
                   {
                     key: "participationCertification",
                     label: "참가 인증",
+                    className: "site-admin-table__cell--status",
                     sortable: false,
                     render: (row) => (
                       <ParticipationCertificationCell
@@ -2805,7 +3103,25 @@ export function AdminDashboardPage() {
                   {
                     key: "purchasedAt",
                     label: "구매 일시",
+                    className: "site-admin-table__cell--date",
                     render: (row) => formatDateTime(row.purchasedAt),
+                  },
+                  {
+                    key: "actions",
+                    label: "관리",
+                    className: "site-admin-table__cell--actions",
+                    sortable: false,
+                    render: (row) => (
+                      <div className="site-admin-table__actions">
+                        <button
+                          className="site-admin-action-button"
+                          onClick={() => setRecordDetail({ type: "stage-service", record: row })}
+                          type="button"
+                        >
+                          상세
+                        </button>
+                      </div>
+                    ),
                   },
                 ]}
                 rows={filteredStageServices}
@@ -2819,6 +3135,7 @@ export function AdminDashboardPage() {
                   setStageServiceSort(nextSort);
                   setStageServicePage(1);
                 }}
+                tableClassName="site-admin-table--records"
               />
             </>
           ) : null}
@@ -2923,34 +3240,40 @@ export function AdminDashboardPage() {
                 columns={[
                   {
                     key: "spectatorOrderNumber",
-                    label: "신청 / 주문",
-                    render: (row) => (
-                      <MetaCell primary={row.spectatorOrderNumber} secondary={row.orderId || "-"} />
-                    ),
+                    label: "신청번호",
+                    className: "site-admin-table__cell--identifier",
+                    render: (row) => <IdentifierCell value={row.spectatorOrderNumber} />,
                   },
                   {
                     key: "name",
                     label: "참관객",
+                    className: "site-admin-table__cell--person",
                     render: (row) => (
-                      <MetaCell primary={row.name} secondary={`${row.phone || "-"} / ${row.email || "-"}`} />
+                      <MetaCell primary={row.name} secondary={`${maskAdminPhone(row.phone)} · ${maskAdminEmail(row.email)}`} />
                     ),
                   },
                   {
                     key: "quantity",
                     label: "입장권",
-                    render: (row) => `${row.quantity || 1}매 / ${formatAmount(row.totalAmount)}`,
+                    className: "site-admin-table__cell--category",
+                    render: (row) => <MetaCell primary={`${row.quantity || 1}매`} secondary={row.isTest ? "테스트 결제" : "일반 결제"} />,
                   },
                   {
                     key: "paymentStatus",
-                    label: "결제 상태",
-                    render: (row) => (
-                      <MetaCell primary={row.paymentStatus || "-"} secondary={formatDateTime(row.paymentCompletedAt)} />
-                    ),
+                    label: "결제",
+                    className: "site-admin-table__cell--status",
+                    render: (row) => <PaymentStatusCell amount={row.totalAmount} status={row.paymentStatus} />,
                   },
-                  { key: "admissionStatus", label: "입장 상태" },
+                  {
+                    key: "admissionStatus",
+                    label: "입장 상태",
+                    className: "site-admin-table__cell--status",
+                    render: (row) => <StatusBadge meta={getAdmissionStatusMeta(row.admissionStatus)} />,
+                  },
                   {
                     key: "participationCertification",
                     label: "참가 인증",
+                    className: "site-admin-table__cell--status",
                     sortable: false,
                     render: (row) => (
                       <ParticipationCertificationCell
@@ -2959,20 +3282,27 @@ export function AdminDashboardPage() {
                     ),
                   },
                   {
-                    key: "consents",
-                    label: "선택 동의",
-                    sortable: false,
-                    render: (row) => (
-                      <MetaCell
-                        primary={`마케팅 ${row.consents?.marketing ? "Y" : "N"}`}
-                        secondary={`사진·영상 ${row.consents?.photoVideo ? "Y" : "N"}`}
-                      />
-                    ),
-                  },
-                  {
                     key: "purchasedAt",
                     label: "접수 일시",
+                    className: "site-admin-table__cell--date",
                     render: (row) => formatDateTime(row.purchasedAt),
+                  },
+                  {
+                    key: "actions",
+                    label: "관리",
+                    className: "site-admin-table__cell--actions",
+                    sortable: false,
+                    render: (row) => (
+                      <div className="site-admin-table__actions">
+                        <button
+                          className="site-admin-action-button"
+                          onClick={() => setRecordDetail({ type: "spectator", record: row })}
+                          type="button"
+                        >
+                          상세
+                        </button>
+                      </div>
+                    ),
                   },
                 ]}
                 rows={filteredSpectators}
@@ -2986,6 +3316,7 @@ export function AdminDashboardPage() {
                   setSpectatorSort(nextSort);
                   setSpectatorPage(1);
                 }}
+                tableClassName="site-admin-table--records"
               />
             </>
           ) : null}
@@ -3645,6 +3976,15 @@ export function AdminDashboardPage() {
           ) : null}
         </>
       )}
+      {recordDetail ? (
+        <AdminRecordDetailDrawer
+          adminRole={adminUser?.role}
+          detail={recordDetail}
+          onClose={() => setRecordDetail(null)}
+          onDeleteApplication={handleApplicationDelete}
+          onEditApplication={openApplicationEditor}
+        />
+      ) : null}
       {editingApplication && applicationForm ? (
         <ApplicationEditor
           application={editingApplication}
