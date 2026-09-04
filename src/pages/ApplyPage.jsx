@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "../components/common/Button";
+import { ApplicationFlowStepper } from "../components/common/ApplicationFlowStepper";
 import { Input } from "../components/common/Input";
 import { NoticeBox } from "../components/common/NoticeBox";
 import { PageShell } from "../components/layout/PageShell";
@@ -987,6 +988,7 @@ export function ApplyPage() {
   return (
     <PageShell>
       <section className="site-apply-detail">
+        <ApplicationFlowStepper currentStep={1} type="application" />
         <div className="site-apply-detail__layout">
           <aside className="site-apply-detail__summary">
             <Link className="site-apply-detail__back-link" to="/apply">
@@ -1026,15 +1028,25 @@ export function ApplyPage() {
           </aside>
 
           <form
-            className="site-form-card site-apply-detail__form"
+            className="site-form-card site-apply-detail__form site-application-form site-application-form--competition"
             onSubmit={handleSubmit}
           >
             <div className="site-form-card__header">
-              <p className="site-kicker">{t("common.kickerApplication")}</p>
+              <p className="site-kicker">
+                {locale === "ko" ? "01 / 05 · 신청 정보" : "01 / 05 · APPLICATION INFORMATION"}
+              </p>
               <h1>{t("apply.title")}</h1>
             </div>
 
             <div className="site-form-grid">
+              <div className="site-flow-form-section-heading site-field--full">
+                <h2>{locale === "ko" ? "기본 정보" : "Basic information"}</h2>
+                <p>
+                  {locale === "ko"
+                    ? "대회 참가와 본인 확인에 필요한 기본 정보를 입력해 주세요."
+                    : "Enter the basic information required for participation and verification."}
+                </p>
+              </div>
               <Input
                 label={t("apply.name")}
                 requirement={t("apply.required")}
@@ -1194,6 +1206,14 @@ export function ApplyPage() {
                 value={state.applicantInfo.organization}
                 onChange={setApplicantField("organization")}
               />
+              <div className="site-flow-form-section-heading site-field--full">
+                <h2>{locale === "ko" ? "참가 정보" : "Competition information"}</h2>
+                <p>
+                  {locale === "ko"
+                    ? `${competitionName} 참가에 필요한 정보를 확인해 주세요.`
+                    : `Confirm the information required for ${competitionName}.`}
+                </p>
+              </div>
               {isCommonDiscipline ? (
                 <div className="site-field site-participant-gender">
                   <span className="site-field__label">
@@ -1231,6 +1251,38 @@ export function ApplyPage() {
                   ) : null}
                 </div>
               ) : null}
+              {hasWeightClassOptions ? (
+                <label className="site-field">
+                  <span className="site-field__label">
+                    {t("apply.weightClass")}
+                    <span className="site-field__requirement">({t("apply.required")})</span>
+                  </span>
+                  <select
+                    className={`site-input ${fieldErrors.weightClass ? "site-input--error" : ""}`.trim()}
+                    value={state.applicantInfo.weightClass}
+                    onChange={setApplicantField("weightClass")}
+                    required
+                  >
+                    <option value="">{t("apply.weightClassPlaceholder")}</option>
+                    {weightClassOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                  {fieldErrors.weightClass ? (
+                    <span className="site-field__error">{fieldErrors.weightClass}</span>
+                  ) : null}
+                </label>
+              ) : null}
+              <div className="site-flow-form-section-heading site-field--full">
+                <h2>{locale === "ko" ? "추가 정보" : "Additional information"}</h2>
+                <p>
+                  {locale === "ko"
+                    ? "참가자 소개를 위한 선택 정보를 입력해 주세요."
+                    : "Add optional profile information."}
+                </p>
+              </div>
               <label className="site-field site-field--full">
                 <span className="site-field__label">
                   {t("apply.snsId")}
@@ -1287,31 +1339,15 @@ export function ApplyPage() {
                   {`${state.applicantInfo.introduction.length}/${introductionMaxLength}`}
                 </span>
               </label>
-              {hasWeightClassOptions ? (
-                <label className="site-field">
-                  <span className="site-field__label">
-                    {t("apply.weightClass")}
-                    <span className="site-field__requirement">({t("apply.required")})</span>
-                  </span>
-                  <select
-                    className={`site-input ${fieldErrors.weightClass ? "site-input--error" : ""}`.trim()}
-                    value={state.applicantInfo.weightClass}
-                    onChange={setApplicantField("weightClass")}
-                    required
-                  >
-                    <option value="">{t("apply.weightClassPlaceholder")}</option>
-                    {weightClassOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                  {fieldErrors.weightClass ? (
-                    <span className="site-field__error">{fieldErrors.weightClass}</span>
-                  ) : null}
-                </label>
-              ) : null}
-              <label className="site-field">
+              <div className="site-flow-form-section-heading site-field--full">
+                <h2>{locale === "ko" ? "제출 파일" : "Submitted files"}</h2>
+                <p>
+                  {locale === "ko"
+                    ? "참가에 필요한 사진이나 문서를 등록해 주세요."
+                    : "Upload photos or documents required for participation."}
+                </p>
+              </div>
+              <label className="site-field site-field--full site-application-form__file-field">
                 <span className="site-field__label">
                   {t("apply.submitFile")}
                   <span className="site-field__requirement">({t("apply.optional")})</span>
@@ -1418,9 +1454,13 @@ export function ApplyPage() {
 
             <div className="site-apply-detail__form-lower">
               <div className="site-apply-detail__submit-area">
-                <div className="site-form-card__actions">
+                <div className="site-form-card__actions site-flow-actions">
                   <Button type="submit" disabled={isSubmitting}>
-                    {isSubmitting ? t("apply.saving") : t("apply.nextStep")}
+                    {isSubmitting
+                      ? t("apply.saving")
+                      : locale === "ko"
+                        ? "동의 단계로 계속"
+                        : t("apply.nextStep")}
                   </Button>
                 </div>
                 {errorMessage ? (

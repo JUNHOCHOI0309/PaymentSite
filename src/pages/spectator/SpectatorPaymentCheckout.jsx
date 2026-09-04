@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useSpectatorFlow } from "../../context/SpectatorFlowContext";
+import { ApplicationFlowStepper } from "../../components/common/ApplicationFlowStepper";
 import { prepareKcpPayment } from "../../lib/applicationApi";
 
 export function SpectatorPaymentCheckoutPage() {
@@ -47,7 +48,9 @@ export function SpectatorPaymentCheckoutPage() {
 
   return (
     <main className="site-kcp-checkout">
-      <section className="site-kcp-checkout__panel">
+      <div className="site-kcp-checkout__content">
+        <ApplicationFlowStepper currentStep={4} type="spectator" variant="dark" />
+        <section className="site-kcp-checkout__panel">
         <p className="site-kicker">SECURE PAYMENT</p>
         <h1>참관객 입장권</h1>
         <p className="site-kcp-checkout__amount">15,000원</p>
@@ -70,9 +73,11 @@ export function SpectatorPaymentCheckoutPage() {
           ))}
         </div>
 
-        <button className="site-kcp-checkout__submit" type="button" disabled={!orderId || isOrderUnavailable} onClick={requestPayment}>결제하기</button>
+        <p className="site-kcp-checkout__terms">결제 진행 시 참관객 신청 및 환불 규정에 동의한 것으로 간주합니다.</p>
+        <button className="site-kcp-checkout__submit" type="button" disabled={!orderId || isOrderUnavailable} onClick={requestPayment}>15,000원 결제하기</button>
         <button className="site-kcp-checkout__back" type="button" onClick={() => navigate("/apply/spectator/review")}>신청 내용으로 돌아가기</button>
-      </section>
+        </section>
+      </div>
     </main>
   );
 }

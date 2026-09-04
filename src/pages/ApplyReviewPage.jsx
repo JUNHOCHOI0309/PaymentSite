@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "../components/common/Button";
+import { ApplicationFlowStepper, ApplicationReviewSection } from "../components/common/ApplicationFlowStepper";
 import { NoticeBox } from "../components/common/NoticeBox";
 import { PageShell } from "../components/layout/PageShell";
 import { useApplicationFlow } from "../context/ApplicationFlowContext";
@@ -22,6 +23,41 @@ import { buildApplyDetailPath } from "../lib/applicationFlowRoutes";
 import { createOrder, getDraft } from "../lib/applicationApi";
 
 const requiredConsentKeys = ["privacy", "terms", "refund"];
+const previewApplicationReview = {
+  draft: {
+    name: "홍길동",
+    phone: "010-1234-5678",
+    email: "preview@mmkorea.com",
+    birthDate: "1990-01-01",
+    organization: "MMK Fitness",
+    division: "남성",
+    discipline: "Bodybuilding",
+    imageKey: "register/man_1.png",
+    weightClass: "남자 오픈 -75kg",
+    instagramId: "instagram:@mmk_preview",
+    introduction: "새로운 도전을 위해 머슬마니아 코리아 챔피언십에 참가합니다.",
+  },
+  consents: {
+    privacy: true,
+    terms: true,
+    refund: true,
+    marketing: false,
+    photoVideo: true,
+  },
+  documentFiles: [
+    { original_filename: "profile.jpg" },
+    { original_filename: "identification.pdf" },
+  ],
+  pricing: {
+    amount: 250000,
+    originalAmount: 300000,
+    isDiscounted: true,
+    isAdditional: false,
+    isRegistrationOpen: true,
+    periodLabel: "1차 참가접수",
+    periodLabelEn: "First registration",
+  },
+};
 
 function ReviewRow({ label, value }) {
   return (
@@ -67,12 +103,12 @@ function PricingReviewRow({ pricing, fallbackAmount, locale }) {
   );
 }
 
-export function ApplyReviewPage() {
+export function ApplyReviewPage({ preview = false }) {
   const navigate = useNavigate();
   const { state, dispatch } = useApplicationFlow();
   const { locale, t } = useLanguage();
   const detailPath = buildApplyDetailPath(state.selection);
-  const [draftSnapshot, setDraftSnapshot] = useState(null);
+  const [draftSnapshot, setDraftSnapshot] = useState(() => preview ? previewApplicationReview : null);
   const [errorMessage, setErrorMessage] = useState("");
   const [orderMessage, setOrderMessage] = useState("");
   const [isPreparingPayment, setIsPreparingPayment] = useState(false);
@@ -111,6 +147,10 @@ export function ApplyReviewPage() {
       : state.uploadedFileMeta.originalFilename;
 
   useEffect(() => {
+    if (preview) {
+      return;
+    }
+
     if (!requiredConsentsAccepted) {
       navigate("/apply/consent");
       return;
@@ -130,15 +170,19 @@ export function ApplyReviewPage() {
     }
 
     fetchDraft();
-  }, [navigate, requiredConsentsAccepted, state.draftId, t]);
+  }, [navigate, preview, requiredConsentsAccepted, state.draftId, t]);
 
   useEffect(() => {
-    if (state.paymentMethod !== "payment") {
+    if (!preview && state.paymentMethod !== "payment") {
       dispatch({ type: "SET_PAYMENT_METHOD", value: "payment" });
     }
-  }, [dispatch, state.paymentMethod]);
+  }, [dispatch, preview, state.paymentMethod]);
 
   async function prepareOrder({ replacePendingOrder = false } = {}) {
+    if (preview) {
+      return { orderId: "order_preview_application", status: "READY", replacePendingOrder };
+    }
+
     if (!state.draftId) {
       navigate(detailPath);
       return null;
@@ -209,6 +253,11 @@ export function ApplyReviewPage() {
   }
 
   async function handleProceedPayment() {
+    if (preview) {
+      navigate("/preview/apply/complete");
+      return;
+    }
+
     if (!isRegistrationOpen) {
       setErrorMessage(
         locale === "ko"
@@ -258,6 +307,7 @@ export function ApplyReviewPage() {
   return (
     <PageShell>
       <section className="site-page site-page--narrow">
+        <ApplicationFlowStepper currentStep={3} type="application" />
         <div className="site-review-card site-apply-review-card">
           <div className="site-review-card__header">
             <p className="site-kicker">{t("common.kickerReview")}</p>
@@ -265,57 +315,65 @@ export function ApplyReviewPage() {
             <p>{t("review.description")}</p>
           </div>
 
-          <div className="site-review-grid">
-            <ReviewRow label={t("review.division")} value={reviewDraft?.division || state.selection.division} />
-            <ReviewRow label={t("review.discipline")} value={selectedDiscipline} />
-            {isCommonDiscipline ? (
-              <ReviewRow
-                label={locale === "ko" ? "성별" : "Gender"}
-                value={
-                  participantGender === "female"
-                    ? locale === "ko"
-                      ? "여"
-                      : "Female"
-                    : participantGender === "male"
+          <div className="site-flow-review">
+            <ApplicationReviewSection title={locale === "ko" ? "신청자 정보" : "Applicant information"}>
+              <ReviewRow label={t("review.name")} value={draftSnapshot?.draft?.name || state.applicantInfo.name} />
+              <ReviewRow label={t("review.phone")} value={draftSnapshot?.draft?.phone || state.applicantInfo.phone} />
+              <ReviewRow label={t("review.email")} value={draftSnapshot?.draft?.email || state.applicantInfo.email} />
+              <ReviewRow label={t("review.birthDate")} value={draftSnapshot?.draft?.birthDate || state.applicantInfo.birthDate} />
+              <ReviewRow label={t("review.organization")} value={draftSnapshot?.draft?.organization || state.applicantInfo.organization} />
+            </ApplicationReviewSection>
+
+            <ApplicationReviewSection title={locale === "ko" ? "참가 정보" : "Competition information"}>
+              <ReviewRow label={t("review.division")} value={reviewDraft?.division || state.selection.division} />
+              <ReviewRow label={t("review.discipline")} value={selectedDiscipline} />
+              {isCommonDiscipline ? (
+                <ReviewRow
+                  label={locale === "ko" ? "성별" : "Gender"}
+                  value={
+                    participantGender === "female"
                       ? locale === "ko"
-                        ? "남"
-                        : "Male"
-                      : "-"
-                }
+                        ? "여"
+                        : "Female"
+                      : participantGender === "male"
+                        ? locale === "ko"
+                          ? "남"
+                          : "Male"
+                        : "-"
+                  }
+                />
+              ) : null}
+              <ReviewRow label={t("review.weightClass")} value={draftSnapshot?.draft?.weightClass || state.applicantInfo.weightClass} />
+            </ApplicationReviewSection>
+
+            <ApplicationReviewSection title={locale === "ko" ? "추가 정보" : "Additional information"}>
+              <ReviewRow
+                label={t("review.snsId")}
+                value={formatStoredSnsIdentity(snsIdentityValue, locale, t("review.snsIdDefault"))}
               />
-            ) : null}
-            <ReviewRow label={t("review.name")} value={draftSnapshot?.draft?.name || state.applicantInfo.name} />
-            <ReviewRow label={t("review.phone")} value={draftSnapshot?.draft?.phone || state.applicantInfo.phone} />
-            <ReviewRow label={t("review.email")} value={draftSnapshot?.draft?.email || state.applicantInfo.email} />
-            <ReviewRow label={t("review.birthDate")} value={draftSnapshot?.draft?.birthDate || state.applicantInfo.birthDate} />
-            <ReviewRow label={t("review.organization")} value={draftSnapshot?.draft?.organization || state.applicantInfo.organization} />
-            <ReviewRow
-              label={t("review.snsId")}
-              value={formatStoredSnsIdentity(snsIdentityValue, locale, t("review.snsIdDefault"))}
-            />
-            <ReviewRow label={t("review.introduction")} value={draftSnapshot?.draft?.introduction || state.applicantInfo.introduction} />
-            <ReviewRow label={t("review.weightClass")} value={draftSnapshot?.draft?.weightClass || state.applicantInfo.weightClass} />
-            <ReviewRow
-              label={t("review.file")}
-              value={documentFilenames}
-            />
-            <PricingReviewRow
-              pricing={entryFeePricing}
-              fallbackAmount={entryFeeAmount}
-              locale={locale}
-            />
-            <ReviewRow
-              label={t("review.consentItems")}
-              value={[
-                reviewConsents.privacy ? t("review.privacy") : null,
-                reviewConsents.terms ? t("review.terms") : null,
-                reviewConsents.refund ? t("review.refund") : null,
-                reviewConsents.marketing ? t("review.marketing") : null,
-                reviewConsents.photoVideo ? t("review.photoVideo") : null,
-              ]
-                .filter(Boolean)
-                .join(", ")}
-            />
+              <ReviewRow label={t("review.introduction")} value={draftSnapshot?.draft?.introduction || state.applicantInfo.introduction} />
+            </ApplicationReviewSection>
+
+            <ApplicationReviewSection title={locale === "ko" ? "제출 및 동의" : "Files and consent"}>
+              <ReviewRow label={t("review.file")} value={documentFilenames} />
+              <ReviewRow
+                label={t("review.consentItems")}
+                value={[
+                  reviewConsents.privacy ? t("review.privacy") : null,
+                  reviewConsents.terms ? t("review.terms") : null,
+                  reviewConsents.refund ? t("review.refund") : null,
+                  reviewConsents.marketing ? t("review.marketing") : null,
+                  reviewConsents.photoVideo ? t("review.photoVideo") : null,
+                ]
+                  .filter(Boolean)
+                  .join(", ")}
+              />
+            </ApplicationReviewSection>
+
+            <section className="site-flow-review__payment">
+              <h2>{locale === "ko" ? "결제 예정 금액" : "Payment amount"}</h2>
+              <PricingReviewRow pricing={entryFeePricing} fallbackAmount={entryFeeAmount} locale={locale} />
+            </section>
           </div>
 
           <NoticeBox title={t("review.noticeTitle")}>
@@ -329,14 +387,16 @@ export function ApplyReviewPage() {
             </Link>
           </NoticeBox>
 
-          <div className="site-review-order-actions">
+          <div className="site-review-order-actions site-flow-actions">
             <Button variant="ghost" onClick={handleCreateOrder} disabled={!isRegistrationOpen || isPreparingPayment}>
               {isPreparingPayment ? t("review.preparing") : "새 주문 생성하기"}
             </Button>
             <div className="site-review-order-actions__primary">
-              <Button variant="ghost" onClick={() => navigate("/apply/consent")}>{t("review.previous")}</Button>
+              <Button variant="ghost" onClick={() => navigate(preview ? "/preview/apply/consent" : "/apply/consent")}>{t("review.previous")}</Button>
               <Button onClick={handleProceedPayment} disabled={!isRegistrationOpen || isPreparingPayment}>
-                {isPreparingPayment ? t("review.preparing") : t("review.proceed")}
+                {isPreparingPayment
+                  ? t("review.preparing")
+                  : locale === "ko" ? "결제 단계로 계속" : t("review.proceed")}
               </Button>
             </div>
           </div>

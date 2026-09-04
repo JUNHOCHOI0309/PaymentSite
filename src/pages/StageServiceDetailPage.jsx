@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "../components/common/Button";
+import { ApplicationFlowStepper } from "../components/common/ApplicationFlowStepper";
 import { Input } from "../components/common/Input";
 import { NoticeBox } from "../components/common/NoticeBox";
 import { PageShell } from "../components/layout/PageShell";
@@ -515,6 +516,7 @@ export function StageServiceDetailPage() {
   return (
     <PageShell>
       <section className="site-page site-page--stage-service">
+        <ApplicationFlowStepper currentStep={2} type="stage-service" />
         <div className="site-apply-detail site-stage-service-detail">
           <div className="site-apply-detail__layout">
             <aside className="site-apply-detail__summary site-stage-service-detail__summary">
@@ -525,14 +527,37 @@ export function StageServiceDetailPage() {
               {renderPriceBox("desktop")}
             </aside>
 
-            <div className="site-apply-detail__form">
+            <div className="site-apply-detail__form site-application-form site-application-form--stage-service">
               <div className="site-form-card__header">
-                <p className="site-kicker">{t("common.kickerApplication")}</p>
+                <p className="site-kicker">
+                  {locale === "ko" ? "02 / 05 · 신청 정보" : "02 / 05 · APPLICATION INFORMATION"}
+                </p>
                 <h1>{t("stageService.detailTitle")}</h1>
                 <p>{t("stageService.detailDescription")}</p>
               </div>
 
+              <div className="site-application-form__summary">
+                <div className="site-application-form__summary-copy">
+                  <span>{locale === "ko" ? "선택 서비스" : "Selected service"}</span>
+                  <strong>{getStageServiceTitle(serviceKey, locale)}</strong>
+                  <div className="site-application-form__tags">
+                    <em>{formatStageServiceAmount(totalAmount, locale)}</em>
+                  </div>
+                </div>
+                <Link className="site-application-form__change-link" to="/apply/stage-services">
+                  {locale === "ko" ? "서비스 변경" : "Change"}
+                </Link>
+              </div>
+
               <form className="site-form-grid" onSubmit={handleSubmit}>
+                <div className="site-flow-form-section-heading site-field--full">
+                  <h2>{locale === "ko" ? "기본 정보" : "Basic information"}</h2>
+                  <p>
+                    {locale === "ko"
+                      ? "서비스 연결과 안내에 사용할 신청자 정보를 입력해 주세요."
+                      : "Enter the applicant information used to connect and manage this service."}
+                  </p>
+                </div>
                 <Input
                   label={t("apply.name")}
                   value={state.applicantInfo.name}
@@ -550,6 +575,7 @@ export function StageServiceDetailPage() {
                 />
                 <Input
                   label={t("apply.email")}
+                  className="site-field--full"
                   value={state.applicantInfo.email}
                   onChange={setApplicantField("email")}
                   error={fieldErrors.email}
@@ -558,6 +584,14 @@ export function StageServiceDetailPage() {
                   inputMode="email"
                 />
 
+                <div className="site-flow-form-section-heading site-field--full">
+                  <h2>{locale === "ko" ? "서비스 신청 정보" : "Service information"}</h2>
+                  <p>
+                    {locale === "ko"
+                      ? "결제 완료한 참가 종목과 필요한 서비스 구성을 선택해 주세요."
+                      : "Select a paid competition entry and the service options you need."}
+                  </p>
+                </div>
                 <div className="site-stage-service-application-picker">
                   <div className="site-stage-service-application-picker__header">
                     <span className="site-field__label">
@@ -743,12 +777,14 @@ export function StageServiceDetailPage() {
                   </>
                 ) : null}
 
-                <div className="site-inline-actions site-stage-service-detail__actions">
+                <div className="site-inline-actions site-stage-service-detail__actions site-flow-actions">
                   <Button variant="ghost" onClick={() => navigate("/apply/stage-services")}>
                     {t("stageService.backToSelect")}
                   </Button>
                   <Button type="submit" disabled={isSubmitting}>
-                    {isSubmitting ? t("stageService.saving") : t("stageService.nextStep")}
+                    {isSubmitting
+                      ? t("stageService.saving")
+                      : locale === "ko" ? "신청 내용 확인으로 계속" : t("stageService.nextStep")}
                   </Button>
                 </div>
               </form>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { Button } from "../components/common/Button";
+import { ApplicationFlowStepper, CopyableReference } from "../components/common/ApplicationFlowStepper";
 import { CompletionSharePreview } from "../components/common/CompletionSharePreview";
 import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
@@ -59,6 +60,7 @@ export function StageServiceCompletePage({ preview = false }) {
   return (
     <PageShell>
       <section className="site-page site-page--stage-service">
+        <ApplicationFlowStepper currentStep={5} type="stage-service" />
         <div className="site-complete-card site-apply-complete-card">
           <div className="site-complete-card__kicker-row">
             <p className="site-kicker">{t("common.kickerComplete")}</p>
@@ -82,7 +84,7 @@ export function StageServiceCompletePage({ preview = false }) {
           {errorMessage ? <p className="site-error-message">{errorMessage}</p> : null}
 
           <div className="site-review-grid">
-            <div className="site-review-row"><span>{t("stageService.serviceOrderNumber")}</span><strong>{serviceOrder?.serviceOrderNumber || "-"}</strong></div>
+            <div className="site-review-row"><span>{t("stageService.serviceOrderNumber")}</span><CopyableReference value={serviceOrder?.serviceOrderNumber} /></div>
             <div className="site-review-row"><span>{t("stageService.serviceType")}</span><strong>{getStageServiceTitle(serviceOrder?.serviceType, locale) || "-"}</strong></div>
             <div className="site-review-row"><span>{t("complete.name")}</span><strong>{serviceOrder?.name || "-"}</strong></div>
             <div className="site-review-row"><span>{t("complete.phone")}</span><strong>{serviceOrder?.phone || "-"}</strong></div>
@@ -99,7 +101,7 @@ export function StageServiceCompletePage({ preview = false }) {
               : "Keep your service order number to look up this purchase later."}
           </p>
 
-          <div className="site-inline-actions">
+          <div className="site-inline-actions site-flow-actions">
             <Link to="/">
               <Button variant="ghost">{t("complete.home")}</Button>
             </Link>

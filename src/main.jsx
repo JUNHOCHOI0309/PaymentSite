@@ -176,8 +176,40 @@ const router = createBrowserRouter([
       ...(import.meta.env.DEV
         ? [
             {
+              path: "preview/apply/consent",
+              element: <ApplyConsentPage preview />,
+            },
+            {
+              path: "preview/apply/review",
+              element: <ApplyReviewPage preview />,
+            },
+            {
               path: "preview/apply/complete",
               element: <ApplyCompletePage preview />,
+            },
+            {
+              path: "preview/stage-services/review",
+              element: <StageServiceReviewPage preview />,
+            },
+            {
+              path: "preview/stage-services/complete",
+              element: <StageServiceCompletePage preview />,
+            },
+            {
+              path: "preview/spectator/consent",
+              element: <SpectatorConsentPage preview />,
+            },
+            {
+              path: "preview/spectator/review",
+              element: <SpectatorReviewPage preview />,
+            },
+            {
+              path: "preview/spectator/complete",
+              element: <SpectatorCompletePage preview />,
+            },
+            {
+              path: "preview/lookup",
+              element: <LookupPage preview />,
             },
           ]
         : []),

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../components/common/Button";
+import { ApplicationFlowStepper, ApplicationReviewSection } from "../components/common/ApplicationFlowStepper";
 import { NoticeBox } from "../components/common/NoticeBox";
 import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
@@ -31,17 +32,35 @@ function ReviewRow({ label, value }) {
   );
 }
 
-export function StageServiceReviewPage() {
+const previewStageServiceReview = {
+  draft: {
+    name: "홍길동",
+    phone: "010-1234-5678",
+    email: "preview@mmkorea.com",
+    totalAmount: 120000,
+  },
+  linkedApplications: [
+    {
+      applicationNumber: "APPL-2026-PREVIEW01",
+      discipline: "Bodybuilding",
+      participantGender: "male",
+      weightClass: "남자 오픈 -75kg",
+    },
+  ],
+};
+
+export function StageServiceReviewPage({ preview = false }) {
   const navigate = useNavigate();
   const { state, dispatch } = useStageServiceFlow();
   const { locale, t } = useLanguage();
-  const [draftSnapshot, setDraftSnapshot] = useState(null);
+  const [draftSnapshot, setDraftSnapshot] = useState(() => preview ? previewStageServiceReview : null);
   const [errorMessage, setErrorMessage] = useState("");
   const [orderMessage, setOrderMessage] = useState("");
   const [isPreparingPayment, setIsPreparingPayment] = useState(false);
 
+  const reviewServiceKey = preview ? "stage-photo" : state.serviceKey;
   const detailPath = buildStageServiceDetailPath({
-    serviceKey: state.serviceKey,
+    serviceKey: reviewServiceKey,
     name: state.applicantInfo.name,
     email: state.applicantInfo.email,
     phone: state.applicantInfo.phone,
@@ -90,12 +109,16 @@ export function StageServiceReviewPage() {
     .filter(Boolean)
     .join(", ");
   const stagePhotoPackage =
-    state.serviceKey === "stage-photo"
+    reviewServiceKey === "stage-photo"
       ? getStagePhotoPackage(reviewLinkedApplications.length)
       : null;
 
   useEffect(() => {
     async function fetchDraft() {
+      if (preview) {
+        return;
+      }
+
       if (!state.draftId) {
         return;
       }
@@ -117,15 +140,19 @@ export function StageServiceReviewPage() {
     }
 
     fetchDraft();
-  }, [dispatch, state.draftId, t]);
+  }, [dispatch, preview, state.draftId, t]);
 
   useEffect(() => {
-    if (state.paymentMethod !== "payment") {
+    if (!preview && state.paymentMethod !== "payment") {
       dispatch({ type: "SET_PAYMENT_METHOD", value: "payment" });
     }
-  }, [dispatch, state.paymentMethod]);
+  }, [dispatch, preview, state.paymentMethod]);
 
   async function prepareOrder({ replacePendingOrder = false } = {}) {
+    if (preview) {
+      return { orderId: "order_preview_stage_service", status: "READY", replacePendingOrder };
+    }
+
     if (!state.draftId) {
       navigate(detailPath, { state: { source: "review" } });
       return null;
@@ -183,6 +210,11 @@ export function StageServiceReviewPage() {
   }
 
   async function handleProceedPayment() {
+    if (preview) {
+      navigate("/preview/stage-services/complete");
+      return;
+    }
+
     setIsPreparingPayment(true);
     setErrorMessage("");
     setOrderMessage("");
@@ -224,6 +256,7 @@ export function StageServiceReviewPage() {
   return (
     <PageShell>
       <section className="site-page site-page--stage-service">
+        <ApplicationFlowStepper currentStep={3} type="stage-service" />
         <div className="site-review-card site-stage-service-review-card">
           <div className="site-review-card__header">
             <p className="site-kicker">{t("common.kickerReview")}</p>
@@ -231,47 +264,53 @@ export function StageServiceReviewPage() {
             <p>{t("stageService.reviewDescription")}</p>
           </div>
 
-          <div className="site-review-grid">
-            <ReviewRow label={t("stageService.serviceType")} value={getStageServiceTitle(state.serviceKey, locale)} />
-            <ReviewRow label={t("review.name")} value={reviewDraft?.name || state.applicantInfo.name} />
-            <ReviewRow label={t("review.phone")} value={reviewDraft?.phone || state.applicantInfo.phone} />
-            <ReviewRow label={t("review.email")} value={reviewDraft?.email || state.applicantInfo.email} />
-            <ReviewRow
-              label={state.serviceKey === "hair-makeup" ? "선택 신청 번호" : t("stageService.linkedApplication")}
-              value={reviewLinkedApplicationNumbers}
-            />
-            <ReviewRow
-              label={state.serviceKey === "hair-makeup" ? "신청한 종목 내역" : t("stageService.linkedDiscipline")}
-              value={reviewLinkedDisciplines}
-            />
-            {state.serviceKey === "stage-photo" ? (
+          <div className="site-flow-review">
+            <ApplicationReviewSection title={locale === "ko" ? "신청자 정보" : "Applicant information"}>
+              <ReviewRow label={t("review.name")} value={reviewDraft?.name || state.applicantInfo.name} />
+              <ReviewRow label={t("review.phone")} value={reviewDraft?.phone || state.applicantInfo.phone} />
+              <ReviewRow label={t("review.email")} value={reviewDraft?.email || state.applicantInfo.email} />
+            </ApplicationReviewSection>
+
+            <ApplicationReviewSection title={locale === "ko" ? "서비스 정보" : "Service information"}>
+              <ReviewRow label={t("stageService.serviceType")} value={getStageServiceTitle(reviewServiceKey, locale)} />
               <ReviewRow
-                label="사진 패키지"
-                value={stagePhotoPackage ? `${stagePhotoPackage.disciplineCount}종목 / ${stagePhotoPackage.photoCount}장` : "-"}
+                label={reviewServiceKey === "hair-makeup" ? "선택 신청 번호" : t("stageService.linkedApplication")}
+                value={reviewLinkedApplicationNumbers}
               />
-            ) : null}
-            {state.serviceKey === "stage-video" ? (
-              <>
-                <ReviewRow label={t("stageService.videoType")} value={videoTypeLabel} />
+              <ReviewRow
+                label={reviewServiceKey === "hair-makeup" ? "신청한 종목 내역" : t("stageService.linkedDiscipline")}
+                value={reviewLinkedDisciplines}
+              />
+              {reviewServiceKey === "stage-photo" ? (
                 <ReviewRow
-                  label={t("stageService.additionalDiscipline")}
-                  value={videoAdditionalOptionLabel}
+                  label="사진 패키지"
+                  value={stagePhotoPackage ? `${stagePhotoPackage.disciplineCount}종목 / ${stagePhotoPackage.photoCount}장` : "-"}
                 />
-              </>
-            ) : null}
-            {state.serviceKey === "hair-makeup" ? (
-              <>
-                <ReviewRow label={t("stageService.hairOption")} value={hairOptionLabel} />
-                <ReviewRow
-                  label={locale === "ko" ? "추가 구성" : "Additional services"}
-                  value={hairAdditionalOptionLabels.join(", ") || "-"}
-                />
-              </>
-            ) : null}
-            <ReviewRow
-              label={t("stageService.totalAmount")}
-              value={formatStageServiceAmount(reviewDraft?.totalAmount || state.totalAmount, locale)}
-            />
+              ) : null}
+              {reviewServiceKey === "stage-video" ? (
+                <>
+                  <ReviewRow label={t("stageService.videoType")} value={videoTypeLabel} />
+                  <ReviewRow label={t("stageService.additionalDiscipline")} value={videoAdditionalOptionLabel} />
+                </>
+              ) : null}
+              {reviewServiceKey === "hair-makeup" ? (
+                <>
+                  <ReviewRow label={t("stageService.hairOption")} value={hairOptionLabel} />
+                  <ReviewRow
+                    label={locale === "ko" ? "추가 구성" : "Additional services"}
+                    value={hairAdditionalOptionLabels.join(", ") || "-"}
+                  />
+                </>
+              ) : null}
+            </ApplicationReviewSection>
+
+            <section className="site-flow-review__payment">
+              <h2>{locale === "ko" ? "결제 예정 금액" : "Payment amount"}</h2>
+              <ReviewRow
+                label={t("stageService.totalAmount")}
+                value={formatStageServiceAmount(reviewDraft?.totalAmount || state.totalAmount, locale)}
+              />
+            </section>
           </div>
 
           <NoticeBox title={t("stageService.reviewNoticeTitle")}>
@@ -282,7 +321,7 @@ export function StageServiceReviewPage() {
             </ul>
           </NoticeBox>
 
-          <div className="site-review-order-actions">
+          <div className="site-review-order-actions site-flow-actions">
             <Button variant="ghost" onClick={handleCreateOrder} disabled={isPreparingPayment}>
               {isPreparingPayment ? t("stageService.preparing") : "새 주문 생성하기"}
             </Button>
@@ -291,7 +330,9 @@ export function StageServiceReviewPage() {
                 {t("review.previous")}
               </Button>
               <Button onClick={handleProceedPayment} disabled={isPreparingPayment}>
-                {isPreparingPayment ? t("stageService.preparing") : t("stageService.proceed")}
+                {isPreparingPayment
+                  ? t("stageService.preparing")
+                  : locale === "ko" ? "결제 단계로 계속" : t("stageService.proceed")}
               </Button>
             </div>
           </div>

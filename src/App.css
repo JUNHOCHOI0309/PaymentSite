@@ -3243,6 +3243,13 @@ body,
   line-height: 1.5;
 }
 
+.site-kcp-checkout__terms {
+  margin: 22px 0 -10px;
+  color: #6b7687;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
 .site-admin-analytics__notice strong {
   color: #c8deff;
   font-size: 0.88rem;
@@ -8792,11 +8799,19 @@ body {
 
 @media (max-width: 900px) {
   .site-page--spectator {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .site-page--spectator .site-spectator-summary {
     display: flex;
+  }
+
+  .site-page--spectator > *,
+  .site-page--spectator .site-apply-form,
+  .site-page--spectator .site-application-flow {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
   }
 }
 
@@ -8812,5 +8827,611 @@ body {
 
   .site-spectator-consent .site-consent-item__heading button {
     font-size: 0.82rem;
+  }
+}
+
+/* Unified application flow */
+.site-application-flow {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0 0 28px;
+  padding: 20px 24px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: #11151d;
+  color: #fff;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.16);
+}
+
+.site-application-flow--grid-header {
+  grid-column: 1 / -1;
+}
+
+.site-register-select > .site-application-flow {
+  width: min(920px, calc(100% - 48px));
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.site-application-flow__heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.site-application-flow__heading > div {
+  display: grid;
+  gap: 5px;
+}
+
+.site-application-flow__heading span {
+  color: #d69b36;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.site-application-flow__heading strong {
+  color: #fff;
+  font-size: 1.05rem;
+  line-height: 1.3;
+}
+
+.site-application-flow__heading em {
+  color: #aeb8c8;
+  font-size: 0.74rem;
+  font-style: normal;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.site-application-flow__steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site-application-flow__steps li {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  min-width: 0;
+  color: #7f8a9a;
+  text-align: center;
+}
+
+.site-application-flow__steps li:not(:first-child)::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  top: 16px;
+  right: 50%;
+  width: 100%;
+  height: 2px;
+  background: #303845;
+}
+
+.site-application-flow__steps li.is-complete::before,
+.site-application-flow__steps li.is-current::before {
+  background: #2b6dac;
+}
+
+.site-application-flow__marker {
+  position: relative;
+  z-index: 1;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  border: 2px solid #414b59;
+  border-radius: 50%;
+  background: #11151d;
+  color: #94a0b0;
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.site-application-flow__steps li.is-complete .site-application-flow__marker {
+  border-color: #267455;
+  background: #267455;
+  color: #fff;
+}
+
+.site-application-flow__steps li.is-current .site-application-flow__marker {
+  border-color: #d69b36;
+  background: #d69b36;
+  color: #11151d;
+  box-shadow: 0 0 0 4px rgba(214, 155, 54, 0.16);
+}
+
+.site-application-flow__steps li.is-complete,
+.site-application-flow__steps li.is-current {
+  color: #f5f7fa;
+}
+
+.site-application-flow__label {
+  min-width: 0;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.site-application-flow__mobile-status {
+  display: none;
+}
+
+.site-flow-form-section-heading {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+  padding-top: 26px;
+  border-top: 1px solid rgba(45, 49, 64, 0.12);
+}
+
+.site-form-grid > .site-flow-form-section-heading:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.site-flow-form-section-heading h2,
+.site-flow-review-section h2,
+.site-flow-review__payment h2 {
+  margin: 0;
+  color: #101827;
+  font-family: var(--font-heading);
+  font-size: 1.08rem;
+  line-height: 1.35;
+}
+
+.site-flow-form-section-heading p {
+  margin: 0;
+  color: #747e8e;
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+/* Single-page application form */
+.site-application-form {
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid #dfe4ea;
+  border-radius: 8px;
+  background: #fff;
+  color: #101827;
+  box-shadow: 0 18px 46px rgba(5, 10, 18, 0.16);
+}
+
+.site-apply-detail__form.site-application-form,
+.site-apply-form.site-application-form {
+  padding: clamp(28px, 4.5vw, 46px);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.site-application-form .site-form-card__header,
+.site-application-form .site-review-card__header {
+  display: grid;
+  gap: 10px;
+}
+
+.site-application-form .site-form-card__header .site-kicker,
+.site-application-form .site-review-card__header .site-kicker {
+  margin: 0;
+  color: #1f4f87;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.site-application-form .site-form-card__header h1,
+.site-application-form .site-review-card__header h1 {
+  color: #0d1523;
+  font-size: clamp(2rem, 4vw, 3rem);
+}
+
+.site-application-form .site-form-card__header > p:last-child,
+.site-application-form .site-review-card__header > p:last-child {
+  max-width: 640px;
+  margin: 0;
+  color: #697386;
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.site-application-form__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 28px;
+  padding: 20px 22px;
+  border: 1px solid #dfe5ec;
+  border-left: 3px solid #1f4f87;
+  border-radius: 6px;
+  background: #f6f8fb;
+}
+
+.site-application-form__summary-copy {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.site-application-form__summary-copy > span {
+  color: #778296;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.site-application-form__summary-copy > strong {
+  min-width: 0;
+  color: #111827;
+  font-size: 1.02rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.site-application-form__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+.site-application-form__tags em {
+  padding: 4px 8px;
+  border: 1px solid #d5dce6;
+  border-radius: 4px;
+  background: #fff;
+  color: #334155;
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.site-application-form__change-link {
+  flex: 0 0 auto;
+  color: #1f4f87;
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-underline-offset: 3px;
+}
+
+.site-application-form .site-form-grid {
+  gap: 20px 18px;
+  margin-top: 30px;
+}
+
+.site-application-form .site-flow-form-section-heading {
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 28px;
+  border-top-color: #e3e7ed;
+}
+
+.site-application-form .site-form-grid > .site-flow-form-section-heading:first-child {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.site-application-form .site-flow-form-section-heading h2 {
+  font-size: 1.15rem;
+}
+
+.site-application-form .site-field__label {
+  color: #263246;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.site-application-form .site-input {
+  min-height: 50px;
+  border: 1px solid #dce2e9;
+  border-radius: 8px;
+  background: #fff;
+  color: #111827;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.site-application-form .site-input:focus {
+  border-color: #1f4f87;
+  outline: 0;
+  box-shadow: 0 0 0 3px rgba(31, 79, 135, 0.12);
+}
+
+.site-application-form .site-input--error {
+  border-color: #c0362c;
+}
+
+.site-application-form .site-input--textarea {
+  min-height: 112px;
+}
+
+.site-application-form__file-field .site-file-picker {
+  min-height: 118px;
+  flex-direction: column;
+  justify-content: center;
+  padding: 18px;
+  border-style: dashed;
+  background: #f8fafc;
+  text-align: center;
+}
+
+.site-application-form__file-field .site-file-picker__value {
+  flex: 0 1 auto;
+  width: 100%;
+  text-align: center;
+}
+
+.site-application-form__file-field .site-file-picker__source-actions {
+  justify-content: center;
+}
+
+.site-application-form .site-file-picker__source-button {
+  border-radius: 6px;
+}
+
+.site-application-form .site-participant-gender__option,
+.site-application-form .site-stage-service-option-toggle {
+  border-radius: 8px;
+}
+
+.site-application-form .site-apply-detail__form-lower {
+  margin-top: 32px;
+  border-top-color: #e3e7ed;
+}
+
+.site-application-form .site-form-card__actions,
+.site-application-form .site-stage-service-detail__actions,
+.site-application-form .site-spectator-apply__actions {
+  justify-content: flex-end;
+}
+
+.site-application-form .site-form-card__actions .site-button,
+.site-application-form .site-stage-service-detail__actions .site-button,
+.site-application-form .site-spectator-apply__actions .site-button {
+  min-width: 190px;
+}
+
+.site-application-form--spectator .site-spectator-notice {
+  border: 1px solid #e1e6ec;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
+.site-flow-review {
+  margin: 28px 0;
+  overflow: hidden;
+  border: 1px solid #dfe4ea;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.site-flow-review-section {
+  padding: 22px 24px;
+  border-bottom: 1px solid #e4e8ed;
+}
+
+.site-flow-review-section .site-review-grid {
+  margin: 10px 0 0;
+}
+
+.site-flow-review-section .site-review-row {
+  padding: 12px 0;
+}
+
+.site-flow-review__payment {
+  padding: 24px;
+  background: #101827;
+}
+
+.site-flow-review__payment h2 {
+  margin-bottom: 10px;
+  color: #fff;
+}
+
+.site-flow-review__payment .site-review-row {
+  align-items: flex-end;
+  padding: 12px 0 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+  border-bottom: 0;
+}
+
+.site-flow-review__payment .site-review-row span,
+.site-flow-review__payment .site-review-row small {
+  color: #b7c2d0;
+}
+
+.site-flow-review__payment .site-review-row strong,
+.site-flow-review__payment .site-review-row strong b {
+  color: #fff;
+  font-size: 1.45rem;
+}
+
+.site-flow-actions .site-button {
+  min-height: 54px;
+  padding: 14px 22px;
+  border-radius: 6px;
+}
+
+.site-kcp-checkout__content {
+  width: min(900px, 100%);
+  display: grid;
+  gap: 24px;
+}
+
+.site-kcp-checkout__content > .site-application-flow {
+  margin-bottom: 0;
+}
+
+.site-kcp-checkout__content > .site-kcp-checkout__panel {
+  justify-self: center;
+}
+
+.site-copyable-reference {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.site-copyable-reference strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.site-copyable-reference button {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid #b8c5d5;
+  border-radius: 5px;
+  background: #fff;
+  color: #1f4f87;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.site-copyable-reference button.is-copied {
+  border-color: #267455;
+  background: #e7f5ee;
+  color: #1d6849;
+}
+
+@media (max-width: 640px) {
+  .site-application-flow {
+    margin-bottom: 20px;
+    padding: 17px 16px 15px;
+  }
+
+  .site-register-select > .site-application-flow {
+    width: calc(100% - 32px);
+  }
+
+  .site-application-flow__heading {
+    padding-bottom: 14px;
+  }
+
+  .site-application-flow__heading strong {
+    font-size: 0.95rem;
+  }
+
+  .site-application-flow__steps {
+    margin-top: 15px;
+  }
+
+  .site-application-flow__steps li {
+    gap: 0;
+  }
+
+  .site-application-flow__steps li:not(:first-child)::before {
+    top: 13px;
+  }
+
+  .site-application-flow__marker {
+    width: 28px;
+    height: 28px;
+    font-size: 0.62rem;
+  }
+
+  .site-application-flow__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .site-application-flow__mobile-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 13px 0 0;
+    color: #fff;
+    font-size: 0.82rem;
+  }
+
+  .site-application-flow__mobile-status b {
+    color: #d69b36;
+  }
+
+  .site-flow-form-section-heading {
+    padding-top: 22px;
+  }
+
+  .site-apply-detail__form.site-application-form,
+  .site-apply-form.site-application-form {
+    padding: 24px 18px;
+  }
+
+  .site-application-form__summary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 22px;
+    padding: 17px 16px;
+  }
+
+  .site-application-form .site-form-grid {
+    gap: 18px;
+    margin-top: 24px;
+  }
+
+  .site-application-form .site-flow-form-section-heading {
+    margin-top: 8px;
+    padding-top: 24px;
+  }
+
+  .site-application-form .site-email-address {
+    grid-template-columns: minmax(0, 1fr) auto minmax(120px, 1fr);
+  }
+
+  .site-application-form .site-form-card__actions,
+  .site-application-form .site-stage-service-detail__actions,
+  .site-application-form .site-spectator-apply__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .site-application-form .site-form-card__actions .site-button,
+  .site-application-form .site-stage-service-detail__actions .site-button,
+  .site-application-form .site-spectator-apply__actions .site-button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .site-flow-review-section,
+  .site-flow-review__payment {
+    padding: 19px 18px;
+  }
+
+  .site-flow-review-section .site-review-row,
+  .site-flow-review__payment .site-review-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .site-flow-review-section .site-review-row strong,
+  .site-flow-review__payment .site-review-row strong {
+    text-align: left;
+  }
+
+  .site-copyable-reference {
+    align-items: flex-start;
+    flex-direction: column;
+    margin-left: 0;
   }
 }

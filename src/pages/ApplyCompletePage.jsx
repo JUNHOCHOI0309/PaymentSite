@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { Button } from "../components/common/Button";
+import { ApplicationFlowStepper, CopyableReference } from "../components/common/ApplicationFlowStepper";
 import { CompletionSharePreview } from "../components/common/CompletionSharePreview";
 import { PageShell } from "../components/layout/PageShell";
 import { useLanguage } from "../context/LanguageContext";
@@ -72,6 +73,7 @@ export function ApplyCompletePage({ preview = false }) {
   return (
     <PageShell>
       <section className="site-page site-page--narrow">
+        <ApplicationFlowStepper currentStep={5} type="application" />
         <div className="site-complete-card site-apply-complete-card">
           <div className="site-complete-card__kicker-row">
             <p className="site-kicker">{t("common.kickerComplete")}</p>
@@ -95,7 +97,7 @@ export function ApplyCompletePage({ preview = false }) {
           {errorMessage ? <p className="site-error-message">{errorMessage}</p> : null}
 
           <div className="site-review-grid">
-            <div className="site-review-row"><span>{t("complete.applicationNumber")}</span><strong>{application?.applicationNumber || "-"}</strong></div>
+            <div className="site-review-row"><span>{t("complete.applicationNumber")}</span><CopyableReference value={application?.applicationNumber} /></div>
             <div className="site-review-row"><span>{t("complete.name")}</span><strong>{application?.name || "-"}</strong></div>
             <div className="site-review-row"><span>{t("complete.phone")}</span><strong>{application?.phone || "-"}</strong></div>
             <div className="site-review-row"><span>{t("complete.email")}</span><strong>{application?.email || "-"}</strong></div>
@@ -106,7 +108,7 @@ export function ApplyCompletePage({ preview = false }) {
           <p className="site-field__hint">
             {t("complete.hint")}
           </p>
-          <div className="site-inline-actions">
+          <div className="site-inline-actions site-flow-actions">
             <Link to="/">
               <Button variant="ghost">{t("complete.home")}</Button>
             </Link>

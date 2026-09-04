@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../components/common/Button";
+import { ApplicationFlowStepper } from "../components/common/ApplicationFlowStepper";
 import { PageShell } from "../components/layout/PageShell";
 import { useApplicationFlow } from "../context/ApplicationFlowContext";
 import { useLanguage } from "../context/LanguageContext";
@@ -236,7 +237,7 @@ function ConsentItem({ item, checked, isExpanded, onToggleExpand, onToggleConsen
   );
 }
 
-export function ApplyConsentPage() {
+export function ApplyConsentPage({ preview = false }) {
   const navigate = useNavigate();
   const { state, dispatch } = useApplicationFlow();
   const { locale, t } = useLanguage();
@@ -247,14 +248,22 @@ export function ApplyConsentPage() {
   );
   const [errorMessage, setErrorMessage] = useState("");
   const [isSavingConsents, setIsSavingConsents] = useState(false);
+  const [previewConsents, setPreviewConsents] = useState({
+    privacy: false,
+    terms: false,
+    refund: false,
+    marketing: false,
+    photoVideo: false,
+  });
+  const activeConsents = preview ? previewConsents : state.consents;
 
   const requiredItems = useMemo(
     () => consentItems.filter((item) => item.required),
     [consentItems],
   );
 
-  const allChecked = consentItems.every((item) => state.consents[item.key]);
-  const requiredChecked = requiredItems.every((item) => state.consents[item.key]);
+  const allChecked = consentItems.every((item) => activeConsents[item.key]);
+  const requiredChecked = requiredItems.every((item) => activeConsents[item.key]);
 
   useEffect(() => {
     setExpandedKeys((current) => {
@@ -267,10 +276,10 @@ export function ApplyConsentPage() {
   }, [consentItems]);
 
   useEffect(() => {
-    if (!state.draftId) {
+    if (!preview && !state.draftId) {
       navigate(detailPath, { replace: true, state: { source: "consent" } });
     }
-  }, [detailPath, navigate, state.draftId]);
+  }, [detailPath, navigate, preview, state.draftId]);
 
   function toggleExpand(key) {
     setExpandedKeys((current) =>
@@ -281,6 +290,11 @@ export function ApplyConsentPage() {
   }
 
   function toggleConsent(key, value) {
+    if (preview) {
+      setPreviewConsents((current) => ({ ...current, [key]: value }));
+      return;
+    }
+
     dispatch({
       type: "TOGGLE_CONSENT",
       field: key,
@@ -293,6 +307,11 @@ export function ApplyConsentPage() {
       consentItems.map((item) => [item.key, value]),
     );
 
+    if (preview) {
+      setPreviewConsents((current) => ({ ...current, ...nextState }));
+      return;
+    }
+
     dispatch({
       type: "SET_ALL_CONSENTS",
       payload: nextState,
@@ -300,7 +319,12 @@ export function ApplyConsentPage() {
   }
 
   async function handleProceed() {
-    if (!requiredChecked || !state.draftId) {
+    if (!requiredChecked || (!preview && !state.draftId)) {
+      return;
+    }
+
+    if (preview) {
+      navigate("/preview/apply/review");
       return;
     }
 
@@ -329,6 +353,7 @@ export function ApplyConsentPage() {
   return (
     <PageShell>
       <section className="site-page site-page--narrow site-consent-page">
+        <ApplicationFlowStepper currentStep={2} type="application" />
         <div className="site-review-card">
           <div className="site-review-card__header">
             <p className="site-kicker">{t("common.kickerConsent")}</p>
@@ -356,7 +381,7 @@ export function ApplyConsentPage() {
               <ConsentItem
                 key={item.key}
                 item={item}
-                checked={Boolean(state.consents[item.key])}
+                checked={Boolean(activeConsents[item.key])}
                 isExpanded={expandedKeys.includes(item.key)}
                 onToggleExpand={toggleExpand}
                 onToggleConsent={toggleConsent}
@@ -369,15 +394,17 @@ export function ApplyConsentPage() {
             *위 상품의 최대 이용기간은 6개월입니다
           </p>
 
-          <div className="site-inline-actions">
+          <div className="site-inline-actions site-flow-actions">
             <Button
               variant="ghost"
-              onClick={() => navigate(detailPath, { state: { source: "consent" } })}
+              onClick={() => navigate(preview ? "/apply/detail?division=man&discipline=Bodybuilding&imageKey=register%2Fman_1.png" : detailPath, { state: { source: "consent" } })}
             >
               {t("consent.previous")}
             </Button>
             <Button onClick={handleProceed} disabled={!requiredChecked || isSavingConsents}>
-              {isSavingConsents ? (locale === "ko" ? "저장 중..." : "Saving...") : t("consent.next")}
+              {isSavingConsents
+                ? locale === "ko" ? "저장 중..." : "Saving..."
+                : locale === "ko" ? "신청 내용 확인으로 계속" : t("consent.next")}
             </Button>
           </div>
           {errorMessage ? <p className="site-form-error">{errorMessage}</p> : null}

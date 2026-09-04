@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../components/common/Button";
+import { ApplicationFlowStepper } from "../components/common/ApplicationFlowStepper";
 import { Input } from "../components/common/Input";
 import { PageShell } from "../components/layout/PageShell";
 import { useSpectatorFlow, spectatorFlowSteps } from "../context/SpectatorFlowContext";
@@ -166,6 +167,7 @@ export function SpectatorApplyPage() {
   return (
     <PageShell>
       <section className="site-page site-page--stage-service site-page--spectator">
+        <ApplicationFlowStepper currentStep={1} type="spectator" variant="grid-header" />
         <aside className="site-apply-detail__summary site-spectator-summary">
           <p className="site-kicker">SPECTATOR</p>
           <h1>참관객 신청</h1>
@@ -175,13 +177,27 @@ export function SpectatorApplyPage() {
             <small>1인 1매 구매 가능</small>
           </div>
         </aside>
-        <form className="site-apply-form" onSubmit={handleSubmit}>
+        <form className="site-apply-form site-application-form site-application-form--spectator" onSubmit={handleSubmit}>
           <div className="site-review-card__header">
-            <p className="site-kicker">APPLICATION</p>
+            <p className="site-kicker">01 / 05 · 신청 정보</p>
             <h1>참관객 정보 입력</h1>
             <p>본인 확인과 입장 안내를 위해 정확한 정보를 입력해 주세요.</p>
           </div>
+          <div className="site-application-form__summary">
+            <div className="site-application-form__summary-copy">
+              <span>신청 상품</span>
+              <strong>2026 MUSCLEMANIA® 참관객 입장권</strong>
+              <div className="site-application-form__tags">
+                <em>1매</em>
+                <em>{formatAmount(TICKET_PRICE)}</em>
+              </div>
+            </div>
+          </div>
           <div className="site-form-grid">
+            <div className="site-flow-form-section-heading site-field--full">
+              <h2>기본 정보</h2>
+              <p>입장권 확인과 행사 안내에 사용할 정보를 입력해 주세요.</p>
+            </div>
             <Input
               label="성함"
               requirement="필수"
@@ -261,7 +277,7 @@ export function SpectatorApplyPage() {
               </table>
             </div>
           </section>
-          <div className="site-inline-actions site-spectator-apply__actions"><Button disabled={isSubmitting || !isSalesOpen} type="submit">{isSubmitting ? "저장 중" : "다음으로"}</Button></div>
+          <div className="site-inline-actions site-spectator-apply__actions site-flow-actions"><Button disabled={isSubmitting || !isSalesOpen} type="submit">{isSubmitting ? "저장 중" : "동의 단계로 계속"}</Button></div>
           {!isSalesOpen ? <p className="site-error-message">참관객 입장권은 2026년 8월 3일부터 10월 18일까지 구매할 수 있습니다.</p> : null}
           {errorMessage ? <p className="site-error-message">{errorMessage}</p> : null}
         </form>

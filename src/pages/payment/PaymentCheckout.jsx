@@ -2,19 +2,25 @@ import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApplicationFlow } from "../../context/ApplicationFlowContext";
 import { useLanguage } from "../../context/LanguageContext";
+import { ApplicationFlowStepper } from "../../components/common/ApplicationFlowStepper";
+import { formatApplicationEntryFee, getApplicationEntryFeePricing } from "../../data/applicationEntryFees";
 import { prepareKcpPayment } from "../../lib/applicationApi";
 
 export function PaymentCheckoutPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { state } = useApplicationFlow();
-  const { t } = useLanguage();
+  const { locale, t } = useLanguage();
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("CARD");
   const [errorMessage, setErrorMessage] = useState("");
   const [isOrderUnavailable, setIsOrderUnavailable] = useState(false);
 
   const orderId = searchParams.get("orderId") || state.orderId;
   const draftId = searchParams.get("draftId") || state.draftId;
+  const paymentPricing = getApplicationEntryFeePricing(
+    state.selection.imageKey,
+    state.applicantInfo.weightClass,
+  );
   async function requestPayment() {
     if (!orderId) {
       setErrorMessage(t("payment.missingOrder"));
@@ -51,9 +57,12 @@ export function PaymentCheckoutPage() {
 
   return (
     <main className="site-kcp-checkout">
-      <section className="site-kcp-checkout__panel">
+      <div className="site-kcp-checkout__content">
+        <ApplicationFlowStepper currentStep={4} type="application" variant="dark" />
+        <section className="site-kcp-checkout__panel">
         <p className="site-kicker">SECURE PAYMENT</p>
         <h1>{t("payment.title")}</h1>
+        <p className="site-kcp-checkout__amount">{formatApplicationEntryFee(paymentPricing.amount, locale)}</p>
         <p className="site-kcp-checkout__description">결제수단을 선택한 뒤 KCP 결제창에서 결제를 완료해 주세요.</p>
         {errorMessage ? <p className="site-kcp-checkout__error">{errorMessage}</p> : null}
 
@@ -76,13 +85,15 @@ export function PaymentCheckoutPage() {
           ))}
         </div>
 
+        <p className="site-kcp-checkout__terms">결제 진행 시 참가 신청 및 환불 규정에 동의한 것으로 간주합니다.</p>
         <button className="site-kcp-checkout__submit" type="button" onClick={requestPayment} disabled={!orderId || isOrderUnavailable}>
-          {t("payment.pay")}
+          {locale === "ko" ? `${formatApplicationEntryFee(paymentPricing.amount, locale)} 결제하기` : t("payment.pay")}
         </button>
         <button className="site-kcp-checkout__back" type="button" onClick={() => navigate("/apply/review")}>
           {t("payment.backToReview")}
         </button>
-      </section>
+        </section>
+      </div>
     </main>
   );
 }

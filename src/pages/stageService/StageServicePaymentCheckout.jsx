@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useLanguage } from "../../context/LanguageContext";
+import { ApplicationFlowStepper } from "../../components/common/ApplicationFlowStepper";
 import { useStageServiceFlow } from "../../context/StageServiceFlowContext";
 import { formatStageServiceAmount, getStageServiceTitle } from "../../data/stageServiceConfig";
 import { prepareKcpPayment } from "../../lib/applicationApi";
@@ -53,7 +54,9 @@ export function StageServicePaymentCheckoutPage() {
 
   return (
     <main className="site-kcp-checkout">
-      <section className="site-kcp-checkout__panel">
+      <div className="site-kcp-checkout__content">
+        <ApplicationFlowStepper currentStep={4} type="stage-service" variant="dark" />
+        <section className="site-kcp-checkout__panel">
         <p className="site-kicker">SECURE PAYMENT</p>
         <h1>{getStageServiceTitle(state.serviceKey, locale)}</h1>
         <p className="site-kcp-checkout__amount">{formatStageServiceAmount(state.totalAmount, locale)}</p>
@@ -79,13 +82,15 @@ export function StageServicePaymentCheckoutPage() {
           ))}
         </div>
 
+        <p className="site-kcp-checkout__terms">결제 진행 시 서비스 신청 및 환불 규정에 동의한 것으로 간주합니다.</p>
         <button className="site-kcp-checkout__submit" type="button" onClick={requestPayment} disabled={!orderId || isOrderUnavailable}>
-          {t("payment.pay")}
+          {locale === "ko" ? `${formatStageServiceAmount(state.totalAmount, locale)} 결제하기` : t("payment.pay")}
         </button>
         <button className="site-kcp-checkout__back" type="button" onClick={() => navigate("/apply/stage-services/review")}>
           {t("payment.backToReview")}
         </button>
-      </section>
+        </section>
+      </div>
     </main>
   );
 }
